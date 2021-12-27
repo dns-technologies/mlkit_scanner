@@ -1,0 +1,23 @@
+name: mlkit_scanner_example
+description: Demonstrates how to use the mlkit_scanner plugin.
+version: 0.0.1
+
+publish_to: 'none'
+
+environment:
+  sdk: '>=2.14.3 <3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  mlkit_scanner:
+    path: ../
+  cupertino_icons: ^1.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
