@@ -57,6 +57,14 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   @override
+  void didUpdateWidget(covariant BarcodeScanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.cropOverlay != widget.cropOverlay && widget.cropOverlay != null) {
+      _channel.setCropArea(widget.cropOverlay!);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return CameraPreview(
       onCameraInitializeError: widget.onCameraInitializeError,
@@ -79,7 +87,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
 
   void _onCameraInitialized() {
     if (widget.cropOverlay != null) {
-      _channel.addCropOverlay(widget.cropOverlay!);
+      _channel.setCropArea(widget.cropOverlay!);
     }
     widget.onScannerInitialized(_barcodeScannerController);
   }
