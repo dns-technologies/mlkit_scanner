@@ -13,15 +13,16 @@ typedef CameraInitilizeError = void Function(PlatformException);
 /// Widget automatically will dispose camera when called [dispose] in state.
 class CameraPreview extends StatefulWidget {
   /// Callback when device camera initialize.
-  final VoidCallback? onCameraInitialized;
+  final VoidCallback onCameraInitialized;
 
   /// Callback if camera cannot be initialized.
   final CameraInitilizeError? onCameraInitializeError;
 
-  CameraPreview({
-    this.onCameraInitialized,
+  const CameraPreview({
+    Key? key,
+    required this.onCameraInitialized,
     this.onCameraInitializeError,
-  });
+  }) : super(key: key);
 
   @override
   _CameraPreviewState createState() => _CameraPreviewState();
@@ -45,7 +46,7 @@ class _CameraPreviewState extends State<CameraPreview> {
           return UiKitView(
             viewType: 'mlkit/camera_preview',
             onPlatformViewCreated: _onViewCreated,
-            creationParamsCodec: StandardMessageCodec(),
+            creationParamsCodec: const StandardMessageCodec(),
             creationParams: {
               'width': constraints.maxWidth,
               'height': constraints.maxHeight,
@@ -55,7 +56,7 @@ class _CameraPreviewState extends State<CameraPreview> {
         return AndroidView(
           viewType: 'mlkit/camera_preview',
           onPlatformViewCreated: _onViewCreated,
-          creationParamsCodec: StandardMessageCodec(),
+          creationParamsCodec: const StandardMessageCodec(),
           creationParams: {
             'width': constraints.maxWidth,
             'height': constraints.maxHeight,
@@ -74,7 +75,7 @@ class _CameraPreviewState extends State<CameraPreview> {
   Future<void> _onViewCreated(int id) async {
     try {
       await _channel.initCameraPreview();
-      widget.onCameraInitialized?.call();
+      widget.onCameraInitialized();
     } on PlatformException catch (e) {
       widget.onCameraInitializeError?.call(e);
     }
