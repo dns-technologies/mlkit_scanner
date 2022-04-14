@@ -19,10 +19,10 @@ protocol CenterFocusViewDelegate: NSObject {
 /// View handles animation and  gestures  when user try use AutoFocus or Lock Focus and call `CenterFocusViewDelegate` methods
 class CenterFocusView: UIView {
     private let lockImage: UIImageView
-    private let circleLayer: CAShapeLayer
+    private var circleLayer: CAShapeLayer
     private let circleRadius: CGFloat = 40
     private let fadeDuration: TimeInterval = 0.2
-    private let lockInitialCenter: CGPoint
+    private var lockInitialCenter: CGPoint
     weak var delegate: CenterFocusViewDelegate?
     
     override init(frame: CGRect) {
@@ -40,16 +40,44 @@ class CenterFocusView: UIView {
         addLongPressRecognizer()
     }
     
+    override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        if let superview = superview {
+            translatesAutoresizingMaskIntoConstraints = false
+            heightAnchor.constraint(equalTo: superview.heightAnchor).isActive = true
+            widthAnchor.constraint(equalTo: superview.widthAnchor).isActive = true
+        }
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateLayers()
+    }
+    
+    private func updateLayers() {
+        lockInitialCenter = CGPoint(x: frame.midX - (circleRadius + lockImage.bounds.width), y: frame.midY)
+        if (lockImage.alpha == 0) {
+            lockImage.center = lockInitialCenter
+        }
+        
+        circleLayer.frame = frame
+        circleLayer.path = CenterFocusView.buildCirclePath(frame: frame, radius: circleRadius).cgPath
+    }
+    
     private class func buildCenterCircle(in frame: CGRect, with radius: CGFloat) -> CAShapeLayer {
         let layer = CAShapeLayer()
-        let center = CGPoint(x: frame.midX, y: frame.midY)
-        let path = UIBezierPath(arcCenter: center, radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+        let path = buildCirclePath(frame: frame, radius: radius)
         layer.path = path.cgPath
         layer.fillColor = UIColor.clear.cgColor
         layer.strokeColor = UIColor.white.cgColor
         layer.lineWidth = 1.0
         layer.opacity = 0
         return layer
+    }
+    
+    private class func buildCirclePath(frame: CGRect, radius: CGFloat) -> UIBezierPath {
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        return UIBezierPath(arcCenter: center, radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
     }
     
     required init?(coder: NSCoder) {

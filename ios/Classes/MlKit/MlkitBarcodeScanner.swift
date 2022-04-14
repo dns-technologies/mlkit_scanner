@@ -63,4 +63,8 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
             self?.isDelayed = false
         }
     }
+    
+    func updateCropRect(cropRect: CropRect) {
+        self.cropRect = cropRect
+    }
 }

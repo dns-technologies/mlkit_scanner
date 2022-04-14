@@ -15,7 +15,7 @@ protocol CameraPreviewDelegate: NSObject {
 }
 
 class CameraPreview: NSObject, FlutterPlatformView {
-    private let preview: UIView
+    private let preview: Preview
     private var scaleX: CGFloat
     private var scaleY: CGFloat
     private var captureSession: AVCaptureSession?
@@ -24,16 +24,24 @@ class CameraPreview: NSObject, FlutterPlatformView {
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private let sessionQueue = DispatchQueue.global(qos: .userInitiated)
     private var torchObserver: NSKeyValueObservation?
+    private let heightConstraint: NSLayoutConstraint
+    private let widthConstraint: NSLayoutConstraint
     private let focusView: CenterFocusView
     weak var recognitionHandler: RecognitionHandler?
     weak var cameraPreviewDelegate: CameraPreviewDelegate?
     
     init(frame: CGRect) {
-        preview = UIView(frame: frame)
+        preview = Preview(frame: frame)
         scaleX = frame.width / UIScreen.main.bounds.width
         scaleY = frame.height / UIScreen.main.bounds.height
         focusView = CenterFocusView(frame: preview.frame)
+        preview.translatesAutoresizingMaskIntoConstraints = false
+        heightConstraint = preview.heightAnchor.constraint(equalToConstant: frame.height)
+        widthConstraint = preview.widthAnchor.constraint(equalToConstant: frame.width)
         super.init()
+        heightConstraint.isActive = true
+        widthConstraint.isActive = true
+        preview.delegate = self
         focusView.delegate = self
         subscribeCaptureSessionStopNotification()
     }
@@ -125,10 +133,9 @@ class CameraPreview: NSObject, FlutterPlatformView {
     
     /// Update constraints of the `CameraPreview`.
     func updateConstraints(width: CGFloat, height: CGFloat) {
-        preview.frame = CGRect(origin: CGPoint.zero, size: CGSize(width: width, height: height))
-        scaleX = preview.frame.width / UIScreen.main.bounds.width
-        scaleY = preview.frame.height / UIScreen.main.bounds.height
-        previewLayer?.frame = preview.frame
+        heightConstraint.constant = height
+        widthConstraint.constant = width
+        preview.updateConstraints()
     }
     
     /// Pause a `CaptureSession`, runs in non UI thread. 
@@ -268,5 +275,36 @@ extension CameraPreview: CenterFocusViewDelegate {
             }
             camera.unlockForConfiguration()
         } catch {}
+    }
+}
+
+extension CameraPreview: PreviewDelegate {
+    
+    func viewWillLayoutSubviews() {
+        self.scaleX = self.preview.frame.width / UIScreen.main.bounds.width
+        self.scaleY = self.preview.frame.height / UIScreen.main.bounds.height
+        self.previewLayer?.frame = self.preview.frame
+    }
+}
+
+fileprivate protocol PreviewDelegate: NSObject {
+    func viewWillLayoutSubviews()
+}
+
+fileprivate class Preview : UIView {
+
+    weak var delegate: PreviewDelegate?
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        delegate?.viewWillLayoutSubviews()
+    }
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
