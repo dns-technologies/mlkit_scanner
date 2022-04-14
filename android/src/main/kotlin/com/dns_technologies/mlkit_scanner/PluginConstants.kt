@@ -16,6 +16,6 @@ class PluginConstants {
         const val setScanDelayMethod = "setScanDelay"
         const val scanResultMethod = "onScanResult"
         const val setZoomMethod = "setZoom"
-        const val addCropOverlayMethod = "addCropOverlay"
+        const val setCropAreaMethod = "setCropAreaMethod"
     }
 }

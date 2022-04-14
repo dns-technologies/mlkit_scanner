@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Point
 import android.util.Log
+import android.view.View
 import android.view.WindowManager
 import androidx.annotation.NonNull
 import com.otaliastudios.cameraview.CameraView
@@ -17,6 +18,7 @@ import com.dns_technologies.mlkit_scanner.analyzer.AnalyzerCreator
 import com.dns_technologies.mlkit_scanner.analyzer.CameraImageAnalyzer
 import com.dns_technologies.mlkit_scanner.analyzer.TAG
 import com.dns_technologies.mlkit_scanner.models.*
+import com.otaliastudios.cameraview.CameraListener
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -26,7 +28,6 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
-import io.flutter.plugin.common.PluginRegistry.Registrar
 import kotlin.Exception
 
 class PermissionsConstants {
@@ -80,7 +81,7 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
       PluginConstants.setScanDelayMethod -> invokeSetScanDelay(call, result)
       PluginConstants.updateConstraintsMethod -> result.success(true) // на Android нет необходимости обрабатывать
       PluginConstants.setZoomMethod -> invokeSetZoom(call, result)
-      PluginConstants.addCropOverlayMethod -> invokeAddCropOverlay(call, result)
+      PluginConstants.setCropAreaMethod -> invokeSetCropArea(call, result)
       else -> result.notImplemented()
     }
   }
@@ -204,6 +205,12 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
     cameraLifecycle = CameraLifecycle()
     createScannerCamera()
     cameraLifecycle!!.resume()
+    cameraView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+      val cropRect = scannerOverlay?.cropRect
+      if (cropRect != null) {
+        updateCropOptions(cropRect)
+      }
+    }
   }
 
   private fun createScannerCamera() {
@@ -249,11 +256,15 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
     }
   }
 
-  private fun invokeAddCropOverlay(call: MethodCall, result: Result) {
+  private fun invokeSetCropArea(call: MethodCall, result: Result) {
     val rect = RecognizeVisorCropRect.fromMap(call.arguments as Map<String, Any?>)
     updateCropOptions(rect)
-    scannerOverlay = ScannerOverlay(rect, cameraView.context)
-    cameraView.addOverlay(scannerOverlay!!)
+    if (scannerOverlay != null) {
+      scannerOverlay?.cropRect = rect
+    } else {
+      scannerOverlay = ScannerOverlay(rect, cameraView.context)
+      cameraView.addOverlay(scannerOverlay!!)
+    }
     result.success(true)
   }
 

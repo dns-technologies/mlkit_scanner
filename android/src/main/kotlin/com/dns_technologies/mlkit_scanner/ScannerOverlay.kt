@@ -14,7 +14,7 @@ import com.dns_technologies.mlkit_scanner.models.RecognizeVisorCropRect
  * Draw with [RecognizeVisorCropRect]
  **/
 class ScannerOverlay(
-    private val cropRect: RecognizeVisorCropRect, context: Context
+    private var cropArea: RecognizeVisorCropRect, context: Context
 ) : View(context) {
 
     private var borderPath = Path()
@@ -35,6 +35,13 @@ class ScannerOverlay(
             invalidate()
         }
 
+    var cropRect: RecognizeVisorCropRect
+        get() = cropArea
+        set(value) {
+            cropArea = value
+            invalidate()
+        }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         createBorderPath(w, h)
@@ -42,10 +49,10 @@ class ScannerOverlay(
     }
 
     private fun createBorderPath(w: Int, h: Int) {
-        val width = w * cropRect.scaleWidth.toFloat()
-        val height = h * cropRect.scaleHeight.toFloat()
-        val x = (w / 2 * (1 + cropRect.centerOffsetX) - width / 2).toFloat()
-        val y = (h / 2 * (1 + cropRect.centerOffsetY) - height / 2).toFloat()
+        val width = w * cropArea.scaleWidth.toFloat()
+        val height = h * cropArea.scaleHeight.toFloat()
+        val x = (w / 2 * (1 + cropArea.centerOffsetX) - width / 2).toFloat()
+        val y = (h / 2 * (1 + cropArea.centerOffsetY) - height / 2).toFloat()
         val cornerLineLength = width * 0.10F
         borderPath = Path().apply {
             moveTo(x, y + cornerLineLength)
