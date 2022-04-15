@@ -2,17 +2,14 @@ package com.dns_technologies.mlkit_scanner
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.view.GestureDetector
-import android.view.LayoutInflater
-import android.view.MotionEvent
-import android.view.View
+import android.view.*
 import android.view.animation.*
 import android.widget.FrameLayout
 import com.otaliastudios.cameraview.CameraListener
 import com.otaliastudios.cameraview.CameraOptions
 
 /** Handle a gesture for an auto focus realisation and draw a focus lock and an auto focus animation */
-class CenterFocusView(context: Context): FrameLayout(context), Animation.AnimationListener {
+class CenterFocusView(context: Context): FrameLayout(context), Animation.AnimationListener, View.OnLayoutChangeListener {
     private lateinit var lock: View
     private lateinit var circle: View
     private val fadeAnimation = AnimationUtils.loadAnimation(context, R.anim.fade)
@@ -35,6 +32,10 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
                 releaseLock()
             }
         }
+
+        val inflater = LayoutInflater.from(context)
+        val layout = inflater.inflate(R.layout.center_focus_layout, null)
+        addView(layout)
     }
 
     private fun createGestureDetector(): GestureDetector {
@@ -52,11 +53,14 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        val inflater = LayoutInflater.from(context)
-        val layout = inflater.inflate(R.layout.center_focus_layout, null)
-        addView(layout)
         lock = findViewById(R.id.lockImage)
         circle = findViewById(R.id.circle)
+        lock.addOnLayoutChangeListener(this)
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        lock.removeOnLayoutChangeListener(this)
     }
 
     /**
@@ -85,24 +89,30 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
         circle.startAnimation(fadeAnimation)
         if (lock.visibility == View.INVISIBLE) {
             lock.apply {
-                val animation = buildLockAnimation(-x + height * 0.8F, -y + height * 0.8F)
+                val animation = buildLockAnimation()
                 startAnimation(animation)
             }
         }
     }
 
-    private fun buildLockAnimation(x: Float, y: Float): Animation {
+    private fun buildLockAnimation(): Animation {
         val set = AnimationSet(false).apply {
             fillAfter = true
         }
 
         set.addAnimation(fadeInAnimation)
-        val translateAnimation = TranslateAnimation(0F, x, 0F, y).apply {
+        val translateAnimation = lockMovementAnimation()
+        set.addAnimation(translateAnimation)
+        return set
+    }
+
+    private fun lockMovementAnimation(): Animation {
+        val deltaX = -lock.x + lock.height * 0.8
+        val deltaY = -lock.y + lock.height * 0.8F
+        return TranslateAnimation(0F, deltaX.toFloat(), 0F, deltaY).apply {
             startOffset = 300
             duration = 500
         }
-        set.addAnimation(translateAnimation)
-        return set
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -121,5 +131,28 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
     }
 
     override fun onAnimationRepeat(animation: Animation?) {
+    }
+
+    override fun onLayoutChange(
+        v: View?,
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        oldLeft: Int,
+        oldTop: Int,
+        oldRight: Int,
+        oldBottom: Int
+    ) {
+        if (lock.visibility == View.VISIBLE) {
+            lock.apply {
+                val translateAnimation = lockMovementAnimation().apply {
+                    startOffset = 0
+                    duration = 0
+                    fillAfter = true
+                }
+                startAnimation(translateAnimation)
+            }
+        }
     }
 }
