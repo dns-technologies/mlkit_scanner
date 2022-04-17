@@ -1,10 +1,7 @@
 package com.dns_technologies.mlkit_scanner
 
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
+import android.graphics.*
 import android.view.View
 import com.dns_technologies.mlkit_scanner.models.RecognizeVisorCropRect
 
@@ -22,7 +19,7 @@ class ScannerOverlay(
     private val cornerPaint = Paint().apply {
         strokeWidth = 6F
         style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.SQUARE
+        strokeCap = Paint.Cap.ROUND
     }
     private val backgroundColor = Paint().apply {
         color = Color.BLACK
@@ -53,26 +50,40 @@ class ScannerOverlay(
         val height = h * cropArea.scaleHeight.toFloat()
         val x = (w / 2 * (1 + cropArea.centerOffsetX) - width / 2).toFloat()
         val y = (h / 2 * (1 + cropArea.centerOffsetY) - height / 2).toFloat()
-        val cornerLineLength = width * 0.10F
+        val cornerLineLength = width * 0.05F
+        val halfLine = cornerLineLength / 2
         borderPath = Path().apply {
-            moveTo(x, y + cornerLineLength)
-            lineTo(x, y)
-            lineTo(x + cornerLineLength, y)
+            // Top Left Corner
+            roundCorner(
+                from = PointF(x, y + cornerLineLength),
+                to= PointF(x + cornerLineLength, y),
+                startAngle = -180F,
+                roundRect = RectF(x, y, x  + halfLine, y + halfLine)
+            )
 
             // Top Right Corner
-            moveTo(x + width - cornerLineLength, y)
-            lineTo(x + width, y);
-            lineTo(x + width, y + cornerLineLength)
+            roundCorner(
+                from = PointF(x + width - cornerLineLength, y),
+                to= PointF(x + width, y + cornerLineLength),
+                startAngle = -90F,
+                roundRect = RectF(x + width - halfLine, y, x + width, y + halfLine)
+            )
 
             // Bottom Right Corner
-            moveTo(x + width, y + height - cornerLineLength)
-            lineTo(x + width, y + height);
-            lineTo(x + width - cornerLineLength, y + height)
+            roundCorner(
+                from = PointF(x + width, y + height - cornerLineLength),
+                to= PointF(x + width - cornerLineLength, y + height),
+                startAngle = 0F,
+                roundRect = RectF(x + width - halfLine, y + height - halfLine, x + width, y + height)
+            )
 
             // Bottom Left Corner
-            moveTo(x + cornerLineLength, y + height)
-            lineTo(x, y + height);
-            lineTo(x, y + height - cornerLineLength)
+            roundCorner(
+                from = PointF(x + cornerLineLength, y + height),
+                to= PointF(x, y + height - cornerLineLength),
+                startAngle = 90F,
+                roundRect = RectF(x, y + height - halfLine, x + halfLine, y + height)
+            )
         }
         backgroundPath = Path().apply {
             moveTo(0F, 0F)
@@ -106,4 +117,10 @@ class ScannerOverlay(
             else -> Color.parseColor("#616161")
         }
     }
+}
+
+private fun Path.roundCorner(from: PointF, to: PointF, startAngle: Float, roundRect: RectF) {
+    moveTo(from.x, from.y)
+    arcTo(roundRect, startAngle, 90F)
+    lineTo(to.x, to.y)
 }
