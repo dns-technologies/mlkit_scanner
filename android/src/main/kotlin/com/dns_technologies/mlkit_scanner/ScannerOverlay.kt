@@ -51,14 +51,18 @@ class ScannerOverlay(
         val x = (w / 2 * (1 + cropArea.centerOffsetX) - width / 2).toFloat()
         val y = (h / 2 * (1 + cropArea.centerOffsetY) - height / 2).toFloat()
         val cornerLineLength = width * 0.05F
-        val halfLine = cornerLineLength / 2
+        val radius = cornerLineLength / 2
+        val topLeftArcRect = RectF(x, y, x  + radius, y + radius)
+        val topRightArcRect = RectF(x + width - radius, y, x + width, y + radius)
+        val bottomRightArcRect =  RectF(x + width - radius, y + height - radius, x + width, y + height)
+        val bottomLeftArcRect = RectF(x, y + height - radius, x + radius, y + height)
         borderPath = Path().apply {
             // Top Left Corner
             roundCorner(
                 from = PointF(x, y + cornerLineLength),
                 to= PointF(x + cornerLineLength, y),
                 startAngle = -180F,
-                roundRect = RectF(x, y, x  + halfLine, y + halfLine)
+                roundRect = topLeftArcRect
             )
 
             // Top Right Corner
@@ -66,7 +70,7 @@ class ScannerOverlay(
                 from = PointF(x + width - cornerLineLength, y),
                 to= PointF(x + width, y + cornerLineLength),
                 startAngle = -90F,
-                roundRect = RectF(x + width - halfLine, y, x + width, y + halfLine)
+                roundRect = topRightArcRect
             )
 
             // Bottom Right Corner
@@ -74,7 +78,7 @@ class ScannerOverlay(
                 from = PointF(x + width, y + height - cornerLineLength),
                 to= PointF(x + width - cornerLineLength, y + height),
                 startAngle = 0F,
-                roundRect = RectF(x + width - halfLine, y + height - halfLine, x + width, y + height)
+                roundRect = bottomRightArcRect
             )
 
             // Bottom Left Corner
@@ -82,19 +86,24 @@ class ScannerOverlay(
                 from = PointF(x + cornerLineLength, y + height),
                 to= PointF(x, y + height - cornerLineLength),
                 startAngle = 90F,
-                roundRect = RectF(x, y + height - halfLine, x + halfLine, y + height)
+                roundRect = bottomLeftArcRect
             )
         }
         backgroundPath = Path().apply {
             moveTo(0F, 0F)
             lineTo(x, y)
-            lineTo(x + width, y)
-            lineTo(x + width, height + y)
+            arcTo(topLeftArcRect, -180F, 90F)
+            lineTo(x + width - radius, y)
+            arcTo(topRightArcRect, -90F, 90F)
+            lineTo(x + width, height + y - radius)
+            arcTo(bottomRightArcRect, 0F, 90F)
+            lineTo(x + width, y + height)
             lineTo(w.toFloat(), h.toFloat())
             lineTo(w.toFloat(), 0F)
             lineTo(0F, 0F)
             lineTo(x, y)
-            lineTo(x, height + y)
+            lineTo(x, y + height - radius)
+            arcTo(bottomLeftArcRect, -180F, -90F)
             lineTo(x + width, height + y)
             lineTo(w.toFloat(), h.toFloat())
             lineTo(0F, h.toFloat())
