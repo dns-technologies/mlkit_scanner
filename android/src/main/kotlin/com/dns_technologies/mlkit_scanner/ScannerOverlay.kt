@@ -52,7 +52,7 @@ class ScannerOverlay(
         val y = (h / 2 * (1 + cropArea.centerOffsetY) - height / 2).toFloat()
         val cornerLineLength = width * 0.05F
         val radius = cornerLineLength / 2
-        val topLeftArcRect = RectF(x, y, x  + radius, y + radius)
+        val topLeftArcRect = RectF(x, y, x + radius, y + radius)
         val topRightArcRect = RectF(x + width - radius, y, x + width, y + radius)
         val bottomRightArcRect =  RectF(x + width - radius, y + height - radius, x + width, y + height)
         val bottomLeftArcRect = RectF(x, y + height - radius, x + radius, y + height)
@@ -60,7 +60,7 @@ class ScannerOverlay(
             // Top Left Corner
             roundCorner(
                 from = PointF(x, y + cornerLineLength),
-                to= PointF(x + cornerLineLength, y),
+                to = PointF(x + cornerLineLength, y),
                 startAngle = -180F,
                 roundRect = topLeftArcRect
             )
@@ -68,7 +68,7 @@ class ScannerOverlay(
             // Top Right Corner
             roundCorner(
                 from = PointF(x + width - cornerLineLength, y),
-                to= PointF(x + width, y + cornerLineLength),
+                to = PointF(x + width, y + cornerLineLength),
                 startAngle = -90F,
                 roundRect = topRightArcRect
             )
@@ -76,7 +76,7 @@ class ScannerOverlay(
             // Bottom Right Corner
             roundCorner(
                 from = PointF(x + width, y + height - cornerLineLength),
-                to= PointF(x + width - cornerLineLength, y + height),
+                to = PointF(x + width - cornerLineLength, y + height),
                 startAngle = 0F,
                 roundRect = bottomRightArcRect
             )
@@ -84,7 +84,7 @@ class ScannerOverlay(
             // Bottom Left Corner
             roundCorner(
                 from = PointF(x + cornerLineLength, y + height),
-                to= PointF(x, y + height - cornerLineLength),
+                to = PointF(x, y + height - cornerLineLength),
                 startAngle = 90F,
                 roundRect = bottomLeftArcRect
             )

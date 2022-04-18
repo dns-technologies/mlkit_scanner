@@ -59,8 +59,8 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
     }
 
     override fun onDetachedFromWindow() {
-        super.onDetachedFromWindow()
         lock.removeOnLayoutChangeListener(this)
+        super.onDetachedFromWindow()
     }
 
     /**
@@ -107,9 +107,9 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
     }
 
     private fun lockMovementAnimation(): Animation {
-        val deltaX = -lock.x + lock.height * 0.8
+        val deltaX = -lock.x + lock.height * 0.8F
         val deltaY = -lock.y + lock.height * 0.8F
-        return TranslateAnimation(0F, deltaX.toFloat(), 0F, deltaY).apply {
+        return TranslateAnimation(0F, deltaX, 0F, deltaY).apply {
             startOffset = 300
             duration = 500
         }

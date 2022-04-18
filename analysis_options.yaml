@@ -7,38 +7,3 @@ analyzer:
 
 linter:
   rules:
-    avoid_equals_and_hash_code_on_mutable_classes: true
-    avoid_classes_with_only_static_members: false
-    avoid_setters_without_getters: false
-    avoid_function_literals_in_foreach_calls: false
-    avoid_types_on_closure_parameters: true
-    avoid_catches_without_on_clauses: false
-    avoid_positional_boolean_parameters: false
-
-    unnecessary_const: true
-    unnecessary_new: true
-    unnecessary_this: true
-    unnecessary_lambdas: true
-
-    prefer_final_fields: false
-    prefer_collection_literals: true
-    prefer_interpolation_to_compose_strings: true
-    prefer_function_declarations_over_variables: false
-    prefer_equal_for_default_values: true
-    prefer_relative_imports: false
-    prefer_generic_function_type_aliases: false
-    prefer_mixin: false
-
-    use_rethrow_when_possible: false
-    use_setters_to_change_properties: false
-
-    public_member_api_docs: false
-    lines_longer_than_80_chars: false
-    omit_local_variable_types: true
-    hash_and_equals: false
-    constant_identifier_names: false
-    one_member_abstracts: false
-    curly_braces_in_flow_control_structures: true
-    type_annotate_public_apis: true
-    directives_ordering: true
-    library_prefixes: true
