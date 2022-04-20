@@ -36,6 +36,7 @@ class ScannerOverlay(
         get() = cropArea
         set(value) {
             cropArea = value
+            createBorderPath(width, height)
             invalidate()
         }
 
