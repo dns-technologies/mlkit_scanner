@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Point
 import android.util.Log
-import android.view.View
 import android.view.WindowManager
 import androidx.annotation.NonNull
 import com.otaliastudios.cameraview.CameraView
@@ -18,7 +17,6 @@ import com.dns_technologies.mlkit_scanner.analyzer.AnalyzerCreator
 import com.dns_technologies.mlkit_scanner.analyzer.CameraImageAnalyzer
 import com.dns_technologies.mlkit_scanner.analyzer.TAG
 import com.dns_technologies.mlkit_scanner.models.*
-import com.otaliastudios.cameraview.CameraListener
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -162,17 +160,21 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
 
   private fun invokeStartScan(call: MethodCall, result: Result) {
     val options = AnalyzeOptions.fromMap(call.arguments as Map<String, Any?>)
-    analyzer?.resumeScan(options.periodMs)
-    if(checkCameraActiveStatus(result,
-        "You need to invoke \'initCameraPreview\' method before start scan")) {
-      if (analyzer?.isDisposed == true || analyzer?.type != options.recognizeType) {
-        analyzer = AnalyzerCreator.create(options.recognizeType)
-        analyzer?.init(options.periodMs, this::onScan, cameraImagePreparer::prepare)
-      }
-      camera?.attachAnalyser(analyzer!!)
-      scannerOverlay?.isActive = true
-      result.success(true)
+    if (cameraLifecycle == null) {
+      return result.error(
+        PluginError.CameraIsNotInitialized.errorCode,
+        "You need to invoke \'initCameraPreview\' method before start scan",
+        null
+      )
     }
+    analyzer?.resumeScan(options.periodMs)
+    if (analyzer?.isDisposed == true || analyzer?.type != options.recognizeType) {
+      analyzer = AnalyzerCreator.create(options.recognizeType)
+      analyzer?.init(options.periodMs, this::onScan, cameraImagePreparer::prepare)
+    }
+    camera?.attachAnalyser(analyzer!!)
+    scannerOverlay?.isActive = true
+    result.success(true)
   }
 
   private fun invokeCancelScan(result: Result) {
