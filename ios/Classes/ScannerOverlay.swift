@@ -177,12 +177,12 @@ private extension UIBezierPath {
         arcCenter: CGPoint,
         startAngle: Double,
         endAngle: Double,
-        radius: Double
+        radius: CGFloat
     ) {
         move(to: from)
         addArc(
             withCenter: arcCenter,
-            radius: CGFloat(radius),
+            radius: radius,
             startAngle: CGFloat(startAngle),
             endAngle: CGFloat(endAngle),
             clockwise: true
