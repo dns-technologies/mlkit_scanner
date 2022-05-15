@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 
@@ -53,13 +55,31 @@ class _CameraPreviewState extends State<CameraPreview> {
             },
           );
         }
-        return AndroidView(
+        return PlatformViewLink(
           viewType: 'mlkit/camera_preview',
-          onPlatformViewCreated: _onViewCreated,
-          creationParamsCodec: const StandardMessageCodec(),
-          creationParams: {
-            'width': constraints.maxWidth,
-            'height': constraints.maxHeight,
+          surfaceFactory: (context, controller) {
+            return AndroidViewSurface(
+              controller: controller as AndroidViewController,
+              gestureRecognizers: const {},
+              hitTestBehavior: PlatformViewHitTestBehavior.opaque,
+            );
+          },
+          onCreatePlatformView: (params) {
+            return PlatformViewsService.initSurfaceAndroidView(
+              id: params.id,
+              viewType: 'mlkit/camera_preview',
+              layoutDirection: TextDirection.ltr,
+              creationParams: {
+                'width': constraints.maxWidth,
+                'height': constraints.maxHeight,
+              },
+              creationParamsCodec: const StandardMessageCodec(),
+            )
+              ..addOnPlatformViewCreatedListener((id) {
+                params.onPlatformViewCreated(id);
+                _onViewCreated(id);
+              })
+              ..create();
           },
         );
       },
