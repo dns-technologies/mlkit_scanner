@@ -2,6 +2,7 @@ package com.dns_technologies.mlkit_scanner
 
 import android.view.ViewGroup
 import com.otaliastudios.cameraview.CameraView
+import com.otaliastudios.cameraview.controls.Preview
 import io.flutter.plugin.platform.PlatformView
 
 /**
@@ -11,6 +12,7 @@ import io.flutter.plugin.platform.PlatformView
  */
 class CameraPlatformView(private val cameraPreview: CameraView, id: Int, creationParams: Map<String?, Any?>?): PlatformView {
     init {
+        cameraPreview.preview = Preview.TEXTURE
         cameraPreview.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT)
     }
