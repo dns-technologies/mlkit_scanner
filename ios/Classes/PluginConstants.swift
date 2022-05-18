@@ -33,6 +33,6 @@ class PluginConstants {
     static let changeTorchStateMethod = "changeTorchStateMethod"
     /// Method name for setting zoom scale of the camera
     static let setZoomMethod = "setZoom"
-    /// Method name for adding overlay to the camera preview
-    static let addCropOverlayMethod = "addCropOverlay"
+    /// Method name for setting crop area and adding overlay to the camera preview
+    static let setCropAreaMethod = "setCropAreaMethod"
 }

@@ -6,7 +6,7 @@ import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 void main() {
   group('Тестирование MLKitscanner', () {
-    final channel = MethodChannel('mlkit_channel');
+    const channel = MethodChannel('mlkit_channel');
 
     setUpAll(() {
       TestWidgetsFlutterBinding.ensureInitialized();
@@ -48,12 +48,13 @@ void main() {
         await tester.pumpWidget(TestApp(
           child: BarcodeScanner(
             onScannerInitialized: (c) => controller = c,
+            onScan: (value) {  },
           ),
         ));
         final camera = find.byType(CameraPreview);
         expect(camera, findsOneWidget, reason: 'Нет виджета CameraPreview');
         final widget = tester.firstWidget(camera) as CameraPreview;
-        widget.onCameraInitialized!();
+        widget.onCameraInitialized();
         await tester.pumpAndSettle();
         expect(controller, isNotNull, reason: 'Виджет не вернул контроллер для управлением сканированием');
       });
@@ -64,7 +65,10 @@ void main() {
 class TestApp extends StatelessWidget {
   final Widget? child;
 
-  TestApp({this.child});
+  const TestApp({
+    this.child,
+    Key? key,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {

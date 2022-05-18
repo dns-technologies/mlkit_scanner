@@ -40,4 +40,8 @@ protocol RecognitionHandler: AnyObject {
     /// `scaleY`- Scale of CameraPreview height relative to height of the screen.
     /// `orientation` - orientation of `CaptureSession`
     func proccessVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation)
+    
+    /// Update area of the barcode detection
+    /// `cropRect` -  area of the detection.
+    func updateCropRect(cropRect: CropRect)
 }

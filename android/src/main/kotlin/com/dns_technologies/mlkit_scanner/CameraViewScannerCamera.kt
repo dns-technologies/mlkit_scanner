@@ -70,6 +70,7 @@ class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
     }
 
     override fun attachAnalyser(analyzer: CameraImageAnalyzer) {
+        clearAnalyzer()
         this.analyzer = analyzer
         cameraView.addFrameProcessor(this::analyzeFrame)
     }

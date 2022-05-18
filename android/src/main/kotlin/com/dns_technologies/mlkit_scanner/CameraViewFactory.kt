@@ -17,6 +17,6 @@ class CameraViewFactory(private val onCreate: OnCreateViewListener): PlatformVie
         cameraView.playSounds = false
         cameraView.audio = Audio.OFF
         onCreate.invoke(cameraView)
-        return com.dns_technologies.mlkit_scanner.CameraPlatformView(cameraView, viewId, creationParams)
+        return CameraPlatformView(cameraView, viewId, creationParams)
     }
 }

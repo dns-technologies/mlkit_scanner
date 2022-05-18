@@ -18,10 +18,10 @@ class MlKitChannel {
   static const _resumeCameraMethod = 'resumeCameraMethod';
   static const _changeTorchStateMethod = 'changeTorchStateMethod';
   static const _setZoomMethod = 'setZoom';
-  static const _addCropOverlayMethod = 'addCropOverlay';
+  static const _setCropAreaMethod = 'setCropAreaMethod';
 
   static MlKitChannel? _instance;
-  final MethodChannel _channel = MethodChannel('mlkit_channel');
+  final MethodChannel _channel = const MethodChannel('mlkit_channel');
   final StreamController<String> _scanResultStreamController = StreamController<String>.broadcast();
   final StreamController<bool> _torchToggleStreamController = StreamController<bool>.broadcast();
 
@@ -31,9 +31,7 @@ class MlKitChannel {
   Stream<bool> get torchToggleStream => _torchToggleStreamController.stream;
 
   factory MlKitChannel() {
-    if (_instance == null) {
-      _instance = MlKitChannel._();
-    }
+    _instance ??= MlKitChannel._();
     return _instance!;
   }
 
@@ -124,10 +122,10 @@ class MlKitChannel {
     return _channel.invokeMethod(_setZoomMethod, value);
   }
 
-  /// Add overlay to the [CameraPreview]
+  /// Adds overlay to the [CameraPreview] and sets area for recognition
   ///
   /// `rect` - Scanning area of the overlay.
-  Future<void> addCropOverlay(CropRect rect) {
-    return _channel.invokeMethod(_addCropOverlayMethod, rect.toJson());
+  Future<void> setCropArea(CropRect rect) {
+    return _channel.invokeMethod(_setCropAreaMethod, rect.toJson());
   }
 }

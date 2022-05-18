@@ -15,7 +15,7 @@ protocol CameraPreviewDelegate: NSObject {
 }
 
 class CameraPreview: NSObject, FlutterPlatformView {
-    private let preview: UIView
+    private let preview: UIContainer
     private var scaleX: CGFloat
     private var scaleY: CGFloat
     private var captureSession: AVCaptureSession?
@@ -24,16 +24,18 @@ class CameraPreview: NSObject, FlutterPlatformView {
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private let sessionQueue = DispatchQueue.global(qos: .userInitiated)
     private var torchObserver: NSKeyValueObservation?
+    
     private let focusView: CenterFocusView
     weak var recognitionHandler: RecognitionHandler?
     weak var cameraPreviewDelegate: CameraPreviewDelegate?
     
     init(frame: CGRect) {
-        preview = UIView(frame: frame)
+        preview = UIContainer(frame: frame)
         scaleX = frame.width / UIScreen.main.bounds.width
         scaleY = frame.height / UIScreen.main.bounds.height
         focusView = CenterFocusView(frame: preview.frame)
         super.init()
+        preview.delegate = self
         focusView.delegate = self
         subscribeCaptureSessionStopNotification()
     }
@@ -125,10 +127,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
     
     /// Update constraints of the `CameraPreview`.
     func updateConstraints(width: CGFloat, height: CGFloat) {
-        preview.frame = CGRect(origin: CGPoint.zero, size: CGSize(width: width, height: height))
-        scaleX = preview.frame.width / UIScreen.main.bounds.width
-        scaleY = preview.frame.height / UIScreen.main.bounds.height
-        previewLayer?.frame = preview.frame
+        preview.updateSizeConstraints(width: width, height: height)
     }
     
     /// Pause a `CaptureSession`, runs in non UI thread. 
@@ -268,5 +267,51 @@ extension CameraPreview: CenterFocusViewDelegate {
             }
             camera.unlockForConfiguration()
         } catch {}
+    }
+}
+
+extension CameraPreview: UIContainerDelegate {
+    
+    func viewWillLayoutSubviews() {
+        self.scaleX = self.preview.frame.width / UIScreen.main.bounds.width
+        self.scaleY = self.preview.frame.height / UIScreen.main.bounds.height
+        self.previewLayer?.frame = self.preview.frame
+    }
+}
+
+fileprivate protocol UIContainerDelegate: NSObject {
+    /// Called to notify the UIContainerDelegate that view is about to layout its subviews.
+    func viewWillLayoutSubviews()
+}
+
+/// Empty container. Depends on height and width constraints.
+fileprivate class UIContainer : UIView {
+
+    private var heightConstraint: NSLayoutConstraint!
+    private var widthConstraint: NSLayoutConstraint!
+    weak var delegate: UIContainerDelegate?
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        heightConstraint = heightAnchor.constraint(equalToConstant: frame.height)
+        widthConstraint = widthAnchor.constraint(equalToConstant: frame.width)
+        heightConstraint.isActive = true
+        widthConstraint.isActive = true
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        delegate?.viewWillLayoutSubviews()
+    }
+    
+    func updateSizeConstraints(width: CGFloat, height: CGFloat) {
+        heightConstraint.constant = height
+        widthConstraint.constant = width
+        updateConstraints()
     }
 }

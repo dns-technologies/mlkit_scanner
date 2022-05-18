@@ -12,10 +12,10 @@ typedef BarcodeScannerInitializeCallback = void Function(BarcodeScannerControlle
 /// Widget for scanning barcodes using MLkit Barcode Scanning.
 class BarcodeScanner extends StatefulWidget {
   /// Callback with barcode scanning result, when scanner detect a barcode.
-  final ValueChanged<String>? onScan;
+  final ValueChanged<String> onScan;
 
   /// Callback on success scanner initialize, with [BarcodeScannerController] for control camera and detection.
-  final BarcodeScannerInitializeCallback? onScannerInitialized;
+  final BarcodeScannerInitializeCallback onScannerInitialized;
 
   /// Optional scanner overlay with [CropRect] of the detection area.
   final CropRect? cropOverlay;
@@ -28,13 +28,14 @@ class BarcodeScanner extends StatefulWidget {
   /// Work only on IOS
   final ValueChanged<bool>? onChangeFlashState;
 
-  BarcodeScanner({
-    this.onScan,
-    this.onScannerInitialized,
+  const BarcodeScanner({
+    required this.onScan,
+    required this.onScannerInitialized,
     this.cropOverlay,
     this.onCameraInitializeError,
     this.onChangeFlashState,
-  });
+    Key? key,
+  }) : super(key: key);
 
   @override
   _BarcodeScannerState createState() => _BarcodeScannerState();
@@ -53,6 +54,14 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     _barcodeScannerController = BarcodeScannerController._();
     _toggleFlashStreamSubscription = _channel.torchToggleStream.listen((event) => widget.onChangeFlashState?.call(event));
     _barcodeScannerController._attach(this);
+  }
+
+  @override
+  void didUpdateWidget(covariant BarcodeScanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.cropOverlay != widget.cropOverlay && widget.cropOverlay != null) {
+      _channel.setCropArea(widget.cropOverlay!);
+    }
   }
 
   @override
@@ -78,9 +87,9 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
 
   void _onCameraInitialized() {
     if (widget.cropOverlay != null) {
-      _channel.addCropOverlay(widget.cropOverlay!);
+      _channel.setCropArea(widget.cropOverlay!);
     }
-    widget.onScannerInitialized?.call(_barcodeScannerController);
+    widget.onScannerInitialized(_barcodeScannerController);
   }
 
   Future<void> _toggleFlash() {
@@ -88,12 +97,9 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   Future<void> _startScan(int delay) async {
-    final type = RecognitionType.barcodeRecognition;
-    final scanStream = await _channel.startScan(type, delay);
+    final scanStream = await _channel.startScan(RecognitionType.barcodeRecognition, delay);
     _scanStreamSubscription?.cancel();
-    _scanStreamSubscription = scanStream.listen((barcode) {
-      widget.onScan?.call(barcode);
-    });
+    _scanStreamSubscription = scanStream.listen(widget.onScan);
   }
 
   Future<void> _cancelScan() async {
@@ -132,7 +138,7 @@ class BarcodeScannerController {
   /// Toggle flash of the device.
   ///
   /// Can throw a [PlatformException] if doesn't have flash.
-  Future<void>? toggleFlash() {
+  Future<void> toggleFlash() async {
     return _barcodeScannerState?._toggleFlash();
   }
 
@@ -141,12 +147,12 @@ class BarcodeScannerController {
   /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
   /// Detection happens every [delay] milliseconds, skipping frames during delay
   /// Can throw [PlatformException] if camera is not initialized.
-  Future<void>? startScan(int delay) {
+  Future<void> startScan(int delay) async {
     return _barcodeScannerState?._startScan(delay);
   }
 
   /// Stop recognition of objects.
-  Future<void>? cancelScan() {
+  Future<void> cancelScan() async {
     return _barcodeScannerState?._cancelScan();
   }
 
@@ -154,28 +160,28 @@ class BarcodeScannerController {
   /// 
   /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
   /// Detection happens every [delay] milliseconds, skipping frames during delay
-  Future<void>? setDelay(int delay) {
+  Future<void> setDelay(int delay) async {
     return _barcodeScannerState?._setDelay(delay);
   }
 
   /// Pause camera, also pause detection if scanning is active.
   ///
  /// For releasing resources of the camera use method [dispose].
-  Future<void>? pauseCamera() {
+  Future<void> pauseCamera() async {
     return _barcodeScannerState?._pauseCamera();
   }
 
   /// Resume camera, alse start detection if method [startScan] was called before pause.
   /// 
   /// Can throw [PlatformException] if camera is not initialized.
-  Future<void>? resumeCamera() {
+  Future<void> resumeCamera() async {
     return _barcodeScannerState?._resumeCamera();
   }
 
   /// Sets the camera zoom.
   ///
   /// Value can only be in the range from 0 to 1
-  Future<void>? setZoom(double value) {
+  Future<void> setZoom(double value) async {
     assert(
       value >= 0 && value <= 1,
       "Value can only be in the range from 0 to 1",

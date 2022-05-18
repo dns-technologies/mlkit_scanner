@@ -44,8 +44,8 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             pauseCamera(result: result)
         case PluginConstants.setZoomMethod:
             setZoom(arguments: call.arguments, result: result)
-        case PluginConstants.addCropOverlayMethod:
-            addCropOverlay(arguments: call.arguments, result: result)
+        case PluginConstants.setCropAreaMethod:
+            setCropArea(arguments: call.arguments, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -167,13 +167,19 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         }
     }
     
-    private func addCropOverlay(arguments: Any?, result: @escaping FlutterResult) {
+    private func setCropArea(arguments: Any?, result: @escaping FlutterResult) {
         guard let rectArgs = arguments as? Dictionary<String, CGFloat>, let rect = CropRect(arguments: rectArgs) else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
-        if let camera = cameraPreview {
-            scannerOverlay = ScannerOverlay(frame: camera.view().frame, cropRect: rect)
+        guard let camera = cameraPreview else {
+            return result(nil)
+        }
+        recognitionHandler?.updateCropRect(cropRect: rect)
+        if let overlay = scannerOverlay {
+            overlay.updateCropRect(rect: rect)
+        } else {
+            scannerOverlay = ScannerOverlay(cropRect: rect)
             camera.addSubview(scannerOverlay!)
         }
         result(nil)
