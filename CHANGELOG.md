@@ -1,3 +1,7 @@
+## 0.3.0
+
+* support Flutter 3.0 
+
 ## 0.2.0
 
 * Migrate from AndroidView to PlatformViewLink

@@ -11,9 +11,9 @@ typealias OnCreateViewListener = (view: CameraView) -> Unit
 
 /** Factory create camera [PlatformView] */
 class CameraViewFactory(private val onCreate: OnCreateViewListener): PlatformViewFactory(StandardMessageCodec.INSTANCE) {
-    override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
+    override fun create(context: Context?, viewId: Int, args: Any?): PlatformView {
         val creationParams = args as Map<String?, Any?>?
-        val cameraView = CameraView(context)
+        val cameraView = CameraView(context!!)
         cameraView.playSounds = false
         cameraView.audio = Audio.OFF
         onCreate.invoke(cameraView)
