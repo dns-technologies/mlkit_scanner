@@ -1,9 +1,9 @@
 ///  Model for setting detection area of recognizers.
-/// 
+///
 /// If detection area is bigger than [CameraPreview] size, there won't any detection.
 class CropRect {
   /// Width relative to width of the [CameraPreview] in percentage.
-  ///  
+  ///
   /// For example: 0.5 -  widgth of detection area equals to half of the [CameraPreview] width.
   final double scaleWidth;
 
