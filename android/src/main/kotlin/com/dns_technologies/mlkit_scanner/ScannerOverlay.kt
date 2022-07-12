@@ -52,7 +52,7 @@ class ScannerOverlay(
         val x = (w / 2 * (1 + cropArea.centerOffsetX) - width / 2).toFloat()
         val y = (h / 2 * (1 + cropArea.centerOffsetY) - height / 2).toFloat()
         val cornerLineLength = width * 0.05F
-        val radius = cornerLineLength / 2
+        val radius = 13
         val topLeftArcRect = RectF(x, y, x + radius, y + radius)
         val topRightArcRect = RectF(x + width - radius, y, x + width, y + radius)
         val bottomRightArcRect =  RectF(x + width - radius, y + height - radius, x + width, y + height)

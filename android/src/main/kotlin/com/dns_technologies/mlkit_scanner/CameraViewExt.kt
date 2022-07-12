@@ -7,15 +7,19 @@ import com.otaliastudios.cameraview.CameraView
  *
  * By long tap, focus is locked on the [CameraView] center. By pressing, focusing in the [CameraView]
  * center occurs without locking.
+ *
+ * Use [widthOffset] or [heightOffset] to move the center of camera focus
  */
-fun CameraView.useCenterFocus() {
+fun CameraView.useCenterFocus(widthOffset: Float, heightOffset: Float) {
     if (cameraOptions?.isAutoFocusSupported == true) {
-        val focusView = CenterFocusView(context)
+        val (horizontalMargin, verticalMargin) = calcAdaptiveMargins(resources.configuration.orientation, width, widthOffset, height, heightOffset)
+        val focusView = CenterFocusView(context, horizontalMargin.toInt(), verticalMargin.toInt())
         focusView.setAutoFocusSetListener { needLock ->
+            val (h, v) = calcAdaptiveMargins(resources.configuration.orientation, width, widthOffset, height, heightOffset)
             if (needLock) {
-                focusOnCenter(0)
+                focusOnCenter(0, h, v)
             } else {
-                focusOnCenter(3000)
+                focusOnCenter(3000, h, v)
             }
         }
         setOnTouchListener { view, event ->
@@ -57,7 +61,22 @@ fun CameraView.removeCenterFocus() {
     }
 }
 
-private fun CameraView.focusOnCenter(resetDelay: Long) {
+/**
+ * Camera center focus
+ *
+ * [resetDelay] in milliseconds to reset the focus after a metering event.
+ *
+ * Use [horizontalMargin] and [verticalMargin] to shift the center of focus
+ */
+private fun CameraView.focusOnCenter(resetDelay: Long, horizontalMargin: Float, verticalMargin: Float) {
     autoFocusResetDelay = resetDelay
-    startAutoFocus(width / 2F, height / 2F)
+    startAutoFocus(width / 2 + horizontalMargin, height / 2 + verticalMargin)
 }
+
+/**
+ * Calculate margins depending on device [orientation]
+ */
+private fun calcAdaptiveMargins(orientation: Int, width: Int, offsetWidth: Float, height: Int, offsetHeight: Float): Pair<Float, Float> = when (orientation) {
+        1 -> Pair(width * offsetWidth, height * offsetHeight)
+        else -> Pair(width * offsetHeight, height * offsetWidth)
+    }

@@ -7,9 +7,10 @@ import android.view.animation.*
 import android.widget.FrameLayout
 import com.otaliastudios.cameraview.CameraListener
 import com.otaliastudios.cameraview.CameraOptions
+import kotlin.math.absoluteValue
 
 /** Handle a gesture for an auto focus realisation and draw a focus lock and an auto focus animation */
-class CenterFocusView(context: Context): FrameLayout(context), Animation.AnimationListener, View.OnLayoutChangeListener {
+class CenterFocusView(context: Context, private val horizontalMargin: Int = 0, private val verticalMargin: Int = 0): FrameLayout(context), Animation.AnimationListener, View.OnLayoutChangeListener {
     private lateinit var lock: View
     private lateinit var circle: View
     private val fadeAnimation = AnimationUtils.loadAnimation(context, R.anim.fade)
@@ -32,10 +33,25 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
                 releaseLock()
             }
         }
-
         val inflater = LayoutInflater.from(context)
         val layout = inflater.inflate(R.layout.center_focus_layout, null)
+
         addView(layout)
+        layout.layoutParams = setLayoutMargins(layout.layoutParams as MarginLayoutParams)
+    }
+
+    /**
+     * Sets layout margins based on sign of margins [horizontalMargin] and [verticalMargin]
+     */
+    private fun setLayoutMargins(p: MarginLayoutParams):  MarginLayoutParams {
+        if (verticalMargin == 0 && horizontalMargin == 0)
+            return p
+
+        val (l, r) = if (horizontalMargin > 0) Pair(0, horizontalMargin.absoluteValue) else Pair(0, horizontalMargin.absoluteValue)
+        val (t, b) = if (verticalMargin > 0) Pair(verticalMargin.absoluteValue, 0) else Pair(0, verticalMargin.absoluteValue)
+
+        p.setMargins(l, t, r, b)
+        return p
     }
 
     private fun createGestureDetector(): GestureDetector {

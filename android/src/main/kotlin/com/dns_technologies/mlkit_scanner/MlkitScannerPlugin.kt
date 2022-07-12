@@ -291,6 +291,7 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
     val screenSize = getDisplaySize()
     val scaleX = cameraView.measuredWidth.toDouble() / screenSize.x
     val scaleY = cameraView.measuredHeight.toDouble() / screenSize.y
+    camera?.changeFocusCenter(cropRect.centerOffsetX.toFloat(), cropRect.centerOffsetY.toFloat())
     cameraImagePreparer.visorRectFormer.updateWidgetScales(scaleX, scaleY)
     cameraImagePreparer.visorRectFormer.recognizeCropRect = cropRect
   }

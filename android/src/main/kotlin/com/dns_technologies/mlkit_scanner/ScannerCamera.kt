@@ -9,6 +9,7 @@ interface ScannerCamera {
     fun startCamera(onInit: OnInit, onError: OnError)
     fun isActive(): Boolean
     fun toggleFlashLight()
+    fun changeFocusCenter(widthOffset: Float, heightOffset: Float)
     fun attachAnalyser(analyzer: CameraImageAnalyzer)
     fun clearAnalyzer()
     fun setZoom(value: Float)
