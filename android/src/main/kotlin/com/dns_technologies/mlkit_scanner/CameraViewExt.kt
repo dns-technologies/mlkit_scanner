@@ -2,25 +2,18 @@ package com.dns_technologies.mlkit_scanner
 
 import android.view.View
 import com.otaliastudios.cameraview.CameraView
+
 /**
  * Set [CenterFocusView] in the center of a [CameraView]
  *
  * By long tap, focus is locked on the [CameraView] center. By pressing, focusing in the [CameraView]
  * center occurs without locking.
- *
- * Use [widthOffset] or [heightOffset] to move the center of camera focus
  */
-fun CameraView.useCenterFocus(widthOffset: Float, heightOffset: Float) {
+fun CameraView.useCenterFocus() {
     if (cameraOptions?.isAutoFocusSupported == true) {
-        val (horizontalMargin, verticalMargin) = calcAdaptiveMargins(resources.configuration.orientation, width, widthOffset, height, heightOffset)
-        val focusView = CenterFocusView(context, horizontalMargin.toInt(), verticalMargin.toInt())
+        val focusView = CenterFocusView(context)
         focusView.setAutoFocusSetListener { needLock ->
-            val (h, v) = calcAdaptiveMargins(resources.configuration.orientation, width, widthOffset, height, heightOffset)
-            if (needLock) {
-                focusOnCenter(0, h, v)
-            } else {
-                focusOnCenter(3000, h, v)
-            }
+            focusOnCenter(if (needLock) 0 else 3000, 0.0F, 0.0F)
         }
         setOnTouchListener { view, event ->
             view.performClick()
@@ -28,6 +21,33 @@ fun CameraView.useCenterFocus(widthOffset: Float, heightOffset: Float) {
         }
         addCameraListener(focusView.cameraListener)
         addView(focusView)
+    }
+}
+
+/**
+ * Changes focus relative to the center of [CameraView]
+ *
+ * Use [widthOffset] or [heightOffset] to move the center of camera focus
+ *
+ * If autofocus is not supported, then nothing will happen
+ */
+fun CameraView.changeFocusCenter(widthOffset: Float = 0.0F, heightOffset: Float = 0.0F) {
+    for (i in 0..childCount) {
+        val child = getChildAt(i)
+        if (child is CenterFocusView) {
+            val (h, v) = calcAdaptiveMargins(
+                resources.configuration.orientation,
+                width,
+                widthOffset,
+                height,
+                heightOffset
+            )
+            child.setAutoFocusSetListener { needLock ->
+                focusOnCenter(if (needLock) 0 else 3000, h, v)
+            }
+            child.setFocusCenter(h.toInt(), v.toInt())
+            return
+        }
     }
 }
 
@@ -76,7 +96,13 @@ private fun CameraView.focusOnCenter(resetDelay: Long, horizontalMargin: Float, 
 /**
  * Calculate margins depending on device [orientation]
  */
-private fun calcAdaptiveMargins(orientation: Int, width: Int, offsetWidth: Float, height: Int, offsetHeight: Float): Pair<Float, Float> = when (orientation) {
-        1 -> Pair(width * offsetWidth, height * offsetHeight)
-        else -> Pair(width * offsetHeight, height * offsetWidth)
-    }
+private fun calcAdaptiveMargins(
+    orientation: Int,
+    width: Int,
+    offsetWidth: Float,
+    height: Int,
+    offsetHeight: Float
+): Pair<Float, Float> = when (orientation) {
+    1 -> Pair(width * offsetWidth, height * offsetHeight)
+    else -> Pair(-width * offsetHeight, -height * offsetWidth)
+}

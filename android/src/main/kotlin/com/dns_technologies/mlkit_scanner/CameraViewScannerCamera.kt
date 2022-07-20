@@ -67,7 +67,7 @@ class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
      * Shifts the focus from the center
      */
     override fun changeFocusCenter(widthOffset: Float, heightOffset: Float) {
-        cameraView.useCenterFocus(widthOffset, heightOffset)
+        cameraView.changeFocusCenter(widthOffset, heightOffset)
         cameraView.removeCameraListener(this)
     }
 
@@ -93,6 +93,7 @@ class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
     override fun onCameraOpened(options: CameraOptions) {
         cameraOptions = options
         onInitSuccess.invoke()
+        cameraView.useCenterFocus()
         cameraView.removeCameraListener(this)
         super.onCameraOpened(options)
     }

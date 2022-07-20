@@ -207,9 +207,10 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
     cameraLifecycle = CameraLifecycle()
     createScannerCamera()
     cameraLifecycle!!.resume()
-    cameraView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+    cameraView.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
       val cropRect = scannerOverlay?.cropRect
-      if (cropRect != null) {
+      // exclude parasite redraws
+      if ((l != oldL || t != oldT || r != oldR || b != oldB) && cropRect != null) {
         updateCropOptions(cropRect)
       }
     }
