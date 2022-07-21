@@ -7,8 +7,8 @@
 
 import UIKit
 
-/// Deleage of CenterFocusView
-protocol CenterFocusViewDelegate: NSObject {
+/// Delegate of CenterFocusView
+protocol FocusViewDelegate: NSObject {
     /// Call delegate when user try focus on the center of view
     func onFocus()
     
@@ -16,23 +16,24 @@ protocol CenterFocusViewDelegate: NSObject {
     func onLockFocus()
 }
 
-/// View handles animation and  gestures  when user try use AutoFocus or Lock Focus and call `CenterFocusViewDelegate` methods
-class CenterFocusView: UIView {
+/// View handles animation and gestures when user try use AutoFocus or Lock Focus and call `FocusViewDelegate` methods
+class FocusView: UIView {
     private let lockImage: UIImageView
     private var circleLayer: CAShapeLayer
     private let circleRadius: CGFloat = 40
     private let fadeDuration: TimeInterval = 0.2
     private var lockInitialCenter: CGPoint
-    weak var delegate: CenterFocusViewDelegate?
+    weak var delegate: FocusViewDelegate?
     
-    override init(frame: CGRect) {
+    init(frame: CGRect, point: CGPoint) {
         let image = UIImage.fromLibraryAssets(name: "lock")
         lockImage = UIImageView(image: image)
         lockInitialCenter = CGPoint(x: frame.midX - (circleRadius + lockImage.bounds.width), y: frame.midY)
         lockImage.center = lockInitialCenter
         lockImage.alpha = 0
         
-        circleLayer = CenterFocusView.buildCenterCircle(in: frame, with: circleRadius)
+        circleLayer = FocusView.buildCircle(in: frame, with: circleRadius, point: point)
+        
         super.init(frame: frame)
         layer.addSublayer(circleLayer)
         addSubview(lockImage)
@@ -59,14 +60,15 @@ class CenterFocusView: UIView {
         if (lockImage.alpha == 0) {
             lockImage.center = lockInitialCenter
         }
-        
-        circleLayer.frame = frame
-        circleLayer.path = CenterFocusView.buildCirclePath(frame: frame, radius: circleRadius).cgPath
     }
-    
-    private class func buildCenterCircle(in frame: CGRect, with radius: CGFloat) -> CAShapeLayer {
+
+    func changeFocusPoint(point: CGPoint) {
+        circleLayer.path = FocusView.buildCirclePath(frame: frame, radius: circleRadius, point: point).cgPath
+    }
+
+    private class func buildCircle(in frame: CGRect, with radius: CGFloat, point: CGPoint) -> CAShapeLayer {
         let layer = CAShapeLayer()
-        let path = buildCirclePath(frame: frame, radius: radius)
+        let path = FocusView.buildCirclePath(frame: frame, radius: radius, point: point)
         layer.path = path.cgPath
         layer.fillColor = UIColor.clear.cgColor
         layer.strokeColor = UIColor.white.cgColor
@@ -75,9 +77,8 @@ class CenterFocusView: UIView {
         return layer
     }
     
-    private class func buildCirclePath(frame: CGRect, radius: CGFloat) -> UIBezierPath {
-        let center = CGPoint(x: frame.midX, y: frame.midY)
-        return UIBezierPath(arcCenter: center, radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+    private class func buildCirclePath(frame: CGRect, radius: CGFloat, point: CGPoint) -> UIBezierPath {
+        return UIBezierPath(arcCenter: point, radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
     }
     
     required init?(coder: NSCoder) {

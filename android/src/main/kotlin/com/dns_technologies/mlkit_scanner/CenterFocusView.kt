@@ -32,10 +32,20 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
                 releaseLock()
             }
         }
-
         val inflater = LayoutInflater.from(context)
         val layout = inflater.inflate(R.layout.center_focus_layout, null)
+
         addView(layout)
+    }
+
+    /**
+     * Sets focus center with offsets [horizontalOffset] and [verticalOffset]
+     */
+    fun setFocusCenter(horizontalOffset: Float = 0.0F, verticalOffset: Float = 0.0F) {
+        circle.apply {
+            translationX = horizontalOffset
+            translationY = verticalOffset
+        }
     }
 
     private fun createGestureDetector(): GestureDetector {

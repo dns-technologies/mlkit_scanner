@@ -11,17 +11,17 @@ import Foundation
 class PluginConstants {
     /// Method name for camera initialization.
     static let initCameraMethod = "initCameraPreview"
-    /// Method name for cleaning camera recources.
+    /// Method name for cleaning camera resources.
     static let disposeMethod = "dispose"
     /// Method name for toggling flash of the device.
     static let toggleFlashMethod = "toggleFlash"
     /// Method name for starting use recognizers.
     static let startScanMethod = "startScan"
-    /// Methos name for cancelling recognition.
+    /// Method name for cancelling recognition.
     static let cancelScanMethod = "cancelScan"
-    /// Methos name for setting delay between detections.
+    /// Method name for setting delay between detections.
     static let setScanDelayMethod = "setScanDelay"
-    /// Меthos name for invoking Flutter Side method with success recognitions.
+    /// Method name for invoking Flutter Side method with success recognitions.
     static let scanResultMethod = "onScanResult"
     /// Method name for updating native view constraints.
     static let changeConstraintsMethod = "updateConstraints"

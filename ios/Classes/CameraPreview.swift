@@ -16,8 +16,9 @@ protocol CameraPreviewDelegate: NSObject {
 
 class CameraPreview: NSObject, FlutterPlatformView {
     private let preview: UIContainer
-    private var scaleX: CGFloat
-    private var scaleY: CGFloat
+    private var scaleX, scaleY: CGFloat
+    private var offsetX, offsetY: CGFloat
+    private var focusPoint: CGPoint
     private var captureSession: AVCaptureSession?
     private var camera: AVCaptureDevice?
     private var videoOutput: AVCaptureVideoDataOutput?
@@ -25,15 +26,17 @@ class CameraPreview: NSObject, FlutterPlatformView {
     private let sessionQueue = DispatchQueue.global(qos: .userInitiated)
     private var torchObserver: NSKeyValueObservation?
     
-    private let focusView: CenterFocusView
+    private let focusView: FocusView
     weak var recognitionHandler: RecognitionHandler?
     weak var cameraPreviewDelegate: CameraPreviewDelegate?
     
-    init(frame: CGRect) {
+    init(frame: CGRect, offsetX: CGFloat = 0, offsetY: CGFloat = 0) {
         preview = UIContainer(frame: frame)
-        scaleX = frame.width / UIScreen.main.bounds.width
-        scaleY = frame.height / UIScreen.main.bounds.height
-        focusView = CenterFocusView(frame: preview.frame)
+        (scaleX, scaleY) = (frame.width / UIScreen.main.bounds.width, frame.height / UIScreen.main.bounds.height)
+        (self.offsetX, self.offsetY) = (offsetX, offsetY)
+        let focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
+        self.focusPoint = focusPoint
+        focusView = FocusView(frame: preview.frame, point: focusPoint)
         super.init()
         preview.delegate = self
         focusView.delegate = self
@@ -46,8 +49,6 @@ class CameraPreview: NSObject, FlutterPlatformView {
             selector: #selector(self.onCaptureSessionStart),
             name: .AVCaptureSessionDidStartRunning,
             object: nil)
-        
-        
     }
     
     @objc private func onCaptureSessionStart() {
@@ -110,6 +111,18 @@ class CameraPreview: NSObject, FlutterPlatformView {
         preview.addSubview(focusView)
     }
         
+    /// Calculates the focus point relative to center of the screen with offsets `offsetX` and `offsetY`
+    private class func calcFocusPoint(preview: UIContainer, offsetX: CGFloat, offsetY: CGFloat) -> CGPoint {
+        return CGPoint(x: preview.frame.midX + preview.frame.midX * offsetX, y: preview.frame.midY + preview.frame.midY * offsetY)
+    }
+    
+    /// Сhanges focus around the center
+    func changeFocusCenter(offsetX: CGFloat, offsetY: CGFloat) {
+        (self.offsetX, self.offsetY) = (offsetX, offsetY)
+        let focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
+        focusView.changeFocusPoint(point: focusPoint)
+    }
+    
     /// Toggle of the device flash. Throws `MlKitPluginError.cameraIsNotInitialized` if try toggle without camera initialization,
     // or `MlKitPluginError.deviceHasNotFlash` if device doesn't have flash.
     func toggleFlash() throws {
@@ -212,7 +225,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
             return .portrait
         }
     }
-    
+
     func setZoom(_ value: Double) throws {
         guard let session = captureSession, session.isRunning, let camera = camera, camera.isConnected else {
             throw MlKitPluginError.cameraIsNotInitialized
@@ -239,7 +252,7 @@ extension CameraPreview: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
 }
 
-extension CameraPreview: CenterFocusViewDelegate {
+extension CameraPreview: FocusViewDelegate {
     
     func onFocus() {
         focusOnCenter(needLock: false)
@@ -253,11 +266,10 @@ extension CameraPreview: CenterFocusViewDelegate {
         guard let camera = camera else {
             return
         }
-        let point = CGPoint(x: 0.5, y: 0.5)
         do {
             try camera.lockForConfiguration()
-            camera.focusPointOfInterest = point
-            camera.exposurePointOfInterest = point
+            camera.focusPointOfInterest = focusPoint
+            camera.exposurePointOfInterest = focusPoint
             if (needLock) {
                 camera.exposureMode = .autoExpose
                 camera.focusMode = .autoFocus
@@ -276,6 +288,8 @@ extension CameraPreview: UIContainerDelegate {
         self.scaleX = self.preview.frame.width / UIScreen.main.bounds.width
         self.scaleY = self.preview.frame.height / UIScreen.main.bounds.height
         self.previewLayer?.frame = self.preview.frame
+        self.focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
+        focusView.changeFocusPoint(point: focusPoint)
     }
 }
 
