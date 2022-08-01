@@ -13,7 +13,7 @@ fun CameraView.useCenterFocus() {
     if (cameraOptions?.isAutoFocusSupported == true) {
         val focusView = CenterFocusView(context)
         focusView.setAutoFocusSetListener { needLock ->
-            focusOnCenter(if (needLock) 0 else 3000, 0.0F, 0.0F)
+            focusOnCenter(if (needLock) 0 else 3000)
         }
         setOnTouchListener { view, event ->
             view.performClick()
@@ -32,10 +32,13 @@ fun CameraView.useCenterFocus() {
  * If autofocus is not supported, then nothing will happen
  */
 fun CameraView.changeFocusCenter(widthOffset: Float = 0.0F, heightOffset: Float = 0.0F) {
+    if (cameraOptions?.isAutoFocusSupported != true) {
+        return
+    }
     for (i in 0..childCount) {
         val child = getChildAt(i)
         if (child is CenterFocusView) {
-            val (h, v) = calcAdaptiveMargins(
+            val (h, v) = calcAdaptiveOffsets(
                 resources.configuration.orientation,
                 width,
                 widthOffset,
@@ -45,7 +48,7 @@ fun CameraView.changeFocusCenter(widthOffset: Float = 0.0F, heightOffset: Float 
             child.setAutoFocusSetListener { needLock ->
                 focusOnCenter(if (needLock) 0 else 3000, h, v)
             }
-            child.setFocusCenter(h.toInt(), v.toInt())
+            child.setFocusCenter(h, v)
             return
         }
     }
@@ -86,23 +89,23 @@ fun CameraView.removeCenterFocus() {
  *
  * [resetDelay] in milliseconds to reset the focus after a metering event.
  *
- * Use [horizontalMargin] and [verticalMargin] to shift the center of focus
+ * Use [offsetX] and [offsetY] to shift the center of focus
  */
-private fun CameraView.focusOnCenter(resetDelay: Long, horizontalMargin: Float, verticalMargin: Float) {
+private fun CameraView.focusOnCenter(resetDelay: Long, offsetX: Float = 0.0F, offsetY: Float = 0.0F) {
     autoFocusResetDelay = resetDelay
-    startAutoFocus(width / 2 + horizontalMargin, height / 2 + verticalMargin)
+    startAutoFocus(width / 2 + offsetX, height / 2 + offsetY)
 }
 
 /**
- * Calculate margins depending on device [orientation]
+ * Calculate offsets depending on device [orientation]
  */
-private fun calcAdaptiveMargins(
+private fun calcAdaptiveOffsets(
     orientation: Int,
     width: Int,
     offsetWidth: Float,
     height: Int,
     offsetHeight: Float
 ): Pair<Float, Float> = when (orientation) {
-    1 -> Pair(width * offsetWidth, height * offsetHeight)
-    else -> Pair(-width * offsetHeight, -height * offsetWidth)
+    1 -> Pair(width / 2 * offsetWidth, height / 2 * offsetHeight)
+    else -> Pair(width / 2 * -offsetHeight, height / 2 * -offsetWidth)
 }

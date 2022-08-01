@@ -7,13 +7,14 @@ import android.view.animation.*
 import android.widget.FrameLayout
 import com.otaliastudios.cameraview.CameraListener
 import com.otaliastudios.cameraview.CameraOptions
-import kotlin.math.absoluteValue
 
-/** Handle a gesture for an auto focus realisation and draw a focus lock and an auto focus animation */
-class CenterFocusView(context: Context): FrameLayout(context), Animation.AnimationListener, View.OnLayoutChangeListener {
+/** Handle a gesture for an autofocus realisation and draw a focus lock and an autofocus animation */
+class CenterFocusView(context: Context) : FrameLayout(context), Animation.AnimationListener,
+    View.OnLayoutChangeListener {
     private lateinit var lock: View
     private lateinit var circle: View
-    private val layout: View
+    private lateinit var center: Pair<Float, Float>
+
     private val fadeAnimation = AnimationUtils.loadAnimation(context, R.anim.fade)
     private val fadeOutAnimation = AnimationUtils.loadAnimation(context, R.anim.fade_out)
     private var autoFocusSetListener: ((Boolean) -> Unit)? = null
@@ -35,22 +36,19 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
             }
         }
         val inflater = LayoutInflater.from(context)
-        layout = inflater.inflate(R.layout.center_focus_layout, null)
+        val layout = inflater.inflate(R.layout.center_focus_layout, null)
 
         addView(layout)
     }
 
     /**
-     * Sets focus center with margins [horizontalMargin] and [verticalMargin] based on sign
+     * Sets focus center with offsets [horizontalOffset] and [verticalOffset]
      */
-    fun setFocusCenter(horizontalMargin: Int = 0, verticalMargin: Int = 0) {
-        val (l, r) = if (horizontalMargin > 0) Pair(horizontalMargin.absoluteValue, 0) else Pair(0, horizontalMargin.absoluteValue)
-        val (t, b) = if (verticalMargin > 0) Pair(verticalMargin.absoluteValue, 0) else Pair(0, verticalMargin.absoluteValue)
-
-        layout.apply {
-            layoutParams = (layoutParams as MarginLayoutParams).apply {
-                setMargins(l, t, r, b)
-            }
+    fun setFocusCenter(horizontalOffset: Float = 0.0F, verticalOffset: Float = 0.0F) {
+        center = Pair(horizontalOffset, verticalOffset)
+        circle.apply {
+            translationX = horizontalOffset
+            translationY = verticalOffset
         }
     }
 
@@ -123,9 +121,9 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
     }
 
     private fun lockMovementAnimation(): Animation {
-        val deltaX = -lock.x + lock.height * 0.8F
-        val deltaY = -lock.y + lock.height * 0.8F
-        return TranslateAnimation(0F, deltaX, 0F, deltaY).apply {
+        val deltaX = lock.height * 0.8F - lock.x
+        val deltaY = lock.height * 0.8F - lock.y
+        return TranslateAnimation(center.first, deltaX, center.second, deltaY).apply {
             startOffset = 300
             duration = 500
         }
@@ -151,15 +149,19 @@ class CenterFocusView(context: Context): FrameLayout(context), Animation.Animati
 
     override fun onLayoutChange(
         v: View?,
-        left: Int,
-        top: Int,
-        right: Int,
-        bottom: Int,
-        oldLeft: Int,
-        oldTop: Int,
-        oldRight: Int,
-        oldBottom: Int
+        l: Int,
+        t: Int,
+        r: Int,
+        b: Int,
+        oldL: Int,
+        oldT: Int,
+        oldR: Int,
+        oldB: Int,
     ) {
+        // exclude parasite redraws
+        if (l == oldL && t == oldT && r == oldR && b == oldB) {
+            return
+        }
         if (lock.visibility == View.VISIBLE) {
             lock.apply {
                 val translateAnimation = lockMovementAnimation().apply {
