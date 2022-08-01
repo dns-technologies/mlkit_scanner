@@ -38,13 +38,15 @@ class _MyAppState extends State<MyApp> {
                 Container(
                   height: 200,
                   child: BarcodeScanner(
-                    cropOverlay: const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
+                    cropOverlay:
+                        const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
                     onScan: (code) {
                       setState(() {
                         _barcode = code;
                       });
                     },
-                    onScannerInitialized: (controller) => _controller = controller,
+                    onScannerInitialized: (controller) =>
+                        _controller = controller,
                   ),
                 ),
                 Align(
@@ -146,7 +148,9 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               onPressed: () {
-                _actialZoomIndex = _actialZoomIndex + 1 < _zoomValues.length ? _actialZoomIndex + 1 : 0;
+                _actialZoomIndex = _actialZoomIndex + 1 < _zoomValues.length
+                    ? _actialZoomIndex + 1
+                    : 0;
                 _controller?.setZoom(_zoomValues[_actialZoomIndex]);
               },
             ),

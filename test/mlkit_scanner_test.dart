@@ -38,7 +38,8 @@ void main() {
         final widget = tester.firstWidget(platformView) as AndroidView;
         widget.onPlatformViewCreated!(1);
         await tester.pumpAndSettle();
-        expect(cameraInitialized, true, reason: 'Камера не проинициализировалась');
+        expect(cameraInitialized, true,
+            reason: 'Камера не проинициализировалась');
       });
     });
 
@@ -48,7 +49,7 @@ void main() {
         await tester.pumpWidget(TestApp(
           child: BarcodeScanner(
             onScannerInitialized: (c) => controller = c,
-            onScan: (value) {  },
+            onScan: (value) {},
           ),
         ));
         final camera = find.byType(CameraPreview);
@@ -56,7 +57,9 @@ void main() {
         final widget = tester.firstWidget(camera) as CameraPreview;
         widget.onCameraInitialized();
         await tester.pumpAndSettle();
-        expect(controller, isNotNull, reason: 'Виджет не вернул контроллер для управлением сканированием');
+        expect(controller, isNotNull,
+            reason:
+                'Виджет не вернул контроллер для управлением сканированием');
       });
     });
   });
