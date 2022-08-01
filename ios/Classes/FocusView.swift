@@ -28,11 +28,11 @@ class FocusView: UIView {
     init(frame: CGRect, point: CGPoint) {
         let image = UIImage.fromLibraryAssets(name: "lock")
         lockImage = UIImageView(image: image)
-        lockInitialCenter = CGPoint(x: frame.midX - (circleRadius + lockImage.bounds.width), y: frame.midY)
+        lockInitialCenter = CGPoint(x: point.x - (circleRadius + lockImage.bounds.width), y: point.y)
         lockImage.center = lockInitialCenter
         lockImage.alpha = 0
         
-        circleLayer = FocusView.buildCircle(in: frame, with: circleRadius, point: point)
+        circleLayer = FocusView.buildCircle(with: circleRadius, point: point)
         
         super.init(frame: frame)
         layer.addSublayer(circleLayer)
@@ -52,23 +52,19 @@ class FocusView: UIView {
     
     override func layoutSubviews() {
         super.layoutSubviews()
-        updateLayers()
     }
-    
-    private func updateLayers() {
-        lockInitialCenter = CGPoint(x: frame.midX - (circleRadius + lockImage.bounds.width), y: frame.midY)
+
+    func changeFocusPoint(point: CGPoint) {
+        circleLayer.path = FocusView.buildCirclePath(radius: circleRadius, point: point).cgPath
+        lockInitialCenter = CGPoint(x: point.x - (circleRadius + lockImage.bounds.width), y: point.y)
         if (lockImage.alpha == 0) {
             lockImage.center = lockInitialCenter
         }
     }
 
-    func changeFocusPoint(point: CGPoint) {
-        circleLayer.path = FocusView.buildCirclePath(frame: frame, radius: circleRadius, point: point).cgPath
-    }
-
-    private class func buildCircle(in frame: CGRect, with radius: CGFloat, point: CGPoint) -> CAShapeLayer {
+    private class func buildCircle(with radius: CGFloat, point: CGPoint) -> CAShapeLayer {
         let layer = CAShapeLayer()
-        let path = FocusView.buildCirclePath(frame: frame, radius: radius, point: point)
+        let path = FocusView.buildCirclePath(radius: radius, point: point)
         layer.path = path.cgPath
         layer.fillColor = UIColor.clear.cgColor
         layer.strokeColor = UIColor.white.cgColor
@@ -77,7 +73,7 @@ class FocusView: UIView {
         return layer
     }
     
-    private class func buildCirclePath(frame: CGRect, radius: CGFloat, point: CGPoint) -> UIBezierPath {
+    private class func buildCirclePath(radius: CGFloat, point: CGPoint) -> UIBezierPath {
         return UIBezierPath(arcCenter: point, radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
     }
     
