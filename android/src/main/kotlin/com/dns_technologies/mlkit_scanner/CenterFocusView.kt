@@ -121,7 +121,7 @@ class CenterFocusView(context: Context) : FrameLayout(context), Animation.Animat
     }
 
     private fun lockMovementAnimation(): Animation {
-        val deltaX = lock.height * 0.8F - lock.x
+        val deltaX = lock.width * 0.8F - lock.x
         val deltaY = lock.height * 0.8F - lock.y
         return TranslateAnimation(center.first, deltaX, center.second, deltaY).apply {
             startOffset = 300
