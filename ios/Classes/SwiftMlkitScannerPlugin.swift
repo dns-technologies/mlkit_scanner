@@ -176,6 +176,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             return result(nil)
         }
         recognitionHandler?.updateCropRect(cropRect: rect)
+        cameraPreview?.changeFocusCenter(offsetX: rect.offsetX, offsetY: rect.offsetY)
         if let overlay = scannerOverlay {
             overlay.updateCropRect(rect: rect)
         } else {

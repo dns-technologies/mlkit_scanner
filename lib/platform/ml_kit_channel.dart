@@ -22,8 +22,10 @@ class MlKitChannel {
 
   static MlKitChannel? _instance;
   final MethodChannel _channel = const MethodChannel('mlkit_channel');
-  final StreamController<String> _scanResultStreamController = StreamController<String>.broadcast();
-  final StreamController<bool> _torchToggleStreamController = StreamController<bool>.broadcast();
+  final StreamController<String> _scanResultStreamController =
+      StreamController<String>.broadcast();
+  final StreamController<bool> _torchToggleStreamController =
+      StreamController<bool>.broadcast();
 
   /// Stream inform when torch change state.
   ///
@@ -39,7 +41,8 @@ class MlKitChannel {
     _channel.setMethodCallHandler((call) async {
       if (call.method == _scanResultMethod && call.arguments is String) {
         _scanResultStreamController.add(call.arguments);
-      } else if (call.method == _changeTorchStateMethod && call.arguments is bool) {
+      } else if (call.method == _changeTorchStateMethod &&
+          call.arguments is bool) {
         _torchToggleStreamController.add(call.arguments);
       }
     });
@@ -52,12 +55,14 @@ class MlKitChannel {
   Future<void> initCameraPreview() {
     return _channel.invokeMethod(_initCameraMethod);
   }
+
   /// Release resources of the camera.
   ///
   /// Must call this method when camera is no longer needed.
   Future<void> dispose() {
     return _channel.invokeMethod(_disposeMethod);
   }
+
   /// Toggle flash of the device.
   ///
   /// Can throw a [PlatformException] if doesn't have flash.
@@ -68,7 +73,7 @@ class MlKitChannel {
   /// Start recognition objects of type [RecognitionType]
   ///
   /// `type` - [RecognitionType], plugin will use MlKit API for this type.
-  /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption. 
+  /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
   /// Detection happens every [delay] milliseconds, skipping frames during delay
   /// Can throw [PlatformException] if camera is not initialized.
   Future<Stream<String>> startScan(RecognitionType type, int delay) async {
@@ -85,15 +90,16 @@ class MlKitChannel {
     return _channel.invokeMethod(_cancelScanMethod);
   }
 
-  /// Set delay between detections when scanning is active. 
-  /// 
+  /// Set delay between detections when scanning is active.
+  ///
   /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
   /// Detection happens every [delay] milliseconds, skipping frames during delay
   Future<void> setScanDelay(int delay) {
     return _channel.invokeMethod(_setScanDelayMethod, delay);
   }
+
   /// Update frame constraints for native platform view.
-  /// 
+  ///
   /// Must call when Flutter widget [AndroidView] or [UIkitView] changes size.
   Future<void> updateConstraints(double width, double height) {
     final arg = {
@@ -111,7 +117,7 @@ class MlKitChannel {
   }
 
   /// Resume camera, also start detection if method [startScan] was called before pause.
-  /// 
+  ///
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> resumeCamera() {
     return _channel.invokeMethod(_resumeCameraMethod);

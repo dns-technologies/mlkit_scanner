@@ -63,6 +63,14 @@ class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
 
     override fun isActive(): Boolean = cameraView.isOpened
 
+    /**
+     * Shifts the focus from the center
+     */
+    override fun changeFocusCenter(widthOffset: Float, heightOffset: Float) {
+        cameraView.changeFocusCenter(widthOffset, heightOffset)
+        cameraView.removeCameraListener(this)
+    }
+
     override fun toggleFlashLight() {
         if (!hasSupportedFlash) throw HasNoFlashUnitException()
         val currentFlash = cameraView.flash
