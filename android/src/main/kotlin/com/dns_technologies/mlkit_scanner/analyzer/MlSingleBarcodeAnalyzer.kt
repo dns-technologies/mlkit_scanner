@@ -86,7 +86,9 @@ class MlSingleBarcodeAnalyzer(type: RecognitionType) : CameraImageAnalyzer(type)
                 isAnalysisInProgress = false
             }
             .addOnFailureListener {
-                Log.e(TAG, it.message)
+                if (it.message != null) {
+                    Log.e(TAG, it.message)
+                }
                 isAnalysisInProgress = false
             }
     }
