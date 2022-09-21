@@ -35,8 +35,8 @@ class CameraPreview: NSObject, FlutterPlatformView {
         (scaleX, scaleY) = (frame.width / UIScreen.main.bounds.width, frame.height / UIScreen.main.bounds.height)
         (self.offsetX, self.offsetY) = (offsetX, offsetY)
         let focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
-        self.focusPoint = focusPoint
-        focusView = FocusView(frame: preview.frame, point: focusPoint)
+        self.focusPoint = focusPoint.normalized()
+        focusView = FocusView(frame: preview.frame, point: focusPoint.position())
         super.init()
         preview.delegate = self
         focusView.delegate = self
@@ -112,15 +112,16 @@ class CameraPreview: NSObject, FlutterPlatformView {
     }
         
     /// Calculates the focus point relative to center of the screen with offsets `offsetX` and `offsetY`
-    private class func calcFocusPoint(preview: UIContainer, offsetX: CGFloat, offsetY: CGFloat) -> CGPoint {
-        return CGPoint(x: preview.frame.midX + preview.frame.midX * offsetX, y: preview.frame.midY + preview.frame.midY * offsetY)
+    private class func calcFocusPoint(preview: UIContainer, offsetX: CGFloat, offsetY: CGFloat) -> FocusPoint {
+        return FocusPoint(frame: preview.frame, offsetX: offsetX, offsetY: offsetY)
     }
     
     /// Сhanges focus around the center
     func changeFocusCenter(offsetX: CGFloat, offsetY: CGFloat) {
         (self.offsetX, self.offsetY) = (offsetX, offsetY)
         let focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
-        focusView.changeFocusPoint(point: focusPoint)
+        self.focusPoint = focusPoint.normalized()
+        focusView.changeFocusPoint(point: focusPoint.position())
     }
     
     /// Toggle of the device flash. Throws `MlKitPluginError.cameraIsNotInitialized` if try toggle without camera initialization,
@@ -288,8 +289,9 @@ extension CameraPreview: UIContainerDelegate {
         self.scaleX = self.preview.frame.width / UIScreen.main.bounds.width
         self.scaleY = self.preview.frame.height / UIScreen.main.bounds.height
         self.previewLayer?.frame = self.preview.frame
-        self.focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
-        focusView.changeFocusPoint(point: focusPoint)
+        let focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
+        self.focusPoint = focusPoint.normalized()
+        focusView.changeFocusPoint(point: focusPoint.position())
     }
 }
 
@@ -327,5 +329,26 @@ fileprivate class UIContainer : UIView {
         heightConstraint.constant = height
         widthConstraint.constant = width
         updateConstraints()
+    }
+}
+
+/// Camera focus point.
+fileprivate class FocusPoint {
+    private let point: CGPoint
+    private let frame: CGRect
+    
+    init(frame: CGRect, offsetX: CGFloat, offsetY: CGFloat) {
+        self.point = CGPoint(x: (frame.midX + frame.midX * offsetX) / frame.maxX, y: (frame.midY + frame.midY * offsetY) / frame.maxY)
+        self.frame = frame
+    }
+    
+    /// Returns the coordinates of a focus point.
+    func position() -> CGPoint {
+        return CGPoint(x: point.x * frame.maxX, y: point.y * frame.maxY)
+    }
+    
+    /// Returns the normalized focus point.
+    func normalized() -> CGPoint {
+        return point;
     }
 }
