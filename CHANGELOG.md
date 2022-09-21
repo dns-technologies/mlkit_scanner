@@ -1,3 +1,11 @@
+## 0.3.3
+
+[fix]
+
+- Fix "smart cast to 'String' is impossible, because 'it.message' is a property that has open or custom getter" in MISingleBarcodeAnalyzer.kt
+- Fix camera focus on ios
+- Fix example xcode asked to sign scanner assets for each build problem
+
 ## 0.3.2
 
 [fix]
