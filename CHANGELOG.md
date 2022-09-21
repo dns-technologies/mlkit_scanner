@@ -1,6 +1,18 @@
+## 0.3.2
+
+[fix]
+
+- Added null check in tryAnalyzeInputImage
+
+## 0.3.1
+
+[fix]
+
+- Now center of the camera focus view depends on offsets
+
 ## 0.3.0
 
-* support Flutter 3.0 
+* support Flutter 3.0
 
 ## 0.2.0
 
