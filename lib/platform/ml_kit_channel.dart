@@ -22,10 +22,8 @@ class MlKitChannel {
 
   static MlKitChannel? _instance;
   final MethodChannel _channel = const MethodChannel('mlkit_channel');
-  final StreamController<String> _scanResultStreamController =
-      StreamController<String>.broadcast();
-  final StreamController<bool> _torchToggleStreamController =
-      StreamController<bool>.broadcast();
+  final StreamController<String> _scanResultStreamController = StreamController<String>.broadcast();
+  final StreamController<bool> _torchToggleStreamController = StreamController<bool>.broadcast();
 
   /// Stream inform when torch change state.
   ///
@@ -41,8 +39,7 @@ class MlKitChannel {
     _channel.setMethodCallHandler((call) async {
       if (call.method == _scanResultMethod && call.arguments is String) {
         _scanResultStreamController.add(call.arguments);
-      } else if (call.method == _changeTorchStateMethod &&
-          call.arguments is bool) {
+      } else if (call.method == _changeTorchStateMethod && call.arguments is bool) {
         _torchToggleStreamController.add(call.arguments);
       }
     });

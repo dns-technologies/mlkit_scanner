@@ -19,5 +19,7 @@ class CameraPlatformView(private val cameraPreview: CameraView, id: Int, creatio
 
     override fun getView() = cameraPreview
 
-    override fun dispose() {}
+    override fun dispose() {
+        cameraPreview.destroy();
+    }
 }

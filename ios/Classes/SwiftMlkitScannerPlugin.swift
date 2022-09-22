@@ -52,6 +52,9 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     }
     
     private func initCamera(result: @escaping FlutterResult) {
+        // When rebuilding a widget, dispose() is not called,
+        // which causes situations where initCamera() can be called multiple times.
+        scannerOverlay = nil
         guard let cameraPreview = cameraPreview else {
             self.handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
             return
