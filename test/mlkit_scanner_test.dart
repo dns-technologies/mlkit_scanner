@@ -11,6 +11,12 @@ void main() {
     setUpAll(() {
       TestWidgetsFlutterBinding.ensureInitialized();
 
+      SystemChannels.platform_views.setMockMethodCallHandler((call) async {
+        switch (call.method) {
+          default:
+            null;
+        }
+      });
       channel.setMockMethodCallHandler((call) async {
         switch (call.method) {
           default:
@@ -21,6 +27,7 @@ void main() {
 
     tearDownAll(() {
       channel.setMockMethodCallHandler(null);
+      SystemChannels.platform_views.setMockMethodCallHandler(null);
     });
 
     group('Тестрирование CameraPreview', () {
@@ -33,13 +40,10 @@ void main() {
             ),
           ),
         );
-        final platformView = find.byType(AndroidView);
+        final platformView = find.byType(AndroidViewSurface);
         expect(platformView, findsOneWidget);
-        final widget = tester.firstWidget(platformView) as AndroidView;
-        widget.onPlatformViewCreated!(1);
         await tester.pumpAndSettle();
-        expect(cameraInitialized, true,
-            reason: 'Камера не проинициализировалась');
+        expect(cameraInitialized, true, reason: 'Камера не проинициализировалась');
       });
     });
 
@@ -57,9 +61,7 @@ void main() {
         final widget = tester.firstWidget(camera) as CameraPreview;
         widget.onCameraInitialized();
         await tester.pumpAndSettle();
-        expect(controller, isNotNull,
-            reason:
-                'Виджет не вернул контроллер для управлением сканированием');
+        expect(controller, isNotNull, reason: 'Виджет не вернул контроллер для управлением сканированием');
       });
     });
   });
