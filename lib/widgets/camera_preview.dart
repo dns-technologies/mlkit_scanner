@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -43,7 +43,7 @@ class _CameraPreviewState extends State<CameraPreview> {
     return LayoutBuilder(
       builder: (context, constraints) {
         _channel.updateConstraints(constraints.maxWidth, constraints.maxHeight);
-        if (Platform.isIOS) {
+        if (defaultTargetPlatform == TargetPlatform.iOS) {
           return UiKitView(
             viewType: 'mlkit/camera_preview',
             onPlatformViewCreated: _onViewCreated,
