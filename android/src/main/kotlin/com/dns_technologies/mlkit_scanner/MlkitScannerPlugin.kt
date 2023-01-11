@@ -204,6 +204,9 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
   }
 
   private fun initCamera() {
+    // When rebuilding a widget, dispose() is not called,
+    // which causes situations where initCamera() can be called multiple times.
+    scannerOverlay = null
     cameraLifecycle = CameraLifecycle()
     createScannerCamera()
     cameraLifecycle!!.resume()
