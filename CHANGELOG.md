@@ -1,3 +1,11 @@
+## 0.3.4
+
+[fix]
+
+- Fix unit tests
+- Migration to using targetPlatform instead of Platform.is
+- Fix issues with NativeView disappearing on rebuild or hotreload
+
 ## 0.3.3
 
 [fix]
