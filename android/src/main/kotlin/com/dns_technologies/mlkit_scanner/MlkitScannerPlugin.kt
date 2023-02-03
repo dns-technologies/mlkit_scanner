@@ -55,6 +55,7 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
   private var cameraImagePreparer = MlKitAnalysingImagePreparer()
   private var analyzer: CameraImageAnalyzer? = null
   private var scannerOverlay: ScannerOverlay? = null
+  private var isLockedAutoResumeCamera: Boolean = false
 
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
     channel = MethodChannel(flutterPluginBinding.binaryMessenger, PluginConstants.channelName)
@@ -135,11 +136,13 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
   }
 
   private fun resumeCamera(result: Result) {
+    isLockedAutoResumeCamera = false
     cameraLifecycle!!.resume()
     result.success(true)
   }
 
   private fun pauseCamera(result: Result) {
+    isLockedAutoResumeCamera = true
     cameraLifecycle!!.pause()
     result.success(true)
   }
@@ -311,15 +314,12 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
 
   @OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
   private fun onResume() {
-    if (cameraLifecycle != null) {
-      cameraLifecycle!!.resume()
-    }
+    if (isLockedAutoResumeCamera) return
+    cameraLifecycle?.resume()
   }
 
   @OnLifecycleEvent(Lifecycle.Event.ON_PAUSE)
   private fun onPause() {
-    if (camera?.isActive() == true) {
-      cameraLifecycle!!.pause()
-    }
+    cameraLifecycle?.pause()
   }
 }
