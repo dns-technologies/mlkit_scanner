@@ -36,6 +36,7 @@ class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
     private val hasSupportedFlash: Boolean by lazy {
         cameraOptions.supportedFlash.containsAll(arrayListOf(Flash.OFF, Flash.TORCH))
     }
+    private var focusCenter: Pair<Float, Float> = Pair(0.0F, 0.0F)
 
     init {
         cameraView.useDeviceOrientation = false
@@ -67,6 +68,9 @@ class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
      * Shifts the focus from the center
      */
     override fun changeFocusCenter(widthOffset: Float, heightOffset: Float) {
+        // save focus center position for case when CenterFocusView not added in tree views.
+        focusCenter = Pair(widthOffset, heightOffset)
+
         cameraView.changeFocusCenter(widthOffset, heightOffset)
         cameraView.removeCameraListener(this)
     }
@@ -93,7 +97,7 @@ class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
     override fun onCameraOpened(options: CameraOptions) {
         cameraOptions = options
         onInitSuccess.invoke()
-        cameraView.useCenterFocus()
+        cameraView.useCenterFocus(focusCenter)
         cameraView.removeCameraListener(this)
         super.onCameraOpened(options)
     }

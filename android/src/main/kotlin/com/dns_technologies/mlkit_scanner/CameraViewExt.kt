@@ -9,9 +9,9 @@ import com.otaliastudios.cameraview.CameraView
  * By long tap, focus is locked on the [CameraView] center. By pressing, focusing in the [CameraView]
  * center occurs without locking.
  */
-fun CameraView.useCenterFocus() {
+fun CameraView.useCenterFocus(center: Pair<Float, Float>) {
     if (cameraOptions?.isAutoFocusSupported == true) {
-        val focusView = CenterFocusView(context)
+        val focusView = CenterFocusView(context, center)
         focusView.setAutoFocusSetListener { needLock ->
             focusOnCenter(if (needLock) 0 else 3000)
         }

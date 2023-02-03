@@ -9,12 +9,14 @@ import com.otaliastudios.cameraview.CameraListener
 import com.otaliastudios.cameraview.CameraOptions
 
 /** Handle a gesture for an autofocus realisation and draw a focus lock and an autofocus animation */
-class CenterFocusView(context: Context) : FrameLayout(context), Animation.AnimationListener,
+@SuppressLint("ViewConstructor")
+class CenterFocusView constructor(
+    context: Context,
+    private var center: Pair<Float, Float>,
+) : FrameLayout(context), Animation.AnimationListener,
     View.OnLayoutChangeListener {
     private lateinit var lock: View
     private lateinit var circle: View
-    private lateinit var center: Pair<Float, Float>
-
     private val fadeAnimation = AnimationUtils.loadAnimation(context, R.anim.fade)
     private val fadeOutAnimation = AnimationUtils.loadAnimation(context, R.anim.fade_out)
     private var autoFocusSetListener: ((Boolean) -> Unit)? = null
