@@ -320,6 +320,8 @@ class MlkitScannerPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Lifec
 
   @OnLifecycleEvent(Lifecycle.Event.ON_PAUSE)
   private fun onPause() {
-    cameraLifecycle?.pause()
+    if (camera?.isActive() == true) {
+      cameraLifecycle?.pause()
+    }
   }
 }
