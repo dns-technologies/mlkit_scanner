@@ -1,3 +1,9 @@
+## 0.3.5
+
+[fix]
+
+- Fix auto resume camera after manually pause (Android).
+
 ## 0.3.4
 
 [fix]
