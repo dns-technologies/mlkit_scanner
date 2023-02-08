@@ -3,6 +3,7 @@
 [fix]
 
 - Fix auto resume camera after manually pause (Android).
+- Fix lateinit property center has not been initialized at CenterFocusView.lockMovementAnimation (Android).
 
 ## 0.3.4
 
