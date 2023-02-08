@@ -117,11 +117,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
             return device
         }
         
-        if let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
-            return device
-        }
-
-        return nil
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
     
     private func addFocusView() {
