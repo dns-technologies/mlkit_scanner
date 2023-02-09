@@ -7,8 +7,9 @@ import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 /// Signature of the BarcodeScanner success initialize scanner function.
-typedef BarcodeScannerInitializeCallback = Function(
-    BarcodeScannerController controller);
+typedef BarcodeScannerInitializeCallback = void Function(
+  BarcodeScannerController controller,
+);
 
 /// Widget for scanning barcodes using MLkit Barcode Scanning.
 class BarcodeScanner extends StatefulWidget {
