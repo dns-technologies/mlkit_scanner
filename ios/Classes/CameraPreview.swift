@@ -108,10 +108,8 @@ class CameraPreview: NSObject, FlutterPlatformView {
     }
     
     private func createDevice() -> AVCaptureDevice? {
-        if #available(iOS 13.0, *) {
-            if let device = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {
-                return device
-            }
+        if #available(iOS 13.0, *), let device = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {
+            return device
         }
         
         if let device = AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back) {
