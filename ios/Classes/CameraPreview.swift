@@ -69,7 +69,8 @@ class CameraPreview: NSObject, FlutterPlatformView {
         do {
             try checkPermission()
             
-            guard let camera = createDevice() else {
+            camera = createDevice()
+            guard let camera = camera else {
                 completion(MlKitPluginError.initCameraError)
                 return
             }
