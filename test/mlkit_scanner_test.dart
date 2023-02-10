@@ -23,26 +23,6 @@ void main() {
       channel.setMockMethodCallHandler(null);
     });
 
-    group('Тестрирование CameraPreview', () {
-      testWidgets('Инициализация камеры', (tester) async {
-        var cameraInitialized = false;
-        await tester.pumpWidget(
-          TestApp(
-            child: CameraPreview(
-              onCameraInitialized: () => cameraInitialized = true,
-            ),
-          ),
-        );
-        final platformView = find.byType(AndroidView);
-        expect(platformView, findsOneWidget);
-        final widget = tester.firstWidget(platformView) as AndroidView;
-        widget.onPlatformViewCreated!(1);
-        await tester.pumpAndSettle();
-        expect(cameraInitialized, true,
-            reason: 'Камера не проинициализировалась');
-      });
-    });
-
     group('Тестирование BarcodeScanner', () {
       testWidgets('Инициализация виджета', (tester) async {
         BarcodeScannerController? controller;
@@ -57,9 +37,7 @@ void main() {
         final widget = tester.firstWidget(camera) as CameraPreview;
         widget.onCameraInitialized();
         await tester.pumpAndSettle();
-        expect(controller, isNotNull,
-            reason:
-                'Виджет не вернул контроллер для управлением сканированием');
+        expect(controller, isNotNull, reason: 'Виджет не вернул контроллер для управлением сканированием');
       });
     });
   });

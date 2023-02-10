@@ -1,3 +1,18 @@
+## 0.3.5
+
+[fix]
+
+- Fix auto resume camera after manually pause (Android).
+- Fix lateinit property center has not been initialized at CenterFocusView.lockMovementAnimation (Android).
+
+## 0.3.4
+
+[fix]
+
+- Fix unit tests
+- Migration to using targetPlatform instead of Platform.is
+- Fix issues with NativeView disappearing on rebuild or hotreload
+
 ## 0.3.3
 
 [fix]
