@@ -1,3 +1,10 @@
+## 0.3.6
+
+[fix]
+
+- Improve camera selection on devices with multiple cameras (iOS).
+- Make controller in initialization callback non-nullable.
+
 ## 0.3.5
 
 [fix]
