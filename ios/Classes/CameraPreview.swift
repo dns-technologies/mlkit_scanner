@@ -69,7 +69,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         do {
             try checkPermission()
             
-            camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+            camera = createDevice()
             guard let camera = camera else {
                 completion(MlKitPluginError.initCameraError)
                 return
@@ -105,6 +105,18 @@ class CameraPreview: NSObject, FlutterPlatformView {
             session.startRunning()
             completion(nil)
         }
+    }
+    
+    private func createDevice() -> AVCaptureDevice? {
+        if #available(iOS 13.0, *), let device = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {
+            return device
+        }
+        
+        if let device = AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back) {
+            return device
+        }
+        
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
     
     private func addFocusView() {
