@@ -62,14 +62,14 @@ class CameraPreview: NSObject, FlutterPlatformView {
         return preview
     }
     
-    /// Initialization of the device camera. Initialization runs in non UI thread. 
+    /// Initialization of the device camera. Initialization runs in non UI thread.
     /// Result of init caling with closure `completion`.
-    /// Can return `Error` on problem with device camera or app doesn't have permission to use camera. 
+    /// Can return `Error` on problem with device camera or app doesn't have permission to use camera.
     func initCamera(completion: @escaping (Error?) -> ()) {
         do {
             try checkPermission()
             
-            camera = createDevice()
+            camera = createWideAngleCamera()
             guard let camera = camera else {
                 completion(MlKitPluginError.initCameraError)
                 return
@@ -94,7 +94,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         subscribeOrientationChanges()
         self.observeTorchToggle()
         sessionQueue.async {  [weak self] in
-            guard let self = self , let session = self.captureSession else {
+            guard let self = self, let session = self.captureSession else {
                 completion(MlKitPluginError.cameraIsNotInitialized)
                 return
             }
@@ -107,7 +107,26 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
     
-    private func createDevice() -> AVCaptureDevice? {
+    func setBestCameraUsage(useBestCamera: Bool) throws {
+        guard let session = self.captureSession, let currentInput = session.inputs.first else {
+            throw MlKitPluginError.cameraIsNotInitialized
+        }
+
+        guard let newCamera = useBestCamera ? createBestCamera() : createWideAngleCamera() else {
+            throw MlKitPluginError.initCameraError
+        }
+        
+        let newInput = try AVCaptureDeviceInput.init(device: newCamera)
+        camera = newCamera
+        
+        session.beginConfiguration()
+        session.removeInput(currentInput)
+        session.addInput(newInput)
+        session.commitConfiguration()
+    }
+    
+    
+    private func createBestCamera() -> AVCaptureDevice? {
         if #available(iOS 13.0, *), let device = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {
             return device
         }
@@ -116,6 +135,10 @@ class CameraPreview: NSObject, FlutterPlatformView {
             return device
         }
         
+        return createWideAngleCamera()
+    }
+    
+    private func createWideAngleCamera() -> AVCaptureDevice? {
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
     
