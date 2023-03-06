@@ -19,6 +19,8 @@ class MlKitChannel {
   static const _changeTorchStateMethod = 'changeTorchStateMethod';
   static const _setZoomMethod = 'setZoom';
   static const _setCropAreaMethod = 'setCropAreaMethod';
+  static const _setBestCameraUsage = 'setBestCameraUsage';
+  static const _getAvailableCameras = 'getAvailableCameras';
 
   static MlKitChannel? _instance;
   final MethodChannel _channel = const MethodChannel('mlkit_channel');
@@ -130,5 +132,13 @@ class MlKitChannel {
   /// `rect` - Scanning area of the overlay.
   Future<void> setCropArea(CropRect rect) {
     return _channel.invokeMethod(_setCropAreaMethod, rect.toJson());
+  }
+
+  Future<void> setBestCameraUsage({required bool useBestCamera}) {
+    return _channel.invokeMethod(_setBestCameraUsage, useBestCamera);
+  }
+
+  Future<Map<int, List<int>>?> getAvailableCameras() {
+    return _channel.invokeMethod<Map<int, List<int>>>(_getAvailableCameras);
   }
 }

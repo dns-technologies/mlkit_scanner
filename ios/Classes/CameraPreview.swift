@@ -125,6 +125,28 @@ class CameraPreview: NSObject, FlutterPlatformView {
         session.commitConfiguration()
     }
     
+    func getAvailableCameras() -> [AVCaptureDevice] {
+        var deviceTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInWideAngleCamera,
+            .builtInTelephotoCamera,
+            .builtInDualCamera,
+        ]
+        if #available(iOS 13.0, *) {
+            deviceTypes.append(contentsOf: [
+                .builtInUltraWideCamera,
+                .builtInDualWideCamera,
+                .builtInTripleCamera,
+                .builtInTrueDepthCamera,
+            ])
+        }
+        if #available(iOS 15.4, *) {
+            deviceTypes.append(.builtInLiDARDepthCamera)
+        }
+        
+        let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: deviceTypes, mediaType: .video, position: .unspecified)
+        return discoverySession.devices
+    }
+    
     
     private func createBestCamera() -> AVCaptureDevice? {
         if #available(iOS 13.0, *), let device = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {

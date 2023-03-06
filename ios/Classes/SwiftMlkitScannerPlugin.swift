@@ -46,6 +46,10 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             setZoom(arguments: call.arguments, result: result)
         case PluginConstants.setCropAreaMethod:
             setCropArea(arguments: call.arguments, result: result)
+        case PluginConstants.setBestCameraUsage:
+            setBestCameraUsage(arguments: call.arguments, result: result)
+        case PluginConstants.getAvailableCamerasMethod:
+            getAvailableCameras(result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -187,6 +191,47 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             camera.addSubview(scannerOverlay!)
         }
         result(nil)
+    }
+    
+    private func setBestCameraUsage(arguments: Any?, result: @escaping FlutterResult) {
+        guard let useBestCamera = arguments as? Bool else {
+            handleError(error: MlKitPluginError.invalidArguments, result: result)
+            return
+        }
+        do {
+            try cameraPreview?.setBestCameraUsage(useBestCamera: useBestCamera)
+            result(nil)
+        } catch {
+            handleError(error: error, result: result)
+        }
+    }
+    
+    private func getAvailableCameras(result: @escaping FlutterResult) {
+        guard let cameraPreview = cameraPreview else {
+            result(nil)
+            return
+        }
+        
+        let cameras = cameraPreview.getAvailableCameras()
+     
+        var availableCameras = [
+            MlKitPluginIosCameraPosition.front: [MlKitPluginIosCameraType](),
+            MlKitPluginIosCameraPosition.back: [MlKitPluginIosCameraType](),
+        ]
+        
+        for camera in cameras {
+            let position = camera.position.mlKitPluginIosCameraPosition
+            if var camerasForPosition = availableCameras[position] {
+                let type = camera.deviceType.mlKitPluginIosCameraType
+                if type != .unknown {
+                    camerasForPosition.append(type)
+                }
+            }
+        }
+        
+        let json = try? JSONEncoder().encode(availableCameras)
+        print(json)
+        result(availableCameras)
     }
 
     private func handleError(error: Error, result: @escaping FlutterResult) {

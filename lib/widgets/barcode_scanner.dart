@@ -123,6 +123,14 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   Future<void> _setZoom(double value) {
     return _channel.setZoom(value);
   }
+
+  Future<Map<int, List<int>>?> _getAvailableCameras() {
+    return _channel.getAvailableCameras();
+  }
+
+  Future<void> _setBestCameraUsage({required bool useBestCamera}) {
+    return _channel.setBestCameraUsage(useBestCamera: useBestCamera);
+  }
 }
 
 /// Controller for control camera and detection. Return by widget [BarcodeScanner] when scanner is initialized.
@@ -187,6 +195,14 @@ class BarcodeScannerController {
       "Value can only be in the range from 0 to 1",
     );
     return _barcodeScannerState?._setZoom(value);
+  }
+
+  Future<void> setBestCameraUsage({required bool useBestCamera}) async {
+    return _barcodeScannerState?._setBestCameraUsage(useBestCamera: useBestCamera);
+  }
+
+  Future<Map<int, List<int>>?>? getAvailableCameras() {
+    return _barcodeScannerState?._getAvailableCameras();
   }
 
   void _attach(_BarcodeScannerState state) {

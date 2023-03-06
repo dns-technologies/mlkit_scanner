@@ -1,0 +1,5 @@
+enum IosCameraPosition {
+  back,
+
+  front,
+}

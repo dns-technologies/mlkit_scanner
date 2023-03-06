@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 
@@ -14,6 +16,8 @@ class _MyAppState extends State<MyApp> {
   var _barcode = 'Please, scan';
   var _zoomValues = [0.0, 0.33, 0.66];
   var _actialZoomIndex = 0;
+  var useBestCamera = false;
+
   static const _delayOptions = {
     "0 milliseconds": 0,
     "100 milliseconds": 100,
@@ -38,15 +42,18 @@ class _MyAppState extends State<MyApp> {
                 Container(
                   height: 200,
                   child: BarcodeScanner(
-                    cropOverlay:
-                        const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
+                    cropOverlay: const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
                     onScan: (code) {
                       setState(() {
                         _barcode = code;
                       });
                     },
-                    onScannerInitialized: (controller) =>
-                        _controller = controller,
+                    onScannerInitialized: (controller) async {
+                      _controller = controller;
+                      if (Platform.isIOS) {
+                        print(await controller.getAvailableCameras());
+                      }
+                    },
                   ),
                 ),
                 Align(
@@ -148,10 +155,20 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               onPressed: () {
-                _actialZoomIndex = _actialZoomIndex + 1 < _zoomValues.length
-                    ? _actialZoomIndex + 1
-                    : 0;
+                _actialZoomIndex = _actialZoomIndex + 1 < _zoomValues.length ? _actialZoomIndex + 1 : 0;
                 _controller?.setZoom(_zoomValues[_actialZoomIndex]);
+              },
+            ),
+            TextButton(
+              child: Text(
+                'Use ${useBestCamera ? 'wide' : 'ultra wide'}',
+                textAlign: TextAlign.center,
+              ),
+              onPressed: () {
+                setState(() {
+                  useBestCamera = !useBestCamera;
+                });
+                _controller?.setBestCameraUsage(useBestCamera: useBestCamera);
               },
             ),
           ],
