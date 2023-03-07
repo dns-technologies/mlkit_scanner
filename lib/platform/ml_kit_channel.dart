@@ -19,8 +19,8 @@ class MlKitChannel {
   static const _changeTorchStateMethod = 'changeTorchStateMethod';
   static const _setZoomMethod = 'setZoom';
   static const _setCropAreaMethod = 'setCropAreaMethod';
-  static const _setBestCameraUsage = 'setBestCameraUsage';
-  static const _getAvailableCameras = 'getAvailableCameras';
+  static const _getIosAvailableCameras = 'getIosAvailableCameras';
+  static const _setIosCamera = 'setIosCamera';
 
   static MlKitChannel? _instance;
   final MethodChannel _channel = const MethodChannel('mlkit_channel');
@@ -134,15 +134,18 @@ class MlKitChannel {
     return _channel.invokeMethod(_setCropAreaMethod, rect.toJson());
   }
 
-  Future<void> setBestCameraUsage({required bool useBestCamera}) {
-    return _channel.invokeMethod(_setBestCameraUsage, useBestCamera);
-  }
-
   Future<Map<IosCameraPosition, List<IosCameraType>>> getAvailableCameras() async {
-    final availableCameraCodes = (await _channel.invokeMethod<dynamic>(_getAvailableCameras))!;
+    final availableCameraCodes = (await _channel.invokeMethod<dynamic>(_getIosAvailableCameras))!;
     return {
       for (final entry in availableCameraCodes.entries)
         IosCameraPositionCode.fromCode(entry.key): [for (final typeCode in entry.value) IosCameraTypeCode.fromCode(typeCode)],
     };
+  }
+
+  Future<void> setIosCamera({required IosCameraPosition position, required IosCameraType type}) {
+    return _channel.invokeMethod(_setIosCamera, {
+      'position': IosCameraPositionCode.toCode(position),
+      'type': IosCameraTypeCode.toCode(type),
+    });
   }
 }

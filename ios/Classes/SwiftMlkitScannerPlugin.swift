@@ -46,10 +46,10 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             setZoom(arguments: call.arguments, result: result)
         case PluginConstants.setCropAreaMethod:
             setCropArea(arguments: call.arguments, result: result)
-        case PluginConstants.setBestCameraUsage:
-            setBestCameraUsage(arguments: call.arguments, result: result)
-        case PluginConstants.getAvailableCamerasMethod:
+        case PluginConstants.getIosAvailableCamerasMethod:
             getAvailableCameras(result: result)
+        case PluginConstants.setIosCameraMethod:
+            setCamera(arguments: call.arguments, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -193,13 +193,19 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         result(nil)
     }
     
-    private func setBestCameraUsage(arguments: Any?, result: @escaping FlutterResult) {
-        guard let useBestCamera = arguments as? Bool else {
+    private func setCamera(arguments: Any?, result: @escaping FlutterResult) {
+        guard
+            let cameraArgs = arguments as? Dictionary<String, Int>,
+            let positionCode = cameraArgs["position"] as Int?,
+            let typeCode = cameraArgs["type"] as Int?,
+            let position = MlKitPluginIosCameraPosition(rawValue: positionCode)?.devicePosition,
+            let deviceType = MlKitPluginIosCameraType(rawValue: typeCode)?.deviceType
+        else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
         do {
-            try cameraPreview?.setBestCameraUsage(useBestCamera: useBestCamera)
+            try cameraPreview?.setCamera(deviceType: deviceType, position: position)
             result(nil)
         } catch {
             handleError(error: error, result: result)

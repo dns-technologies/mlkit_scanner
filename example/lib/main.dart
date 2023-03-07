@@ -12,11 +12,18 @@ class MyApp extends StatefulWidget {
   _MyAppState createState() => _MyAppState();
 }
 
+class _CameraInfo {
+  final IosCameraPosition position;
+
+  final IosCameraType type;
+
+  const _CameraInfo(this.position, this.type);
+}
+
 class _MyAppState extends State<MyApp> {
   var _barcode = 'Please, scan';
   var _zoomValues = [0.0, 0.33, 0.66];
   var _actialZoomIndex = 0;
-  var useBestCamera = false;
 
   static const _delayOptions = {
     "0 milliseconds": 0,
@@ -25,6 +32,21 @@ class _MyAppState extends State<MyApp> {
     "2000 milliseconds": 2000,
   };
   BarcodeScannerController? _controller;
+
+  final List<_CameraInfo> _cameras = [];
+
+  var _cameraIndex = -1;
+  var _cameraType = '';
+  var _cameraPosition = '';
+
+  void _nextCamera() {
+    _cameraIndex = (_cameraIndex + 1) % _cameras.length;
+    _controller!.setIosCamera(position: _cameras[_cameraIndex].position, type: _cameras[_cameraIndex].type);
+    setState(() {
+      _cameraType = _cameras[_cameraIndex].type.name;
+      _cameraPosition = _cameras[_cameraIndex].position.name;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +73,15 @@ class _MyAppState extends State<MyApp> {
                     onScannerInitialized: (controller) async {
                       _controller = controller;
                       if (Platform.isIOS) {
-                        print(await controller.getAvailableCameras());
+                        final cameras = await controller.getAvailableCameras()!;
+
+                        for (final entry in cameras.entries) {
+                          for (final type in entry.value) {
+                            _cameras.add(_CameraInfo(entry.key, type));
+                          }
+                        }
+
+                        _nextCamera();
                       }
                     },
                   ),
@@ -159,18 +189,14 @@ class _MyAppState extends State<MyApp> {
                 _controller?.setZoom(_zoomValues[_actialZoomIndex]);
               },
             ),
-            TextButton(
-              child: Text(
-                'Use ${useBestCamera ? 'wide' : 'ultra wide'}',
-                textAlign: TextAlign.center,
+            if (Platform.isIOS)
+              TextButton(
+                child: Text(
+                  '$_cameraIndex: $_cameraPosition, $_cameraType',
+                  textAlign: TextAlign.center,
+                ),
+                onPressed: _nextCamera,
               ),
-              onPressed: () {
-                setState(() {
-                  useBestCamera = !useBestCamera;
-                });
-                _controller?.setBestCameraUsage(useBestCamera: useBestCamera);
-              },
-            ),
           ],
         ),
       ),

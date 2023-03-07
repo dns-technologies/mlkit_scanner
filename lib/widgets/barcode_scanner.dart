@@ -128,8 +128,8 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     return _channel.getAvailableCameras();
   }
 
-  Future<void> _setBestCameraUsage({required bool useBestCamera}) {
-    return _channel.setBestCameraUsage(useBestCamera: useBestCamera);
+  Future<void> _setIosCamera({required IosCameraPosition position, required IosCameraType type}) {
+    return _channel.setIosCamera(position: position, type: type);
   }
 }
 
@@ -197,12 +197,12 @@ class BarcodeScannerController {
     return _barcodeScannerState?._setZoom(value);
   }
 
-  Future<void> setBestCameraUsage({required bool useBestCamera}) async {
-    return _barcodeScannerState?._setBestCameraUsage(useBestCamera: useBestCamera);
-  }
-
   Future<Map<IosCameraPosition, List<IosCameraType>>>? getAvailableCameras() {
     return _barcodeScannerState?._getAvailableCameras();
+  }
+
+  Future<void> setIosCamera({required IosCameraPosition position, required IosCameraType type}) async {
+    return _barcodeScannerState?._setIosCamera(position: position, type: type);
   }
 
   void _attach(_BarcodeScannerState state) {

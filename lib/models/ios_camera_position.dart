@@ -14,5 +14,5 @@ extension IosCameraPositionCode on IosCameraPosition {
 
   static IosCameraPosition fromCode(int code) => _codeToPosition[code]!;
 
-  static int toCode(IosCameraPosition type) => _positionToCode[type]!;
+  static int toCode(IosCameraPosition position) => _positionToCode[position]!;
 }

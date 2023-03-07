@@ -107,22 +107,25 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
     
-    func setBestCameraUsage(useBestCamera: Bool) throws {
-        guard let session = self.captureSession, let currentInput = session.inputs.first else {
+    func setCamera(deviceType: AVCaptureDevice.DeviceType, position: AVCaptureDevice.Position) throws {
+        guard let session = self.captureSession else {
             throw MlKitPluginError.cameraIsNotInitialized
         }
 
-        guard let newCamera = useBestCamera ? createBestCamera() : createWideAngleCamera() else {
+        guard let newCamera = AVCaptureDevice.default(deviceType, for: .video, position: position) else {
             throw MlKitPluginError.initCameraError
         }
         
         let newInput = try AVCaptureDeviceInput.init(device: newCamera)
-        camera = newCamera
-        
+
         session.beginConfiguration()
-        session.removeInput(currentInput)
+        if let currentInput = session.inputs.first {
+            session.removeInput(currentInput)
+        }
         session.addInput(newInput)
         session.commitConfiguration()
+        
+        camera = newCamera
     }
     
     func getAvailableCameras() -> [AVCaptureDevice] {
