@@ -138,7 +138,11 @@ class MlKitChannel {
     return _channel.invokeMethod(_setBestCameraUsage, useBestCamera);
   }
 
-  Future<Map<int, List<int>>?> getAvailableCameras() {
-    return _channel.invokeMethod<Map<int, List<int>>>(_getAvailableCameras);
+  Future<Map<IosCameraPosition, List<IosCameraType>>> getAvailableCameras() async {
+    final availableCameraCodes = (await _channel.invokeMethod<dynamic>(_getAvailableCameras))!;
+    return {
+      for (final entry in availableCameraCodes.entries)
+        IosCameraPositionCode.fromCode(entry.key): [for (final typeCode in entry.value) IosCameraTypeCode.fromCode(typeCode)],
+    };
   }
 }

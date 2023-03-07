@@ -208,29 +208,25 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     
     private func getAvailableCameras(result: @escaping FlutterResult) {
         guard let cameraPreview = cameraPreview else {
-            result(nil)
+            handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
             return
         }
         
         let cameras = cameraPreview.getAvailableCameras()
      
         var availableCameras = [
-            MlKitPluginIosCameraPosition.front: [MlKitPluginIosCameraType](),
-            MlKitPluginIosCameraPosition.back: [MlKitPluginIosCameraType](),
+            MlKitPluginIosCameraPosition.front.rawValue: [MlKitPluginIosCameraType.RawValue](),
+            MlKitPluginIosCameraPosition.back.rawValue: [MlKitPluginIosCameraType.RawValue](),
         ]
         
         for camera in cameras {
             let position = camera.position.mlKitPluginIosCameraPosition
-            if var camerasForPosition = availableCameras[position] {
-                let type = camera.deviceType.mlKitPluginIosCameraType
-                if type != .unknown {
-                    camerasForPosition.append(type)
-                }
+            let type = camera.deviceType.mlKitPluginIosCameraType
+            if type != .unknown {
+                availableCameras[position.rawValue]?.append(type.rawValue)
             }
         }
         
-        let json = try? JSONEncoder().encode(availableCameras)
-        print(json)
         result(availableCameras)
     }
 

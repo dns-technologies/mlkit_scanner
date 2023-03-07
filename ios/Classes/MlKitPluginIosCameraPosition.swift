@@ -8,7 +8,7 @@
 import Foundation
 import AVFoundation
 
-enum MlKitPluginIosCameraPosition: Int, Encodable {
+enum MlKitPluginIosCameraPosition: Int, Encodable, Sendable {
     case unspecified = 0
     case back = 1
     case front = 2
