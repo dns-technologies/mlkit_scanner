@@ -134,11 +134,11 @@ class MlKitChannel {
     return _channel.invokeMethod(_setCropAreaMethod, rect.toJson());
   }
 
-  Future<Map<IosCameraPosition, List<IosCameraType>>> getAvailableCameras() async {
+  Future<Map<IosCameraPosition, Set<IosCameraType>>> getAvailableCameras() async {
     final availableCameraCodes = (await _channel.invokeMethod<dynamic>(_getIosAvailableCameras))!;
     return {
       for (final entry in availableCameraCodes.entries)
-        IosCameraPositionCode.fromCode(entry.key): [for (final typeCode in entry.value) IosCameraTypeCode.fromCode(typeCode)],
+        IosCameraPositionCode.fromCode(entry.key): {for (final typeCode in entry.value) IosCameraTypeCode.fromCode(typeCode)},
     };
   }
 
