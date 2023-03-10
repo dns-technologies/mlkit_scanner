@@ -226,7 +226,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         ]
         
         for camera in cameras {
-            if !camera.isFocusPointOfInterestSupported {
+            if !camera.isFocusPointOfInterestSupported || !camera.hasTorch {
                 continue
             }
             let position = camera.position.mlKitPluginIosCameraPosition

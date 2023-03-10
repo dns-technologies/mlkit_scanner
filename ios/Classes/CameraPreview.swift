@@ -126,6 +126,8 @@ class CameraPreview: NSObject, FlutterPlatformView {
         session.commitConfiguration()
         
         camera = newCamera
+        torchObserver?.invalidate()
+        observeTorchToggle()
     }
     
     func getAvailableCameras() -> [AVCaptureDevice] {
@@ -148,19 +150,6 @@ class CameraPreview: NSObject, FlutterPlatformView {
         
         let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: deviceTypes, mediaType: .video, position: .unspecified)
         return discoverySession.devices
-    }
-    
-    
-    private func createBestCamera() -> AVCaptureDevice? {
-        if #available(iOS 13.0, *), let device = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {
-            return device
-        }
-        
-        if let device = AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back) {
-            return device
-        }
-        
-        return createWideAngleCamera()
     }
     
     private func createWideAngleCamera() -> AVCaptureDevice? {
