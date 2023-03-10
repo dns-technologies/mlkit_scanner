@@ -277,7 +277,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
     }
 
     func setZoom(_ value: Double) throws {
-        guard let session = captureSession, session.isRunning, let camera = camera, camera.isConnected else {
+        guard captureSession != nil, let camera = camera, camera.isConnected else {
             throw MlKitPluginError.cameraIsNotInitialized
         }
         try camera.lockForConfiguration()
