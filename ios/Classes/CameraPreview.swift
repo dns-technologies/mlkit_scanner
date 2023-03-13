@@ -52,6 +52,10 @@ class CameraPreview: NSObject, FlutterPlatformView {
     }
     
     @objc private func onCaptureSessionStart() {
+        clearFocusLock()
+    }
+    
+    private func clearFocusLock() {
         focusOnCenter(needLock: false)
         DispatchQueue.main.async { [weak self] in
             self?.focusView.cancelLockFocus()
@@ -126,8 +130,11 @@ class CameraPreview: NSObject, FlutterPlatformView {
         session.commitConfiguration()
         
         camera = newCamera
+        
         torchObserver?.invalidate()
         observeTorchToggle()
+        
+        clearFocusLock()
     }
     
     func getAvailableCameras() -> [AVCaptureDevice] {
@@ -193,7 +200,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         preview.updateSizeConstraints(width: width, height: height)
     }
     
-    /// Pause a `CaptureSession`, runs in non UI thread. 
+    /// Pause a `CaptureSession`, runs in non UI thread.
     /// Result caling by closure `completion`.
     func pauseCamera(completion: @escaping () -> ()) {
         sessionQueue.async { [weak self] in
@@ -205,7 +212,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
     
-    /// Resume a `CaptureSession`, runs in non UI thread. 
+    /// Resume a `CaptureSession`, runs in non UI thread.
     /// Result caling by closure `completion`.
     /// Can return `Error` on try resume non initialized camera.
     func resumeCamera(completion: @escaping (Error?) -> ()) {
