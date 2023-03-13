@@ -124,8 +124,8 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     return _channel.setZoom(value);
   }
 
-  Future<Map<IosCameraPosition, Set<IosCameraType>>> _getAvailableCameras() {
-    return _channel.getAvailableCameras();
+  Future<List<IosCamera>> _getIosAvailableCameras() {
+    return _channel.getIosAvailableCameras();
   }
 
   Future<void> _setIosCamera({required IosCameraPosition position, required IosCameraType type}) {
@@ -197,8 +197,8 @@ class BarcodeScannerController {
     return _barcodeScannerState?._setZoom(value);
   }
 
-  Future<Map<IosCameraPosition, Set<IosCameraType>>>? getAvailableCameras() {
-    return _barcodeScannerState?._getAvailableCameras();
+  Future<List<IosCamera>>? getIosAvailableCameras() {
+    return _barcodeScannerState?._getIosAvailableCameras();
   }
 
   Future<void> setIosCamera({required IosCameraPosition position, required IosCameraType type}) async {

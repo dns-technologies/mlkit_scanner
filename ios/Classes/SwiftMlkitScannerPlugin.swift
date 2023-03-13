@@ -219,21 +219,19 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         }
         
         let cameras = cameraPreview.getAvailableCameras()
-     
-        var availableCameras = [
-            MlKitPluginIosCameraPosition.front.rawValue: [MlKitPluginIosCameraType.RawValue](),
-            MlKitPluginIosCameraPosition.back.rawValue: [MlKitPluginIosCameraType.RawValue](),
-        ]
+        var availableCameras = [String]()
         
         for camera in cameras {
-            if !camera.isFocusPointOfInterestSupported || !camera.hasTorch {
-                continue
-            }
             let position = camera.position.mlKitPluginIosCameraPosition
             let type = camera.deviceType.mlKitPluginIosCameraType
-            if type != .unknown {
-                availableCameras[position.rawValue]?.append(type.rawValue)
+            
+            guard camera.isFocusPointOfInterestSupported, camera.hasTorch, position != .unspecified, type != .unknown else {
+                continue
             }
+    
+            let iosCamera = MlKitPluginIosCamera(type: type, position: position)
+            let json = try! JSONEncoder().encode(iosCamera)
+            availableCameras.append(.init(data: json, encoding: .utf8)!)
         }
         
         result(availableCameras)

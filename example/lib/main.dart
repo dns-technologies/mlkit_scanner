@@ -12,14 +12,6 @@ class MyApp extends StatefulWidget {
   _MyAppState createState() => _MyAppState();
 }
 
-class _CameraInfo {
-  final IosCameraPosition position;
-
-  final IosCameraType type;
-
-  const _CameraInfo(this.position, this.type);
-}
-
 class _MyAppState extends State<MyApp> {
   var _barcode = 'Please, scan';
   var _zoomValues = [0.0, 0.33, 0.66];
@@ -33,19 +25,25 @@ class _MyAppState extends State<MyApp> {
   };
   BarcodeScannerController? _controller;
 
-  final List<_CameraInfo> _cameras = [];
+  final List<IosCamera> _iosCameras = [];
 
-  var _cameraIndex = -1;
+  var _iosCameraIndex = -1;
   var _cameraType = '';
   var _cameraPosition = '';
 
-  void _nextCamera() {
-    _cameraIndex = (_cameraIndex + 1) % _cameras.length;
-    _controller!.setIosCamera(position: _cameras[_cameraIndex].position, type: _cameras[_cameraIndex].type);
+  void _senNextIosCamera() {
+    _iosCameraIndex = (_iosCameraIndex + 1) % _iosCameras.length;
+    _controller!.setIosCamera(position: _iosCameras[_iosCameraIndex].position, type: _iosCameras[_iosCameraIndex].type);
+    _resetZoom();
     setState(() {
-      _cameraType = _cameras[_cameraIndex].type.name;
-      _cameraPosition = _cameras[_cameraIndex].position.name;
+      _cameraType = _iosCameras[_iosCameraIndex].type.name;
+      _cameraPosition = _iosCameras[_iosCameraIndex].position.name;
     });
+  }
+
+  void _resetZoom() {
+    _actialZoomIndex = 0;
+    _controller?.setZoom(_zoomValues[_actialZoomIndex]);
   }
 
   @override
@@ -73,15 +71,9 @@ class _MyAppState extends State<MyApp> {
                     onScannerInitialized: (controller) async {
                       _controller = controller;
                       if (Platform.isIOS) {
-                        final cameras = await controller.getAvailableCameras()!;
-
-                        for (final entry in cameras.entries) {
-                          for (final type in entry.value) {
-                            _cameras.add(_CameraInfo(entry.key, type));
-                          }
-                        }
-
-                        _nextCamera();
+                        final cameras = await controller.getIosAvailableCameras()!;
+                        _iosCameras.addAll(cameras);
+                        _senNextIosCamera();
                       }
                     },
                   ),
@@ -192,10 +184,10 @@ class _MyAppState extends State<MyApp> {
             if (Platform.isIOS)
               TextButton(
                 child: Text(
-                  '$_cameraIndex: $_cameraPosition, $_cameraType',
+                  '$_iosCameraIndex: $_cameraPosition, $_cameraType',
                   textAlign: TextAlign.center,
                 ),
-                onPressed: _nextCamera,
+                onPressed: _senNextIosCamera,
               ),
           ],
         ),

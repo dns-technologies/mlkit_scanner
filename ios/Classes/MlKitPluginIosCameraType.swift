@@ -8,7 +8,7 @@
 import Foundation
 import AVFoundation
 
-enum MlKitPluginIosCameraType: Int {
+enum MlKitPluginIosCameraType: Int, Codable {
     case unknown = 0
     case builtInWideAngleCamera = 1
     case builtInTelephotoCamera = 2

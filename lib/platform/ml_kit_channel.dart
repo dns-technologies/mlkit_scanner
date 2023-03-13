@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
@@ -134,12 +135,9 @@ class MlKitChannel {
     return _channel.invokeMethod(_setCropAreaMethod, rect.toJson());
   }
 
-  Future<Map<IosCameraPosition, Set<IosCameraType>>> getAvailableCameras() async {
-    final availableCameraCodes = (await _channel.invokeMethod<dynamic>(_getIosAvailableCameras))!;
-    return {
-      for (final entry in availableCameraCodes.entries)
-        IosCameraPositionCode.fromCode(entry.key): {for (final typeCode in entry.value) IosCameraTypeCode.fromCode(typeCode)},
-    };
+  Future<List<IosCamera>> getIosAvailableCameras() async {
+    final availableCameraCodes = (await _channel.invokeListMethod<String>(_getIosAvailableCameras))!;
+    return availableCameraCodes.map((json) => IosCamera.fromJson(jsonDecode(json))).toList();
   }
 
   Future<void> setIosCamera({required IosCameraPosition position, required IosCameraType type}) {
