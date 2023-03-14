@@ -19,7 +19,7 @@ extension AVCaptureDevice.Position {
         AVCaptureDevice.Position.positionToCode[self] ?? AVCaptureDevice.Position.unsupportedCode
     }
     
-    /// Returns position with corresponding `code`.
+    /// Returns the position corresponding to the `code`.
     static func fromCode(_ code: Int) -> AVCaptureDevice.Position? {
         AVCaptureDevice.Position.codeToPosition[code]
     }

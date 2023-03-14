@@ -20,10 +20,10 @@ enum IosCameraType {
 }
 
 extension IosCameraTypeCode on IosCameraType {
-  /// Code of [type] for transmission over the platform channel.
-  static int toCode(IosCameraType type) => _typeToCode[type]!;
+  /// Code of type for transmission over the platform channel.
+  int get code => _typeToCode[this]!;
 
-  /// Type with corresponding [code].
+  /// Returns the type corresponding to the [code].
   static IosCameraType fromCode(int code) => _codeToType[code]!;
 
   static final _typeToCode = {

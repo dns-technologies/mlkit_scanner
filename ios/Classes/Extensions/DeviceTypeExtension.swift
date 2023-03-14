@@ -17,7 +17,7 @@ extension AVCaptureDevice.DeviceType {
         AVCaptureDevice.DeviceType.typeToCode[self] ?? AVCaptureDevice.DeviceType.unsupportedCode
     }
     
-    /// Returns type with corresponding `code`.
+    /// Returns the type corresponding to the `code`.
     static func fromCode(_ code: Int) -> AVCaptureDevice.DeviceType? {
         AVCaptureDevice.DeviceType.codeToType[code]
     }

@@ -11,10 +11,10 @@ enum IosCameraPosition {
 }
 
 extension IosCameraPositionCode on IosCameraPosition {
-  /// Code of [position] for transmission over the platform channel.
-  static int toCode(IosCameraPosition position) => _positionToCode[position]!;
+  /// Code of position for transmission over the platform channel.
+  int get code => _positionToCode[this]!;
 
-  /// Position with corresponding [code].
+  /// Returns the position corresponding to the [code].
   static IosCameraPosition fromCode(int code) => _codeToPosition[code]!;
 
   static final _positionToCode = {

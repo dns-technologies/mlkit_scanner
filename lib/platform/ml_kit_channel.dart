@@ -152,8 +152,8 @@ class MlKitChannel {
     required IosCameraType type,
   }) {
     return _channel.invokeMethod(_setIosCamera, {
-      'position': IosCameraPositionCode.toCode(position),
-      'type': IosCameraTypeCode.toCode(type),
+      'position': position.code,
+      'type': type.code,
     });
   }
 }
