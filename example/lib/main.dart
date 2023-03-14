@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 
@@ -25,19 +26,21 @@ class _MyAppState extends State<MyApp> {
   };
   BarcodeScannerController? _controller;
 
-  final List<IosCamera> _iosCameras = [];
+  List<IosCamera> _iosCameras = [];
 
-  var _iosCameraIndex = -1;
+  var _cameraIndex = -1;
   var _cameraType = '';
   var _cameraPosition = '';
 
-  void _senNextIosCamera() {
-    _iosCameraIndex = (_iosCameraIndex + 1) % _iosCameras.length;
-    _controller!.setIosCamera(position: _iosCameras[_iosCameraIndex].position, type: _iosCameras[_iosCameraIndex].type);
+  void _setNextIosCamera() {
+    _cameraIndex = (_cameraIndex + 1) % _iosCameras.length;
+    _controller!.setIosCamera(
+        position: _iosCameras[_cameraIndex].position,
+        type: _iosCameras[_cameraIndex].type);
     _resetZoom();
     setState(() {
-      _cameraType = _iosCameras[_iosCameraIndex].type.name;
-      _cameraPosition = _iosCameras[_iosCameraIndex].position.name;
+      _cameraType = _iosCameras[_cameraIndex].type.name;
+      _cameraPosition = _iosCameras[_cameraIndex].position.name;
     });
   }
 
@@ -62,7 +65,8 @@ class _MyAppState extends State<MyApp> {
                 Container(
                   height: 200,
                   child: BarcodeScanner(
-                    cropOverlay: const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
+                    cropOverlay:
+                        const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
                     onScan: (code) {
                       setState(() {
                         _barcode = code;
@@ -70,10 +74,10 @@ class _MyAppState extends State<MyApp> {
                     },
                     onScannerInitialized: (controller) async {
                       _controller = controller;
-                      if (Platform.isIOS) {
-                        final cameras = await controller.getIosAvailableCameras()!;
-                        _iosCameras.addAll(cameras);
-                        _senNextIosCamera();
+                      if (defaultTargetPlatform == TargetPlatform.iOS) {
+                        _iosCameras =
+                            await controller.getIosAvailableCameras()!;
+                        _setNextIosCamera();
                       }
                     },
                   ),
@@ -177,17 +181,19 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               onPressed: () {
-                _actialZoomIndex = _actialZoomIndex + 1 < _zoomValues.length ? _actialZoomIndex + 1 : 0;
+                _actialZoomIndex = _actialZoomIndex + 1 < _zoomValues.length
+                    ? _actialZoomIndex + 1
+                    : 0;
                 _controller?.setZoom(_zoomValues[_actialZoomIndex]);
               },
             ),
-            if (Platform.isIOS)
+            if (defaultTargetPlatform == TargetPlatform.iOS)
               TextButton(
                 child: Text(
-                  '$_iosCameraIndex: $_cameraPosition, $_cameraType',
+                  '$_cameraIndex: $_cameraPosition, $_cameraType',
                   textAlign: TextAlign.center,
                 ),
-                onPressed: _senNextIosCamera,
+                onPressed: _setNextIosCamera,
               ),
           ],
         ),

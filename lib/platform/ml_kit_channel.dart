@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
@@ -25,8 +24,10 @@ class MlKitChannel {
 
   static MlKitChannel? _instance;
   final MethodChannel _channel = const MethodChannel('mlkit_channel');
-  final StreamController<String> _scanResultStreamController = StreamController<String>.broadcast();
-  final StreamController<bool> _torchToggleStreamController = StreamController<bool>.broadcast();
+  final StreamController<String> _scanResultStreamController =
+      StreamController<String>.broadcast();
+  final StreamController<bool> _torchToggleStreamController =
+      StreamController<bool>.broadcast();
 
   /// Stream inform when torch change state.
   ///
@@ -42,7 +43,8 @@ class MlKitChannel {
     _channel.setMethodCallHandler((call) async {
       if (call.method == _scanResultMethod && call.arguments is String) {
         _scanResultStreamController.add(call.arguments);
-      } else if (call.method == _changeTorchStateMethod && call.arguments is bool) {
+      } else if (call.method == _changeTorchStateMethod &&
+          call.arguments is bool) {
         _torchToggleStreamController.add(call.arguments);
       }
     });
@@ -135,12 +137,20 @@ class MlKitChannel {
     return _channel.invokeMethod(_setCropAreaMethod, rect.toJson());
   }
 
+  /// Gets all available iOS cameras.
   Future<List<IosCamera>> getIosAvailableCameras() async {
-    final availableCameraCodes = (await _channel.invokeListMethod<String>(_getIosAvailableCameras))!;
-    return availableCameraCodes.map((json) => IosCamera.fromJson(jsonDecode(json))).toList();
+    final availableCameras =
+        (await _channel.invokeListMethod<dynamic>(_getIosAvailableCameras))!;
+    return availableCameras
+        .map((json) => IosCamera.fromJson(Map<String, dynamic>.from(json)))
+        .toList();
   }
 
-  Future<void> setIosCamera({required IosCameraPosition position, required IosCameraType type}) {
+  /// Sets iOS camera with [position] and [type].
+  Future<void> setIosCamera({
+    required IosCameraPosition position,
+    required IosCameraType type,
+  }) {
     return _channel.invokeMethod(_setIosCamera, {
       'position': IosCameraPositionCode.toCode(position),
       'type': IosCameraTypeCode.toCode(type),

@@ -1,31 +1,41 @@
-import 'package:mlkit_scanner/mlkit_scanner.dart';
-
+/// Ios camera type.
 enum IosCameraType {
+  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/2361449-builtinwideanglecamera.
   builtInWideAngleCamera,
+
+  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/2361478-builtintelephotocamera.
   builtInTelephotoCamera,
+
+  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/2727142-builtindualcamera.
   builtInDualCamera,
+
+  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/3377622-builtinultrawidecamera.
   builtInUltraWideCamera,
+
+  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/3377620-builtindualwidecamera.
   builtInDualWideCamera,
+
+  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/3377621-builtintriplecamera.
   builtInTripleCamera,
-  builtInTrueDepthCamera,
-  builtInLiDARDepthCamera,
 }
 
 extension IosCameraTypeCode on IosCameraType {
-  static final _typeToCode = {
-    IosCameraType.builtInWideAngleCamera: 1,
-    IosCameraType.builtInTelephotoCamera: 2,
-    IosCameraType.builtInDualCamera: 3,
-    IosCameraType.builtInUltraWideCamera: 4,
-    IosCameraType.builtInDualWideCamera: 5,
-    IosCameraType.builtInTripleCamera: 6,
-    IosCameraType.builtInTrueDepthCamera: 7,
-    IosCameraType.builtInLiDARDepthCamera: 8,
-  };
+  /// Code of [type] for transmission over the platform channel.
+  static int toCode(IosCameraType type) => _typeToCode[type]!;
 
-  static final _codeToType = {for (final entry in _typeToCode.entries) entry.value: entry.key};
-
+  /// Type with corresponding [code].
   static IosCameraType fromCode(int code) => _codeToType[code]!;
 
-  static int toCode(IosCameraType type) => _typeToCode[type]!;
+  static final _typeToCode = {
+    IosCameraType.builtInWideAngleCamera: 0,
+    IosCameraType.builtInTelephotoCamera: 1,
+    IosCameraType.builtInDualCamera: 2,
+    IosCameraType.builtInUltraWideCamera: 3,
+    IosCameraType.builtInDualWideCamera: 4,
+    IosCameraType.builtInTripleCamera: 5,
+  };
+
+  static final _codeToType = {
+    for (final entry in _typeToCode.entries) entry.value: entry.key,
+  };
 }

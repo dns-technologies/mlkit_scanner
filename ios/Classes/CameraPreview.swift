@@ -111,6 +111,8 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
     
+    /// Sets for scanning camera with `deviceType` and `position`.
+    /// Throws if called without  camera initialization or can't use such camera.
     func setCamera(deviceType: AVCaptureDevice.DeviceType, position: AVCaptureDevice.Position) throws {
         guard let session = self.captureSession else {
             throw MlKitPluginError.cameraIsNotInitialized
@@ -137,6 +139,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         clearFocusLock()
     }
     
+    /// Returns all available cameras on device.
     func getAvailableCameras() -> [AVCaptureDevice] {
         var deviceTypes: [AVCaptureDevice.DeviceType] = [
             .builtInWideAngleCamera,
@@ -148,11 +151,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
                 .builtInUltraWideCamera,
                 .builtInDualWideCamera,
                 .builtInTripleCamera,
-                .builtInTrueDepthCamera,
             ])
-        }
-        if #available(iOS 15.4, *) {
-            deviceTypes.append(.builtInLiDARDepthCamera)
         }
         
         let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: deviceTypes, mediaType: .video, position: .unspecified)
@@ -181,7 +180,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
     }
     
     /// Toggle of the device flash. Throws `MlKitPluginError.cameraIsNotInitialized` if try toggle without camera initialization,
-    // or `MlKitPluginError.deviceHasNotFlash` if device doesn't have flash.
+    /// or `MlKitPluginError.deviceHasNotFlash` if device doesn't have flash.
     func toggleFlash() throws {
         guard let session = captureSession, session.isRunning, let camera = camera, camera.isConnected else {
             throw MlKitPluginError.cameraIsNotInitialized

@@ -1,4 +1,5 @@
 import Flutter
+import AVFoundation
 import UIKit
 import MLKitBarcodeScanning
 import MLKitVision
@@ -198,8 +199,8 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             let cameraArgs = arguments as? Dictionary<String, Int>,
             let positionCode = cameraArgs["position"] as Int?,
             let typeCode = cameraArgs["type"] as Int?,
-            let position = MlKitPluginIosCameraPosition(rawValue: positionCode)?.devicePosition,
-            let deviceType = MlKitPluginIosCameraType(rawValue: typeCode)?.deviceType
+            let position = AVCaptureDevice.Position.fromCode(positionCode),
+            let deviceType = AVCaptureDevice.DeviceType.fromCode(typeCode)
         else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
@@ -219,19 +220,13 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         }
         
         let cameras = cameraPreview.getAvailableCameras()
-        var availableCameras = [String]()
+        var availableCameras = [[String: Any]]()
         
         for camera in cameras {
-            let position = camera.position.mlKitPluginIosCameraPosition
-            let type = camera.deviceType.mlKitPluginIosCameraType
-            
-            guard camera.isFocusPointOfInterestSupported, camera.hasTorch, position != .unspecified, type != .unknown else {
+            guard camera.isSupported else {
                 continue
             }
-    
-            let iosCamera = MlKitPluginIosCamera(type: type, position: position)
-            let json = try! JSONEncoder().encode(iosCamera)
-            availableCameras.append(.init(data: json, encoding: .utf8)!)
+            availableCameras.append(camera.toJson)
         }
         
         result(availableCameras)

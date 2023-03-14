@@ -35,8 +35,8 @@ class PluginConstants {
     static let setZoomMethod = "setZoom"
     /// Method name for setting crop area and adding overlay to the camera preview
     static let setCropAreaMethod = "setCropAreaMethod"
-        
+    /// Method name for getting available iOS cameras.
     static let getIosAvailableCamerasMethod = "getIosAvailableCameras"
-    
+    /// Method name for setting iOS camera.
     static let setIosCameraMethod = "setIosCamera"
 }
