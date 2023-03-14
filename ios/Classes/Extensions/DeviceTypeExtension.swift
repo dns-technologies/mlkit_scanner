@@ -36,7 +36,6 @@ extension AVCaptureDevice.DeviceType {
         return map
     }()
     
-    
     static private let codeToType: [Int: AVCaptureDevice.DeviceType] = {
         var map: [Int: AVCaptureDevice.DeviceType] = [:]
         for (type, code) in typeToCode {

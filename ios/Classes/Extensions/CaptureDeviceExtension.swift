@@ -9,19 +9,19 @@ import Foundation
 import AVFoundation
 
 extension AVCaptureDevice {
-    /// Creates json for transmission over the platform channel.
-    var toJson: [String: Any] {
-        [
-            "position": position.code,
-            "type": deviceType.code,
-        ]
-    }
-    
     /// Whether this camera is supported by the plugin.
     var isSupported: Bool {
         isFocusPointOfInterestSupported
         && hasTorch
         && position.code != AVCaptureDevice.Position.unsupportedCode
         && deviceType.code != AVCaptureDevice.DeviceType.unsupportedCode
+    }
+    
+    /// Creates json for transmission over the platform channel.
+    var toJson: [String: Any] {
+        [
+            "position": position.code,
+            "type": deviceType.code,
+        ]
     }
 }

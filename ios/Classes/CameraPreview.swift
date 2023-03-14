@@ -112,7 +112,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
     }
     
     /// Sets for scanning camera with `deviceType` and `position`.
-    /// Throws if called without  camera initialization or can't use such camera.
+    /// Throws if called without camera initialization or can't use such camera.
     func setCamera(deviceType: AVCaptureDevice.DeviceType, position: AVCaptureDevice.Position) throws {
         guard let session = self.captureSession else {
             throw MlKitPluginError.cameraIsNotInitialized

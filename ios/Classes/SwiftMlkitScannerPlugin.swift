@@ -194,25 +194,6 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         result(nil)
     }
     
-    private func setCamera(arguments: Any?, result: @escaping FlutterResult) {
-        guard
-            let cameraArgs = arguments as? Dictionary<String, Int>,
-            let positionCode = cameraArgs["position"] as Int?,
-            let typeCode = cameraArgs["type"] as Int?,
-            let position = AVCaptureDevice.Position.fromCode(positionCode),
-            let deviceType = AVCaptureDevice.DeviceType.fromCode(typeCode)
-        else {
-            handleError(error: MlKitPluginError.invalidArguments, result: result)
-            return
-        }
-        do {
-            try cameraPreview?.setCamera(deviceType: deviceType, position: position)
-            result(nil)
-        } catch {
-            handleError(error: error, result: result)
-        }
-    }
-    
     private func getAvailableCameras(result: @escaping FlutterResult) {
         guard let cameraPreview = cameraPreview else {
             handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
@@ -230,6 +211,25 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         }
         
         result(availableCameras)
+    }
+    
+    private func setCamera(arguments: Any?, result: @escaping FlutterResult) {
+        guard
+            let cameraArgs = arguments as? Dictionary<String, Int>,
+            let positionCode = cameraArgs["position"] as Int?,
+            let typeCode = cameraArgs["type"] as Int?,
+            let position = AVCaptureDevice.Position.fromCode(positionCode),
+            let deviceType = AVCaptureDevice.DeviceType.fromCode(typeCode)
+        else {
+            handleError(error: MlKitPluginError.invalidArguments, result: result)
+            return
+        }
+        do {
+            try cameraPreview?.setCamera(deviceType: deviceType, position: position)
+            result(nil)
+        } catch {
+            handleError(error: error, result: result)
+        }
     }
 
     private func handleError(error: Error, result: @escaping FlutterResult) {
