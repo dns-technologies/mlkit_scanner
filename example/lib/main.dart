@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
@@ -16,7 +14,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   var _barcode = 'Please, scan';
   var _zoomValues = [0.0, 0.33, 0.66];
-  var _actialZoomIndex = 0;
+  var _actualZoomIndex = 0;
 
   static const _delayOptions = {
     "0 milliseconds": 0,
@@ -45,8 +43,8 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _resetZoom() {
-    _actialZoomIndex = 0;
-    _controller?.setZoom(_zoomValues[_actialZoomIndex]);
+    _actualZoomIndex = 0;
+    _controller?.setZoom(_zoomValues[_actualZoomIndex]);
   }
 
   @override
@@ -181,10 +179,10 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               onPressed: () {
-                _actialZoomIndex = _actialZoomIndex + 1 < _zoomValues.length
-                    ? _actialZoomIndex + 1
+                _actualZoomIndex = _actualZoomIndex + 1 < _zoomValues.length
+                    ? _actualZoomIndex + 1
                     : 0;
-                _controller?.setZoom(_zoomValues[_actialZoomIndex]);
+                _controller?.setZoom(_zoomValues[_actualZoomIndex]);
               },
             ),
             if (defaultTargetPlatform == TargetPlatform.iOS)

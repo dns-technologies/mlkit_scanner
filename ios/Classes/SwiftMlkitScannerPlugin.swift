@@ -207,7 +207,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             guard camera.isSupported else {
                 continue
             }
-            availableCameras.append(camera.toJson)
+            availableCameras.append(camera.toJson())
         }
         
         result(availableCameras)

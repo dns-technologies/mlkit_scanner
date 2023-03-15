@@ -18,7 +18,7 @@ extension AVCaptureDevice {
     }
     
     /// Creates json for transmission over the platform channel.
-    var toJson: [String: Any] {
+    func toJson() -> [String: Any] {
         [
             "position": position.code,
             "type": deviceType.code,
