@@ -132,8 +132,10 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     return _channel.getIosAvailableCameras();
   }
 
-  Future<void> _setIosCamera(
-      {required IosCameraPosition position, required IosCameraType type}) {
+  Future<void> _setIosCamera({
+    required IosCameraPosition position,
+    required IosCameraType type,
+  }) {
     return _channel.setIosCamera(position: position, type: type);
   }
 }
