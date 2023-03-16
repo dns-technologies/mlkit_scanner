@@ -1,3 +1,9 @@
+## 0.4.0
+
+[feature]
+
+- Add the ability to get available cameras on iOS and choice which one to use.
+
 ## 0.3.6
 
 [fix]
