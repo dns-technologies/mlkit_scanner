@@ -1,4 +1,5 @@
 import Flutter
+import AVFoundation
 import UIKit
 import MLKitBarcodeScanning
 import MLKitVision
@@ -46,6 +47,10 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             setZoom(arguments: call.arguments, result: result)
         case PluginConstants.setCropAreaMethod:
             setCropArea(arguments: call.arguments, result: result)
+        case PluginConstants.getIosAvailableCamerasMethod:
+            getAvailableCameras(result: result)
+        case PluginConstants.setIosCameraMethod:
+            setCamera(arguments: call.arguments, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -187,6 +192,44 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             camera.addSubview(scannerOverlay!)
         }
         result(nil)
+    }
+    
+    private func getAvailableCameras(result: @escaping FlutterResult) {
+        guard let cameraPreview = cameraPreview else {
+            handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
+            return
+        }
+        
+        let cameras = cameraPreview.getAvailableCameras()
+        var availableCameras = [[String: Any]]()
+        
+        for camera in cameras {
+            guard camera.isSupported else {
+                continue
+            }
+            availableCameras.append(camera.toJson())
+        }
+        
+        result(availableCameras)
+    }
+    
+    private func setCamera(arguments: Any?, result: @escaping FlutterResult) {
+        guard
+            let cameraArgs = arguments as? Dictionary<String, Int>,
+            let positionCode = cameraArgs["position"] as Int?,
+            let typeCode = cameraArgs["type"] as Int?,
+            let position = AVCaptureDevice.Position.fromCode(positionCode),
+            let deviceType = AVCaptureDevice.DeviceType.fromCode(typeCode)
+        else {
+            handleError(error: MlKitPluginError.invalidArguments, result: result)
+            return
+        }
+        do {
+            try cameraPreview?.setCamera(deviceType: deviceType, position: position)
+            result(nil)
+        } catch {
+            handleError(error: error, result: result)
+        }
     }
 
     private func handleError(error: Error, result: @escaping FlutterResult) {

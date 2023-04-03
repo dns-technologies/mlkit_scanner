@@ -7,7 +7,8 @@ import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 /// Signature of the BarcodeScanner success initialize scanner function.
-typedef BarcodeScannerInitializeCallback = void Function(BarcodeScannerController controller);
+typedef BarcodeScannerInitializeCallback = void Function(
+    BarcodeScannerController controller);
 
 /// Widget for scanning barcodes using MLkit Barcode Scanning.
 class BarcodeScanner extends StatefulWidget {
@@ -52,14 +53,16 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     super.initState();
     _channel = MlKitChannel();
     _barcodeScannerController = BarcodeScannerController._();
-    _toggleFlashStreamSubscription = _channel.torchToggleStream.listen((event) => widget.onChangeFlashState?.call(event));
+    _toggleFlashStreamSubscription = _channel.torchToggleStream
+        .listen((event) => widget.onChangeFlashState?.call(event));
     _barcodeScannerController._attach(this);
   }
 
   @override
   void didUpdateWidget(covariant BarcodeScanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cropOverlay != widget.cropOverlay && widget.cropOverlay != null) {
+    if (oldWidget.cropOverlay != widget.cropOverlay &&
+        widget.cropOverlay != null) {
       _channel.setCropArea(widget.cropOverlay!);
     }
   }
@@ -97,7 +100,8 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   Future<void> _startScan(int delay) async {
-    final scanStream = await _channel.startScan(RecognitionType.barcodeRecognition, delay);
+    final scanStream =
+        await _channel.startScan(RecognitionType.barcodeRecognition, delay);
     _scanStreamSubscription?.cancel();
     _scanStreamSubscription = scanStream.listen(widget.onScan);
   }
@@ -122,6 +126,17 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
 
   Future<void> _setZoom(double value) {
     return _channel.setZoom(value);
+  }
+
+  Future<List<IosCamera>> _getIosAvailableCameras() {
+    return _channel.getIosAvailableCameras();
+  }
+
+  Future<void> _setIosCamera({
+    required IosCameraPosition position,
+    required IosCameraType type,
+  }) {
+    return _channel.setIosCamera(position: position, type: type);
   }
 }
 
@@ -171,7 +186,7 @@ class BarcodeScannerController {
     return _barcodeScannerState?._pauseCamera();
   }
 
-  /// Resume camera, alse start detection if method [startScan] was called before pause.
+  /// Resume camera, also start detection if method [startScan] was called before pause.
   ///
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> resumeCamera() async {
@@ -187,6 +202,22 @@ class BarcodeScannerController {
       "Value can only be in the range from 0 to 1",
     );
     return _barcodeScannerState?._setZoom(value);
+  }
+
+  /// Gets all available iOS cameras.
+  Future<List<IosCamera>>? getIosAvailableCameras() {
+    return _barcodeScannerState?._getIosAvailableCameras();
+  }
+
+  /// Sets iOS camera with [position] and [type].
+  Future<void> setIosCamera({
+    required IosCameraPosition position,
+    required IosCameraType type,
+  }) async {
+    return await _barcodeScannerState?._setIosCamera(
+      position: position,
+      type: type,
+    );
   }
 
   void _attach(_BarcodeScannerState state) {

@@ -52,6 +52,10 @@ class CameraPreview: NSObject, FlutterPlatformView {
     }
     
     @objc private func onCaptureSessionStart() {
+        clearFocusLock()
+    }
+    
+    private func clearFocusLock() {
         focusOnCenter(needLock: false)
         DispatchQueue.main.async { [weak self] in
             self?.focusView.cancelLockFocus()
@@ -62,14 +66,14 @@ class CameraPreview: NSObject, FlutterPlatformView {
         return preview
     }
     
-    /// Initialization of the device camera. Initialization runs in non UI thread. 
+    /// Initialization of the device camera. Initialization runs in non UI thread.
     /// Result of init caling with closure `completion`.
-    /// Can return `Error` on problem with device camera or app doesn't have permission to use camera. 
+    /// Can return `Error` on problem with device camera or app doesn't have permission to use camera.
     func initCamera(completion: @escaping (Error?) -> ()) {
         do {
             try checkPermission()
             
-            camera = createDevice()
+            camera = createWideAngleCamera()
             guard let camera = camera else {
                 completion(MlKitPluginError.initCameraError)
                 return
@@ -94,7 +98,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         subscribeOrientationChanges()
         self.observeTorchToggle()
         sessionQueue.async {  [weak self] in
-            guard let self = self , let session = self.captureSession else {
+            guard let self = self, let session = self.captureSession else {
                 completion(MlKitPluginError.cameraIsNotInitialized)
                 return
             }
@@ -107,15 +111,54 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
     
-    private func createDevice() -> AVCaptureDevice? {
-        if #available(iOS 13.0, *), let device = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {
-            return device
+    /// Sets for scanning camera with `deviceType` and `position`.
+    /// Throws if called without camera initialization or can't use such camera.
+    func setCamera(deviceType: AVCaptureDevice.DeviceType, position: AVCaptureDevice.Position) throws {
+        guard let session = self.captureSession else {
+            throw MlKitPluginError.cameraIsNotInitialized
+        }
+
+        guard let newCamera = AVCaptureDevice.default(deviceType, for: .video, position: position) else {
+            throw MlKitPluginError.initCameraError
         }
         
-        if let device = AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back) {
-            return device
+        let newInput = try AVCaptureDeviceInput.init(device: newCamera)
+
+        session.beginConfiguration()
+        if let currentInput = session.inputs.first {
+            session.removeInput(currentInput)
+        }
+        session.addInput(newInput)
+        session.commitConfiguration()
+        
+        camera = newCamera
+        
+        torchObserver?.invalidate()
+        observeTorchToggle()
+        
+        clearFocusLock()
+    }
+    
+    /// Returns all available cameras on device.
+    func getAvailableCameras() -> [AVCaptureDevice] {
+        var deviceTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInWideAngleCamera,
+            .builtInTelephotoCamera,
+            .builtInDualCamera,
+        ]
+        if #available(iOS 13.0, *) {
+            deviceTypes.append(contentsOf: [
+                .builtInUltraWideCamera,
+                .builtInDualWideCamera,
+                .builtInTripleCamera,
+            ])
         }
         
+        let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: deviceTypes, mediaType: .video, position: .unspecified)
+        return discoverySession.devices
+    }
+    
+    private func createWideAngleCamera() -> AVCaptureDevice? {
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
     
@@ -137,7 +180,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
     }
     
     /// Toggle of the device flash. Throws `MlKitPluginError.cameraIsNotInitialized` if try toggle without camera initialization,
-    // or `MlKitPluginError.deviceHasNotFlash` if device doesn't have flash.
+    /// or `MlKitPluginError.deviceHasNotFlash` if device doesn't have flash.
     func toggleFlash() throws {
         guard let session = captureSession, session.isRunning, let camera = camera, camera.isConnected else {
             throw MlKitPluginError.cameraIsNotInitialized
@@ -156,7 +199,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         preview.updateSizeConstraints(width: width, height: height)
     }
     
-    /// Pause a `CaptureSession`, runs in non UI thread. 
+    /// Pause a `CaptureSession`, runs in non UI thread.
     /// Result caling by closure `completion`.
     func pauseCamera(completion: @escaping () -> ()) {
         sessionQueue.async { [weak self] in
@@ -168,7 +211,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
     
-    /// Resume a `CaptureSession`, runs in non UI thread. 
+    /// Resume a `CaptureSession`, runs in non UI thread.
     /// Result caling by closure `completion`.
     /// Can return `Error` on try resume non initialized camera.
     func resumeCamera(completion: @escaping (Error?) -> ()) {
@@ -240,7 +283,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
     }
 
     func setZoom(_ value: Double) throws {
-        guard let session = captureSession, session.isRunning, let camera = camera, camera.isConnected else {
+        guard captureSession != nil, let camera = camera, camera.isConnected else {
             throw MlKitPluginError.cameraIsNotInitialized
         }
         try camera.lockForConfiguration()

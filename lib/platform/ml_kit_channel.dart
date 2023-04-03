@@ -19,11 +19,15 @@ class MlKitChannel {
   static const _changeTorchStateMethod = 'changeTorchStateMethod';
   static const _setZoomMethod = 'setZoom';
   static const _setCropAreaMethod = 'setCropAreaMethod';
+  static const _getIosAvailableCameras = 'getIosAvailableCameras';
+  static const _setIosCamera = 'setIosCamera';
 
   static MlKitChannel? _instance;
   final MethodChannel _channel = const MethodChannel('mlkit_channel');
-  final StreamController<String> _scanResultStreamController = StreamController<String>.broadcast();
-  final StreamController<bool> _torchToggleStreamController = StreamController<bool>.broadcast();
+  final StreamController<String> _scanResultStreamController =
+      StreamController<String>.broadcast();
+  final StreamController<bool> _torchToggleStreamController =
+      StreamController<bool>.broadcast();
 
   /// Stream inform when torch change state.
   ///
@@ -39,7 +43,8 @@ class MlKitChannel {
     _channel.setMethodCallHandler((call) async {
       if (call.method == _scanResultMethod && call.arguments is String) {
         _scanResultStreamController.add(call.arguments);
-      } else if (call.method == _changeTorchStateMethod && call.arguments is bool) {
+      } else if (call.method == _changeTorchStateMethod &&
+          call.arguments is bool) {
         _torchToggleStreamController.add(call.arguments);
       }
     });
@@ -130,5 +135,25 @@ class MlKitChannel {
   /// `rect` - Scanning area of the overlay.
   Future<void> setCropArea(CropRect rect) {
     return _channel.invokeMethod(_setCropAreaMethod, rect.toJson());
+  }
+
+  /// Gets all available iOS cameras.
+  Future<List<IosCamera>> getIosAvailableCameras() async {
+    final availableCameras =
+        (await _channel.invokeListMethod<dynamic>(_getIosAvailableCameras))!;
+    return availableCameras
+        .map((json) => IosCamera.fromJson(Map<String, dynamic>.from(json)))
+        .toList();
+  }
+
+  /// Sets iOS camera with [position] and [type].
+  Future<void> setIosCamera({
+    required IosCameraPosition position,
+    required IosCameraType type,
+  }) {
+    return _channel.invokeMethod(_setIosCamera, {
+      'position': position.code,
+      'type': type.code,
+    });
   }
 }

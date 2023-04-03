@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 
@@ -13,7 +14,8 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   var _barcode = 'Please, scan';
   var _zoomValues = [0.0, 0.33, 0.66];
-  var _actialZoomIndex = 0;
+  var _actualZoomIndex = 0;
+
   static const _delayOptions = {
     "0 milliseconds": 0,
     "100 milliseconds": 100,
@@ -21,6 +23,29 @@ class _MyAppState extends State<MyApp> {
     "2000 milliseconds": 2000,
   };
   BarcodeScannerController? _controller;
+
+  List<IosCamera> _iosCameras = [];
+
+  var _cameraIndex = -1;
+  var _cameraType = '';
+  var _cameraPosition = '';
+
+  void _setNextIosCamera() {
+    _cameraIndex = (_cameraIndex + 1) % _iosCameras.length;
+    _controller!.setIosCamera(
+        position: _iosCameras[_cameraIndex].position,
+        type: _iosCameras[_cameraIndex].type);
+    _resetZoom();
+    setState(() {
+      _cameraType = _iosCameras[_cameraIndex].type.name;
+      _cameraPosition = _iosCameras[_cameraIndex].position.name;
+    });
+  }
+
+  void _resetZoom() {
+    _actualZoomIndex = 0;
+    _controller?.setZoom(_zoomValues[_actualZoomIndex]);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,8 +70,14 @@ class _MyAppState extends State<MyApp> {
                         _barcode = code;
                       });
                     },
-                    onScannerInitialized: (controller) =>
-                        _controller = controller,
+                    onScannerInitialized: (controller) async {
+                      _controller = controller;
+                      if (defaultTargetPlatform == TargetPlatform.iOS) {
+                        _iosCameras =
+                            await controller.getIosAvailableCameras()!;
+                        _setNextIosCamera();
+                      }
+                    },
                   ),
                 ),
                 Align(
@@ -148,12 +179,20 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               onPressed: () {
-                _actialZoomIndex = _actialZoomIndex + 1 < _zoomValues.length
-                    ? _actialZoomIndex + 1
+                _actualZoomIndex = _actualZoomIndex + 1 < _zoomValues.length
+                    ? _actualZoomIndex + 1
                     : 0;
-                _controller?.setZoom(_zoomValues[_actialZoomIndex]);
+                _controller?.setZoom(_zoomValues[_actualZoomIndex]);
               },
             ),
+            if (defaultTargetPlatform == TargetPlatform.iOS)
+              TextButton(
+                child: Text(
+                  '$_cameraIndex: $_cameraPosition, $_cameraType',
+                  textAlign: TextAlign.center,
+                ),
+                onPressed: _setNextIosCamera,
+              ),
           ],
         ),
       ),
