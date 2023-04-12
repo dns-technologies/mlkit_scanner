@@ -41,8 +41,8 @@ class MlKitChannel {
 
   MlKitChannel._() {
     _channel.setMethodCallHandler((call) async {
-      if (call.method == _scanResultMethod && call.arguments is String) {
-        _scanResultStreamController.add(call.arguments);
+      if (call.method == _scanResultMethod && call.arguments is Map) {
+        _scanResultStreamController.add(call.arguments['rawValue']);
       } else if (call.method == _changeTorchStateMethod &&
           call.arguments is bool) {
         _torchToggleStreamController.add(call.arguments);
