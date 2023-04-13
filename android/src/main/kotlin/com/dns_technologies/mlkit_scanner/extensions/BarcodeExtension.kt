@@ -4,6 +4,7 @@ import com.google.mlkit.vision.barcode.Barcode
 
 fun Barcode.toJson(): Map<String, Any?> {
     return mapOf(
-            "rawValue" to rawValue
+            "rawValue" to rawValue,
+            "displayValue" to displayValue,
     )
 }

@@ -9,9 +9,10 @@ import Foundation
 import MLKitBarcodeScanning
 
 extension Barcode {
-    func toJson() -> [String: Any] {
+    func toJson() -> [String: Any?] {
         [
             "rawValue": rawValue!,
+            "displayValue": displayValue,
         ]
     }
 }

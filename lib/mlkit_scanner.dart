@@ -1,3 +1,4 @@
+export 'models/barcode.dart';
 export 'models/crop_rect.dart';
 export 'models/ios_camera.dart';
 export 'models/ios_camera_type.dart';
