@@ -11,8 +11,10 @@ import MLKitBarcodeScanning
 extension Barcode {
     func toJson() -> [String: Any?] {
         [
-            "rawValue": rawValue!,
-            "displayValue": displayValue,
+            "raw_value": rawValue!,
+            "display_value": displayValue,
+            "format": format.rawValue,
+            "value_type": valueType.rawValue,
         ]
     }
 }
