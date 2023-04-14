@@ -1,16 +1,42 @@
+/// Barcode content value type.
 enum BarcodeValueType {
+  /// Barcode value type unknown.
   unknown,
+
+  /// Contact information.
   contactInfo,
+
+  /// Email message details.
   email,
+
+  /// ISBN.
   isbn,
+
+  /// Phone number.
   phone,
+
+  /// Product code.
   product,
+
+  /// SMS details.
   sms,
+
+  /// Plain text.
   text,
+
+  /// URLs/bookmarks.
   url,
+
+  /// WiFi access point details.
   wifi,
+
+  /// Geographic coordinates.
   geo,
+
+  /// Calendar event.
   calendarEvent,
+
+  /// Driver's license data.
   driverLicense,
 }
 
@@ -19,7 +45,8 @@ extension BarcodeValueTypeCode on BarcodeValueType {
   int get code => _typeToCode[this]!;
 
   /// Returns the type corresponding to the [code].
-  static BarcodeValueType fromCode(int code) => _codeToType[code]!;
+  static BarcodeValueType fromCode(int code) =>
+      _codeToType[code] ?? BarcodeValueType.unknown;
 
   static final _typeToCode = {
     BarcodeValueType.unknown: 0,

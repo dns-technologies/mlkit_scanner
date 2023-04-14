@@ -2,10 +2,10 @@ package com.dns_technologies.mlkit_scanner.extensions
 
 import com.google.mlkit.vision.barcode.Barcode
 
+/** Creates json for transmission over the platform channel. */
 fun Barcode.toJson(): Map<String, Any?> {
     val mappedFormat = when (format) {
         Barcode.FORMAT_UNKNOWN -> 0
-        Barcode.FORMAT_ALL_FORMATS -> 0xFFFF
         else -> format
     }
 

@@ -1,18 +1,45 @@
+/// Barcode format.
 enum BarcodeFormat {
+  /// Unknown format.
   unknown,
-  allFormats,
+
+  /// Code 128.
   code128,
+
+  /// Code 39.
   code39,
+
+  /// Code 93.
   code93,
+
+  /// Codabar.
   codabar,
+
+  /// Data Matrix.
   dataMatrix,
+
+  /// EAN-13.
   ean13,
+
+  /// EAN-8.
   ean8,
+
+  /// ITF (Interleaved Two-of-Five).
   itf,
+
+  /// QR Code.
   qrCode,
+
+  /// UPC-A.
   upcA,
+
+  /// UPC-E.
   upcE,
+
+  /// PDF-417.
   pdf417,
+
+  /// AZTEC.
   aztec,
 }
 
@@ -21,11 +48,11 @@ extension BarcodeFormatCode on BarcodeFormat {
   int get code => _formatToCode[this]!;
 
   /// Returns the format corresponding to the [code].
-  static BarcodeFormat fromCode(int code) => _codeToFormat[code]!;
+  static BarcodeFormat fromCode(int code) =>
+      _codeToFormat[code] ?? BarcodeFormat.unknown;
 
   static final _formatToCode = {
     BarcodeFormat.unknown: 0,
-    BarcodeFormat.allFormats: 0xffff,
     BarcodeFormat.code128: 1,
     BarcodeFormat.code39: 2,
     BarcodeFormat.code93: 4,
