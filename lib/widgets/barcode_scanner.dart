@@ -7,8 +7,7 @@ import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 /// Signature of the BarcodeScanner success initialize scanner function.
-typedef BarcodeScannerInitializeCallback = void Function(
-    BarcodeScannerController controller);
+typedef BarcodeScannerInitializeCallback = void Function(BarcodeScannerController controller);
 
 /// Widget for scanning barcodes using MLkit Barcode Scanning.
 class BarcodeScanner extends StatefulWidget {
@@ -18,8 +17,16 @@ class BarcodeScanner extends StatefulWidget {
   /// Callback on success scanner initialize, with [BarcodeScannerController] for control camera and detection.
   final BarcodeScannerInitializeCallback onScannerInitialized;
 
-  /// Optional scanner overlay with [CropRect] of the detection area.
+  /// Optional initial scanner overlay with [CropRect] of the detection area.
   final CropRect? cropOverlay;
+
+  /// Optional initial zoom.
+  final double? initialZoom;
+
+  /// Optional initial camera.
+  ///
+  /// Work only on Ios.
+  final IosCamera? initialCamera;
 
   /// Callback if camera cannot be initialized.
   final CameraInitilizeError? onCameraInitializeError;
@@ -33,6 +40,8 @@ class BarcodeScanner extends StatefulWidget {
     required this.onScan,
     required this.onScannerInitialized,
     this.cropOverlay,
+    this.initialZoom,
+    this.initialCamera,
     this.onCameraInitializeError,
     this.onChangeFlashState,
     Key? key,
@@ -53,17 +62,18 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     super.initState();
     _channel = MlKitChannel();
     _barcodeScannerController = BarcodeScannerController._();
-    _toggleFlashStreamSubscription = _channel.torchToggleStream
-        .listen((event) => widget.onChangeFlashState?.call(event));
+    _toggleFlashStreamSubscription = _channel.torchToggleStream.listen((event) => widget.onChangeFlashState?.call(event));
     _barcodeScannerController._attach(this);
   }
 
   @override
   void didUpdateWidget(covariant BarcodeScanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cropOverlay != widget.cropOverlay &&
-        widget.cropOverlay != null) {
+    if (oldWidget.cropOverlay != widget.cropOverlay && widget.cropOverlay != null) {
       _channel.setCropArea(widget.cropOverlay!);
+    }
+    if (oldWidget.initialZoom != widget.initialZoom && widget.initialZoom != null) {
+      _channel.setZoom(widget.initialZoom!);
     }
   }
 
@@ -88,10 +98,12 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     super.deactivate();
   }
 
-  void _onCameraInitialized() {
-    if (widget.cropOverlay != null) {
-      _channel.setCropArea(widget.cropOverlay!);
-    }
+  Future<void> _onCameraInitialized() async {
+    await _channel.initCameraPreview(
+      initialZoom: widget.initialZoom,
+      initialCropRect: widget.cropOverlay,
+      initialCamera: widget.initialCamera,
+    );
     widget.onScannerInitialized(_barcodeScannerController);
   }
 
@@ -100,8 +112,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   Future<void> _startScan(int delay) async {
-    final scanStream =
-        await _channel.startScan(RecognitionType.barcodeRecognition, delay);
+    final scanStream = await _channel.startScan(RecognitionType.barcodeRecognition, delay);
     _scanStreamSubscription?.cancel();
     _scanStreamSubscription = scanStream.listen(widget.onScan);
   }
@@ -126,10 +137,6 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
 
   Future<void> _setZoom(double value) {
     return _channel.setZoom(value);
-  }
-
-  Future<List<IosCamera>> _getIosAvailableCameras() {
-    return _channel.getIosAvailableCameras();
   }
 
   Future<void> _setIosCamera({
@@ -202,11 +209,6 @@ class BarcodeScannerController {
       "Value can only be in the range from 0 to 1",
     );
     return _barcodeScannerState?._setZoom(value);
-  }
-
-  /// Gets all available iOS cameras.
-  Future<List<IosCamera>>? getIosAvailableCameras() {
-    return _barcodeScannerState?._getIosAvailableCameras();
   }
 
   /// Sets iOS camera with [position] and [type].

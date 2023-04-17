@@ -93,7 +93,6 @@ class _CameraPreviewState extends State<CameraPreview> {
 
   Future<void> _onViewCreated(int id) async {
     try {
-      await _channel.initCameraPreview();
       widget.onCameraInitialized();
     } on PlatformException catch (e) {
       widget.onCameraInitializeError?.call(e);
