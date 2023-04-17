@@ -26,6 +26,9 @@ extension IosCameraTypeCode on IosCameraType {
   /// Returns the type corresponding to the [code].
   static IosCameraType fromCode(int code) => _codeToType[code]!;
 
+  /// Returns the code corresponding to the [type].
+  static int toCode(IosCameraType type) => _typeToCode[type]!;
+
   static final _typeToCode = {
     IosCameraType.builtInWideAngleCamera: 0,
     IosCameraType.builtInTelephotoCamera: 1,

@@ -25,8 +25,11 @@ import com.otaliastudios.cameraview.size.Size as CameraViewSize
  *
  * @see [CameraView](https://github.com/natario1/CameraView)
  */
-class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
-                              private val cameraView: CameraView): ScannerCamera,
+class CameraViewScannerCamera(
+    private val lifecycleOwner: LifecycleOwner,
+    private val cameraView: CameraView,
+    initialZoom: Double?,
+) : ScannerCamera,
     LifecycleObserver,
     CameraListener() {
     private var analyzer: CameraImageAnalyzer? = null
@@ -40,6 +43,9 @@ class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
 
     init {
         cameraView.useDeviceOrientation = false
+        if (initialZoom != null) {
+            cameraView.zoom = initialZoom.toFloat()
+        }
         cameraView.addCameraListener(this)
         cameraView.setLifecycleOwner(lifecycleOwner)
         cameraView.setPreviewStreamSize {
@@ -111,7 +117,14 @@ class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
     private fun analyzeFrame(frame: Frame) {
         if (analyzer != null) {
             with(frame) {
-                analyzer!!.analyze(NV21AnalysingImage(getData(), Size(size.width, size.height), format, rotationToUser))
+                analyzer!!.analyze(
+                    NV21AnalysingImage(
+                        getData(),
+                        Size(size.width, size.height),
+                        format,
+                        rotationToUser
+                    )
+                )
             }
         }
     }

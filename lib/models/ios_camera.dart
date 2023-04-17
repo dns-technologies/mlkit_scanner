@@ -19,4 +19,9 @@ class IosCamera {
       position: IosCameraPositionCode.fromCode(json['position']),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'position': IosCameraPositionCode.toCode(position),
+        'type': IosCameraTypeCode.toCode(type),
+      };
 }

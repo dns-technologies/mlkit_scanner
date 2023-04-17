@@ -69,32 +69,34 @@ class CameraPreview: NSObject, FlutterPlatformView {
     /// Initialization of the device camera. Initialization runs in non UI thread.
     /// Result of init caling with closure `completion`.
     /// Can return `Error` on problem with device camera or app doesn't have permission to use camera.
-    func initCamera(completion: @escaping (Error?) -> ()) {
+    func initCamera(initialZoom: Double?, initialCamera: CameraData?, completion: @escaping (Error?) -> ()) {
         do {
             try checkPermission()
-            
-            camera = createWideAngleCamera()
+
+            camera = (initialCamera != nil) ? AVCaptureDevice.default(initialCamera!.type, for: .video, position: initialCamera!.position) : createWideAngleCamera()
             guard let camera = camera else {
                 completion(MlKitPluginError.initCameraError)
                 return
             }
-            
+
             let input = try AVCaptureDeviceInput.init(device: camera)
             captureSession = AVCaptureSession()
             captureSession?.sessionPreset = .hd1280x720
             captureSession?.addInput(input)
+
+            try initialSetup(initialZoom: initialZoom)
         } catch {
             completion(error)
             return
         }
-        
+
         previewLayer = AVCaptureVideoPreviewLayer(session: captureSession!)
         previewLayer?.videoGravity = .resizeAspectFill
         previewLayer?.connection?.videoOrientation = getVideoOrieitation()
         previewLayer?.frame = preview.frame
         preview.layer.insertSublayer(previewLayer!, at: 0)
         addFocusView()
-        
+
         subscribeOrientationChanges()
         self.observeTorchToggle()
         sessionQueue.async {  [weak self] in
@@ -110,7 +112,13 @@ class CameraPreview: NSObject, FlutterPlatformView {
             completion(nil)
         }
     }
-    
+
+    private func initialSetup(initialZoom: Double?) throws {
+        if (initialZoom != nil) {
+            try internalSetZoom(initialZoom!)
+        }
+    }
+
     /// Sets for scanning camera with `deviceType` and `position`.
     /// Throws if called without camera initialization or can't use such camera.
     func setCamera(deviceType: AVCaptureDevice.DeviceType, position: AVCaptureDevice.Position) throws {
@@ -121,7 +129,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         guard let newCamera = AVCaptureDevice.default(deviceType, for: .video, position: position) else {
             throw MlKitPluginError.initCameraError
         }
-        
+
         let newInput = try AVCaptureDeviceInput.init(device: newCamera)
 
         session.beginConfiguration()
@@ -130,15 +138,15 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
         session.addInput(newInput)
         session.commitConfiguration()
-        
+
         camera = newCamera
-        
+
         torchObserver?.invalidate()
         observeTorchToggle()
-        
+
         clearFocusLock()
     }
-    
+
     /// Returns all available cameras on device.
     func getAvailableCameras() -> [AVCaptureDevice] {
         var deviceTypes: [AVCaptureDevice.DeviceType] = [
@@ -153,24 +161,24 @@ class CameraPreview: NSObject, FlutterPlatformView {
                 .builtInTripleCamera,
             ])
         }
-        
+
         let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: deviceTypes, mediaType: .video, position: .unspecified)
         return discoverySession.devices
     }
-    
+
     private func createWideAngleCamera() -> AVCaptureDevice? {
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
-    
+
     private func addFocusView() {
         preview.addSubview(focusView)
     }
-        
+
     /// Calculates the focus point relative to center of the screen with offsets `offsetX` and `offsetY`
     private class func calcFocusPoint(preview: UIContainer, offsetX: CGFloat, offsetY: CGFloat) -> FocusPoint {
         return FocusPoint(frame: preview.frame, offsetX: offsetX, offsetY: offsetY)
     }
-    
+
     /// Сhanges focus around the center
     func changeFocusCenter(offsetX: CGFloat, offsetY: CGFloat) {
         (self.offsetX, self.offsetY) = (offsetX, offsetY)
@@ -178,7 +186,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         self.focusPoint = focusPoint.normalized()
         focusView.changeFocusPoint(point: focusPoint.position())
     }
-    
+
     /// Toggle of the device flash. Throws `MlKitPluginError.cameraIsNotInitialized` if try toggle without camera initialization,
     /// or `MlKitPluginError.deviceHasNotFlash` if device doesn't have flash.
     func toggleFlash() throws {
@@ -193,12 +201,12 @@ class CameraPreview: NSObject, FlutterPlatformView {
             throw MlKitPluginError.deviceHasNotFlash
         }
     }
-    
+
     /// Update constraints of the `CameraPreview`.
     func updateConstraints(width: CGFloat, height: CGFloat) {
         preview.updateSizeConstraints(width: width, height: height)
     }
-    
+
     /// Pause a `CaptureSession`, runs in non UI thread.
     /// Result caling by closure `completion`.
     func pauseCamera(completion: @escaping () -> ()) {
@@ -210,7 +218,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
             completion()
         }
     }
-    
+
     /// Resume a `CaptureSession`, runs in non UI thread.
     /// Result caling by closure `completion`.
     /// Can return `Error` on try resume non initialized camera.
@@ -226,7 +234,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
             completion(nil)
         }
     }
-    
+
     /// Release device camera resources. Must call this method when camera is no longer needed.
     func dispose() {
         torchObserver?.invalidate()
@@ -238,22 +246,22 @@ class CameraPreview: NSObject, FlutterPlatformView {
         camera = nil
         videoOutput = nil
     }
-    
+
     func addSubview(_ view: UIView) {
         preview.insertSubview(view, belowSubview: focusView)
     }
-    
+
     private func subscribeOrientationChanges() {
         NotificationCenter.default.addObserver(self, selector: #selector(self.onOrientationChanges), name: UIApplication.didChangeStatusBarOrientationNotification, object: nil)
     }
-    
+
     @objc private func onOrientationChanges() {
         previewLayer?.connection?.videoOrientation = getVideoOrieitation()
     }
-    
+
     private func checkPermission() throws {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
-        
+
         switch status {
         case .authorized:
             return
@@ -266,7 +274,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
             throw MlKitPluginError.authorizationCameraError
         }
     }
-    
+
     private func getVideoOrieitation() -> AVCaptureVideoOrientation{
         switch UIApplication.shared.statusBarOrientation {
         case .landscapeRight:
@@ -284,6 +292,13 @@ class CameraPreview: NSObject, FlutterPlatformView {
 
     func setZoom(_ value: Double) throws {
         guard captureSession != nil, let camera = camera, camera.isConnected else {
+            throw MlKitPluginError.cameraIsNotInitialized
+        }
+        try internalSetZoom(value)
+    }
+
+    private func internalSetZoom(_ value: Double) throws {
+        guard let camera = camera else {
             throw MlKitPluginError.cameraIsNotInitialized
         }
         try camera.lockForConfiguration()

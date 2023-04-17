@@ -24,10 +24,8 @@ class MlKitChannel {
 
   static MlKitChannel? _instance;
   final MethodChannel _channel = const MethodChannel('mlkit_channel');
-  final StreamController<String> _scanResultStreamController =
-      StreamController<String>.broadcast();
-  final StreamController<bool> _torchToggleStreamController =
-      StreamController<bool>.broadcast();
+  final StreamController<String> _scanResultStreamController = StreamController<String>.broadcast();
+  final StreamController<bool> _torchToggleStreamController = StreamController<bool>.broadcast();
 
   /// Stream inform when torch change state.
   ///
@@ -43,8 +41,7 @@ class MlKitChannel {
     _channel.setMethodCallHandler((call) async {
       if (call.method == _scanResultMethod && call.arguments is String) {
         _scanResultStreamController.add(call.arguments);
-      } else if (call.method == _changeTorchStateMethod &&
-          call.arguments is bool) {
+      } else if (call.method == _changeTorchStateMethod && call.arguments is bool) {
         _torchToggleStreamController.add(call.arguments);
       }
     });
@@ -54,8 +51,14 @@ class MlKitChannel {
   ///
   /// Can throw a [PlatformException] if device has problem with camera, or doesn't have one.
   /// Plugin ask permission to use camera, if user doesn't grant permission also throw a [PlatformException].
-  Future<void> initCameraPreview() {
-    return _channel.invokeMethod(_initCameraMethod);
+  Future<void> initCameraPreview({double? initialZoom, CropRect? initialCropRect, IosCamera? initialCamera}) {
+    final args = {
+      'initialZoom': initialZoom,
+      'initialCropRect': initialCropRect?.toJson(),
+      'initialCamera': initialCamera?.toJson(),
+    };
+
+    return _channel.invokeMethod(_initCameraMethod, args.values.any((e) => e != null) ? args : null);
   }
 
   /// Release resources of the camera.
@@ -139,11 +142,8 @@ class MlKitChannel {
 
   /// Gets all available iOS cameras.
   Future<List<IosCamera>> getIosAvailableCameras() async {
-    final availableCameras =
-        (await _channel.invokeListMethod<dynamic>(_getIosAvailableCameras))!;
-    return availableCameras
-        .map((json) => IosCamera.fromJson(Map<String, dynamic>.from(json)))
-        .toList();
+    final availableCameras = (await _channel.invokeListMethod<dynamic>(_getIosAvailableCameras))!;
+    return availableCameras.map((json) => IosCamera.fromJson(Map<String, dynamic>.from(json))).toList();
   }
 
   /// Sets iOS camera with [position] and [type].
