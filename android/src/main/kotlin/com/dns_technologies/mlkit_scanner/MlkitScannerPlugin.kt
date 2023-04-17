@@ -260,13 +260,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         }
         if (initialScannerParameters?.initialCropArea != null) {
             val rect = initialScannerParameters!!.initialCropArea!!
-            updateCropOptions(rect)
-            if (scannerOverlay != null) {
-                scannerOverlay?.cropRect = rect
-            } else {
-                scannerOverlay = ScannerOverlay(rect, cameraView.context)
-                cameraView.addOverlay(scannerOverlay!!)
-            }
+            internalSetCropArea(rect)
         }
         initialMethodResult?.success(true)
         initialMethodResult = null
@@ -312,6 +306,11 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
 
     private fun invokeSetCropArea(call: MethodCall, result: Result) {
         val rect = RecognizeVisorCropRect.fromMap(call.arguments as Map<String, Any?>)
+        internalSetCropArea(rect)
+        result.success(true)
+    }
+
+    private fun internalSetCropArea(rect: RecognizeVisorCropRect) {
         updateCropOptions(rect)
         if (scannerOverlay != null) {
             scannerOverlay?.cropRect = rect
@@ -319,7 +318,6 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
             scannerOverlay = ScannerOverlay(rect, cameraView.context)
             cameraView.addOverlay(scannerOverlay!!)
         }
-        result.success(true)
     }
 
     private fun checkCameraActiveStatus(result: Result, errorMsg: String): Boolean {
