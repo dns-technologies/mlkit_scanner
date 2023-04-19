@@ -1,9 +1,10 @@
 package com.dns_technologies.mlkit_scanner.analyzer
 
 import com.dns_technologies.mlkit_scanner.models.RecognitionType
+import com.google.mlkit.vision.barcode.Barcode
 import com.google.mlkit.vision.common.InputImage
 
-typealias OnSuccessListener = (result: Any) -> Unit
+typealias OnSuccessListener = (result: Barcode) -> Unit
 typealias ImageAnalyzePreparer = (image: AnalysingImage) -> InputImage?
 
 /**

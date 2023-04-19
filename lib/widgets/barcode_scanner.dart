@@ -13,7 +13,7 @@ typedef BarcodeScannerInitializeCallback = void Function(
 /// Widget for scanning barcodes using MLkit Barcode Scanning.
 class BarcodeScanner extends StatefulWidget {
   /// Callback with barcode scanning result, when scanner detect a barcode.
-  final ValueChanged<String> onScan;
+  final ValueChanged<Barcode> onScan;
 
   /// Callback on success scanner initialize, with [BarcodeScannerController] for control camera and detection.
   final BarcodeScannerInitializeCallback onScannerInitialized;
@@ -45,7 +45,7 @@ class BarcodeScanner extends StatefulWidget {
 class _BarcodeScannerState extends State<BarcodeScanner> {
   late MlKitChannel _channel;
   late BarcodeScannerController _barcodeScannerController;
-  StreamSubscription<String>? _scanStreamSubscription;
+  StreamSubscription<Barcode>? _scanStreamSubscription;
   StreamSubscription<bool>? _toggleFlashStreamSubscription;
 
   @override

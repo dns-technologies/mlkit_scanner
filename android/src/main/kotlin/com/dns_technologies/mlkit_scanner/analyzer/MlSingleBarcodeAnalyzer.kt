@@ -96,12 +96,11 @@ class MlSingleBarcodeAnalyzer(type: RecognitionType) : CameraImageAnalyzer(type)
     private fun onSuccessScan(barcodeList: List<Barcode>) {
         if (barcodeList.isNotEmpty()) {
             val barcode = barcodeList.first()
-            val value = barcode.rawValue
-            if (value != null) {
-                Log.d(TAG, value)
+            if (barcode.rawValue != null) {
+                Log.d(TAG, barcode.rawValue)
                 skippingFrameCount = 0
                 startAnalyzeDelayTimer()
-                onSuccessListener.invoke(value)
+                onSuccessListener.invoke(barcode)
             }
         }
     }

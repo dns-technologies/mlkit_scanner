@@ -1,3 +1,9 @@
+## unreleased
+
+[feature]
+
+- Add scanned barcode info.
+
 ## 0.4.0
 
 [feature]
