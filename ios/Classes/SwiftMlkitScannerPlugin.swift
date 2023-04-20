@@ -239,8 +239,8 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
-        let cameraData = CameraData(arguments: cameraArgs)
         do {
+            let cameraData = CameraData(arguments: cameraArgs)
             try cameraPreview?.setCamera(cameraData)
             result(nil)
         } catch {

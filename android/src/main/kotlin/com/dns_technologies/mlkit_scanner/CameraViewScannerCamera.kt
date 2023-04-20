@@ -130,8 +130,8 @@ class CameraViewScannerCamera(
     }
 
     override fun setZoom(value: Float) {
-        // This is necessary to set the zoom before the camera is initialized,
-        // because we cannot check the availability of the zoom before initialization.
+        // We ignore the check for zoom support when the camera is not initialized,
+        // because at this moment there is no [CameraOptions] yet.
         if (cameraOptions?.isZoomSupported != false) {
             cameraView.zoom = value
         } else {
