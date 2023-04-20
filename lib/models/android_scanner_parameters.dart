@@ -6,7 +6,8 @@ class AndroidScannerParameters extends ScannerParameters {
   /// Optional initial zoom.
   final double? zoom;
 
-  const AndroidScannerParameters({this.zoom, CropRect? cropRect}) : super(cropRect: cropRect);
+  const AndroidScannerParameters({this.zoom, CropRect? cropRect})
+      : super(cropRect: cropRect);
 
   @override
   Map<String, dynamic> toJson() {

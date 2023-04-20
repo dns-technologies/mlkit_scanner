@@ -8,5 +8,6 @@ class MLKitUtils {
   MLKitUtils() : _MLKitChannel = MlKitChannel();
 
   /// Gets all available iOS cameras.
-  Future<List<IosCamera>> getIosAvailableCameras() => _MLKitChannel.getIosAvailableCameras();
+  Future<List<IosCamera>> getIosAvailableCameras() =>
+      _MLKitChannel.getIosAvailableCameras();
 }

@@ -12,7 +12,8 @@ class IosScannerParameters extends ScannerParameters {
   /// Optional initial camera.
   final IosCamera? camera;
 
-  const IosScannerParameters({this.zoom, this.camera, CropRect? cropRect}) : super(cropRect: cropRect);
+  const IosScannerParameters({this.zoom, this.camera, CropRect? cropRect})
+      : super(cropRect: cropRect);
 
   @override
   Map<String, dynamic> toJson() {

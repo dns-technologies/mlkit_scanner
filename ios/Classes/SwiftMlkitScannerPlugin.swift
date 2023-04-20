@@ -234,17 +234,14 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     
     private func setCamera(arguments: Any?, result: @escaping FlutterResult) {
         guard
-            let cameraArgs = arguments as? Dictionary<String, Int>,
-            let positionCode = cameraArgs["position"] as Int?,
-            let typeCode = cameraArgs["type"] as Int?,
-            let position = AVCaptureDevice.Position.fromCode(positionCode),
-            let deviceType = AVCaptureDevice.DeviceType.fromCode(typeCode)
+            let cameraArgs = arguments as? Dictionary<String, Int>
         else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
+        let cameraData = CameraData(arguments: cameraArgs)
         do {
-            try cameraPreview?.setCamera(deviceType: deviceType, position: position)
+            try cameraPreview?.setCamera(cameraData)
             result(nil)
         } catch {
             handleError(error: error, result: result)
