@@ -26,7 +26,7 @@ class BarcodeScanner extends StatefulWidget {
   final ValueChanged<bool>? onChangeFlashState;
 
   /// Parameters for initializing the scanner.
-  final InitialArguments? initialArguments;
+  final ScannerParameters? initialArguments;
 
   const BarcodeScanner({
     required this.onScan,
@@ -59,9 +59,8 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   @override
   void didUpdateWidget(covariant BarcodeScanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialArguments?.initialCropRect != widget.initialArguments?.initialCropRect &&
-        widget.initialArguments?.initialCropRect != null) {
-      _channel.setCropArea(widget.initialArguments!.initialCropRect!);
+    if (oldWidget.initialArguments?.cropRect != widget.initialArguments?.cropRect && widget.initialArguments?.cropRect != null) {
+      _channel.setCropArea(widget.initialArguments!.cropRect!);
     }
   }
 

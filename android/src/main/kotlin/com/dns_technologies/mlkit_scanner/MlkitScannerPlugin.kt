@@ -59,7 +59,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     private var scannerOverlay: ScannerOverlay? = null
 
     // Parameters configuring the scanner at the time of its initialization.
-    private var initialScannerParameters: InitialScannerParameters? = null
+    private var initialScannerParameters: ScannerParameters? = null
     private var isLockedAutoResumeCamera: Boolean = false
 
     private var isAlreadyInitialized: Boolean = false
@@ -146,8 +146,8 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
             return
         }
         initialMethodResult = result
-        initialScannerParameters =
-            InitialScannerParameters.fromMap(call.arguments as Map<String, Any?>)
+        val args = call.arguments as Map<String, Any?>?
+        initialScannerParameters = if (args != null) ScannerParameters(args) else null
 
         if (allPermissionsGranted()) {
             initCamera()
@@ -254,7 +254,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
             // Some devices can change zoom before camera is initialized.
             // This is the reason why this method is called twice.
             trySetZoom(
-                initialScannerParameters!!.initialZoom!!,
+                initialScannerParameters!!.zoom!!,
                 result = initialMethodResult
             )
             camera?.startCamera(this::onInitSuccess, this::onInitError)
@@ -265,14 +265,14 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         if (analyzer != null) {
             camera?.attachAnalyser(analyzer!!)
         }
-        if (initialScannerParameters?.initialZoom != null) {
+        if (initialScannerParameters?.zoom != null) {
             trySetZoom(
-                initialScannerParameters!!.initialZoom!!,
+                initialScannerParameters!!.zoom!!,
                 result = initialMethodResult
             )
         }
-        if (initialScannerParameters?.initialCropArea != null) {
-            setCropArea(initialScannerParameters!!.initialCropArea!!)
+        if (initialScannerParameters?.cropRect != null) {
+            setCropArea(initialScannerParameters!!.cropRect!!)
         }
 
         initialMethodResult?.success(true)

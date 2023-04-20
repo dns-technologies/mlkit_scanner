@@ -62,7 +62,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     private func initCamera(arguments: Any?, result: @escaping FlutterResult) {
         // When rebuilding a widget, dispose() is not called,
         // which causes situations where initCamera() can be called multiple times.
-        if (isAlreadyInitialized == true) {
+        if (isAlreadyInitialized) {
             return
         }
 
@@ -70,17 +70,20 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
-        let initialScannerParameters = InitialScannerParameters(arguments: params)
+        var initialScannerParams: ScannerParameters?
+        if let params = params {
+            initialScannerParams = ScannerParameters(arguments: params)
+        }
 
-        if (initialScannerParameters?.initialCropRect != nil) {
-            setCropArea(rect: initialScannerParameters!.initialCropRect!)
+        if let initialCropRect = initialScannerParams?.cropRect {
+            setCropArea(rect: initialCropRect)
         }
 
         guard let cameraPreview = cameraPreview else {
             self.handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
             return
         }
-        cameraPreview.initCamera(initialZoom: initialScannerParameters?.initialZoom, initialCamera: initialScannerParameters?.initialCamera) { [weak self] error in
+        cameraPreview.initCamera(initialZoom: initialScannerParams?.zoom, initialCamera: initialScannerParams?.camera) { [weak self] error in
             if let error = error {
                 self?.handleError(error: error, result: result)
             } else {
@@ -224,7 +227,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             guard camera.isSupported else {
                 continue
             }
-            availableCameras.append(camera.toJson())
+            availableCameras.append(camera.toCameraData().toJson())
         }
         result(availableCameras)
     }

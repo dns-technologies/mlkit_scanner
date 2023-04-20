@@ -35,9 +35,13 @@ class CameraViewScannerCamera(
     private lateinit var onInitSuccess: OnInit
     private lateinit var onInitError: OnError
     private var cameraOptions: CameraOptions? = null
-    private val hasSupportedFlash: Boolean by lazy {
-        cameraOptions?.supportedFlash?.containsAll(arrayListOf(Flash.OFF, Flash.TORCH)) ?: false
-    }
+    private val hasSupportedFlash
+        get() = cameraOptions?.supportedFlash?.containsAll(
+            arrayListOf(
+                Flash.OFF,
+                Flash.TORCH
+            )
+        ) ?: false
     private var focusCenter: Pair<Float, Float> = Pair(0.0F, 0.0F)
 
     init {

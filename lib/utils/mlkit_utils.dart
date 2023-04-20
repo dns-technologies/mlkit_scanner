@@ -1,12 +1,12 @@
 import 'package:mlkit_scanner/models/ios_camera.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 
-/// Contains useful methods, which can be accessed before the camera is initialized.
-class MlkitUtils {
-  final MlKitChannel _mlKitChannel;
+/// Contains useful methods that can be accessed regardless of the state of the camera.
+class MLKitUtils {
+  final MlKitChannel _MLKitChannel;
 
-  MlkitUtils() : _mlKitChannel = MlKitChannel();
+  MLKitUtils() : _MLKitChannel = MlKitChannel();
 
   /// Gets all available iOS cameras.
-  Future<List<IosCamera>> getIosAvailableCameras() => _mlKitChannel.getIosAvailableCameras();
+  Future<List<IosCamera>> getIosAvailableCameras() => _MLKitChannel.getIosAvailableCameras();
 }
