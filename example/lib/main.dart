@@ -2,9 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 
-void main() {
-  runApp(MyApp());
-}
+void main() => runApp(MyApp());
 
 class MyApp extends StatefulWidget {
   @override
@@ -32,9 +30,7 @@ class _MyAppState extends State<MyApp> {
 
   void _setNextIosCamera() {
     _cameraIndex = (_cameraIndex + 1) % _iosCameras.length;
-    _controller!.setIosCamera(
-        position: _iosCameras[_cameraIndex].position,
-        type: _iosCameras[_cameraIndex].type);
+    _controller!.setIosCamera(position: _iosCameras[_cameraIndex].position, type: _iosCameras[_cameraIndex].type);
     _resetZoom();
     setState(() {
       _cameraType = _iosCameras[_cameraIndex].type.name;
@@ -63,8 +59,13 @@ class _MyAppState extends State<MyApp> {
                 Container(
                   height: 200,
                   child: BarcodeScanner(
-                    cropOverlay:
-                        const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
+                    initialArguments: (defaultTargetPlatform == TargetPlatform.iOS)
+                        ? IosScannerParameters(
+                            cropRect: const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
+                          )
+                        : AndroidScannerParameters(
+                            cropRect: const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
+                          ),
                     onScan: (code) {
                       setState(() {
                         _barcode = code;
@@ -73,8 +74,7 @@ class _MyAppState extends State<MyApp> {
                     onScannerInitialized: (controller) async {
                       _controller = controller;
                       if (defaultTargetPlatform == TargetPlatform.iOS) {
-                        _iosCameras =
-                            await controller.getIosAvailableCameras()!;
+                        _iosCameras = await MLKitUtils().getIosAvailableCameras();
                         _setNextIosCamera();
                       }
                     },
@@ -179,9 +179,7 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               onPressed: () {
-                _actualZoomIndex = _actualZoomIndex + 1 < _zoomValues.length
-                    ? _actualZoomIndex + 1
-                    : 0;
+                _actualZoomIndex = _actualZoomIndex + 1 < _zoomValues.length ? _actualZoomIndex + 1 : 0;
                 _controller?.setZoom(_zoomValues[_actualZoomIndex]);
               },
             ),
