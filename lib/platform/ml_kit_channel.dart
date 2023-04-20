@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
+import 'package:mlkit_scanner/models/initial_arguments.dart';
 import 'package:mlkit_scanner/models/recognition_type.dart';
 
 /// Platform channel of the MLkit plugin
@@ -51,14 +52,8 @@ class MlKitChannel {
   ///
   /// Can throw a [PlatformException] if device has problem with camera, or doesn't have one.
   /// Plugin ask permission to use camera, if user doesn't grant permission also throw a [PlatformException].
-  Future<void> initCameraPreview({double? initialZoom, CropRect? initialCropRect, IosCamera? initialCamera}) {
-    final args = {
-      'initialZoom': initialZoom,
-      'initialCropRect': initialCropRect?.toJson(),
-      'initialCamera': initialCamera?.toJson(),
-    };
-
-    return _channel.invokeMethod(_initCameraMethod, args.values.any((e) => e != null) ? args : null);
+  Future<void> initCameraPreview({InitialArguments? initialArguments}) {
+    return _channel.invokeMethod(_initCameraMethod, initialArguments?.toJson());
   }
 
   /// Release resources of the camera.

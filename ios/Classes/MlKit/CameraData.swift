@@ -20,12 +20,8 @@ struct CameraData {
         if (arguments == nil) {
             return nil
         }
-        
-        guard let type = AVCaptureDevice.DeviceType.fromCode(arguments!["type"] as! Int),
-              let position = AVCaptureDevice.Position.fromCode(arguments!["position"] as! Int) else {
-            return nil
-        }
-        self.type = type
-        self.position = position
+
+        self.type = AVCaptureDevice.DeviceType.fromCode(arguments!["type"] as! Int)!
+        self.position = AVCaptureDevice.Position.fromCode(arguments!["position"] as! Int)!
     }
 }

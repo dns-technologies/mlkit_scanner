@@ -1,6 +1,10 @@
-export 'helpers/ios_helper.dart';
+export 'models/android_initial_arguments.dart';
 export 'models/crop_rect.dart';
+export 'models/initial_arguments.dart';
 export 'models/ios_camera.dart';
 export 'models/ios_camera_position.dart';
 export 'models/ios_camera_type.dart';
+export 'models/ios_initial_arguments.dart';
+export 'models/empty_initial_arguments.dart';
+export 'utils/mlkit_utils.dart';
 export 'widgets/barcode_scanner.dart';

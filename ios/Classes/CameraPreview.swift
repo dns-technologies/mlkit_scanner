@@ -84,7 +84,9 @@ class CameraPreview: NSObject, FlutterPlatformView {
             captureSession?.sessionPreset = .hd1280x720
             captureSession?.addInput(input)
 
-            try initialSetup(initialZoom: initialZoom)
+            if let initialZoom = initialZoom {
+                try setZoom(initialZoom)
+            }
         } catch {
             completion(error)
             return
@@ -110,12 +112,6 @@ class CameraPreview: NSObject, FlutterPlatformView {
             session.addOutput(self.videoOutput!)
             session.startRunning()
             completion(nil)
-        }
-    }
-
-    private func initialSetup(initialZoom: Double?) throws {
-        if (initialZoom != nil) {
-            try internalSetZoom(initialZoom!)
         }
     }
 
@@ -145,26 +141,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         observeTorchToggle()
 
         clearFocusLock()
-    }
-
-    /// Returns all available cameras on device.
-    func getAvailableCameras() -> [AVCaptureDevice] {
-        var deviceTypes: [AVCaptureDevice.DeviceType] = [
-            .builtInWideAngleCamera,
-            .builtInTelephotoCamera,
-            .builtInDualCamera,
-        ]
-        if #available(iOS 13.0, *) {
-            deviceTypes.append(contentsOf: [
-                .builtInUltraWideCamera,
-                .builtInDualWideCamera,
-                .builtInTripleCamera,
-            ])
-        }
-
-        let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: deviceTypes, mediaType: .video, position: .unspecified)
-        return discoverySession.devices
-    }
+    }    
 
     private func createWideAngleCamera() -> AVCaptureDevice? {
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
@@ -291,13 +268,6 @@ class CameraPreview: NSObject, FlutterPlatformView {
     }
 
     func setZoom(_ value: Double) throws {
-        guard captureSession != nil, let camera = camera, camera.isConnected else {
-            throw MlKitPluginError.cameraIsNotInitialized
-        }
-        try internalSetZoom(value)
-    }
-
-    private func internalSetZoom(_ value: Double) throws {
         guard let camera = camera else {
             throw MlKitPluginError.cameraIsNotInitialized
         }

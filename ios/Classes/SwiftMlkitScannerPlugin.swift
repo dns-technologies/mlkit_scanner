@@ -8,11 +8,14 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     
     private let channel: FlutterMethodChannel
     private var cameraPreview: CameraPreview?
+    private var cameraUtil: CameraUtil
     private var recognitionHandler: RecognitionHandler?
     private var scannerOverlay: ScannerOverlay?
+    private var isAlreadyInitialized: Bool = false
     
     init(channel: FlutterMethodChannel) {
         self.channel = channel
+        self.cameraUtil = CameraUtil()
         super.init()
     }
     
@@ -46,7 +49,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         case PluginConstants.setZoomMethod:
             setZoom(arguments: call.arguments, result: result)
         case PluginConstants.setCropAreaMethod:
-            setCropArea(arguments: call.arguments, result: result)
+            handleSetCropArea(arguments: call.arguments, result: result)
         case PluginConstants.getIosAvailableCamerasMethod:
             getAvailableCameras(result: result)
         case PluginConstants.setIosCameraMethod:
@@ -59,7 +62,10 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     private func initCamera(arguments: Any?, result: @escaping FlutterResult) {
         // When rebuilding a widget, dispose() is not called,
         // which causes situations where initCamera() can be called multiple times.
-        scannerOverlay = nil
+        if (isAlreadyInitialized == true) {
+            return
+        }
+
         guard let params = arguments as? Dictionary<String, Any?>? else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
@@ -67,7 +73,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         let initialScannerParameters = InitialScannerParameters(arguments: params)
 
         if (initialScannerParameters?.initialCropRect != nil) {
-            internalSetCropArea(rect: initialScannerParameters!.initialCropRect!)
+            setCropArea(rect: initialScannerParameters!.initialCropRect!)
         }
 
         guard let cameraPreview = cameraPreview else {
@@ -82,6 +88,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
                 result(nil)
             }
         }
+        isAlreadyInitialized = true;
     }
 
     private func toggleFlash(result: @escaping FlutterResult) {
@@ -98,6 +105,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         cameraPreview = nil
         scannerOverlay = nil
         recognitionHandler = nil
+        isAlreadyInitialized = false
         result(nil)
     }
 
@@ -185,18 +193,18 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         }
     }
 
-    private func setCropArea(arguments: Any?, result: @escaping FlutterResult) {
+    private func handleSetCropArea(arguments: Any?, result: @escaping FlutterResult) {
         guard let rectArgs = arguments as? Dictionary<String, CGFloat>, let rect = CropRect(arguments: rectArgs) else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
-        internalSetCropArea(rect: rect)
+        setCropArea(rect: rect)
         result(nil)
     }
 
-    private func internalSetCropArea(rect: CropRect) {
+    private func setCropArea(rect: CropRect) {
         guard let camera = cameraPreview else {
-            return;
+            return
         }
         recognitionHandler?.updateCropRect(cropRect: rect)
         cameraPreview?.changeFocusCenter(offsetX: rect.offsetX, offsetY: rect.offsetY)
@@ -209,23 +217,10 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     }
 
     private func getAvailableCameras(result: @escaping FlutterResult) {
-        var deviceTypes: [AVCaptureDevice.DeviceType] = [
-            .builtInWideAngleCamera,
-            .builtInTelephotoCamera,
-            .builtInDualCamera,
-        ]
-        if #available(iOS 13.0, *) {
-            deviceTypes.append(contentsOf: [
-                .builtInUltraWideCamera,
-                .builtInDualWideCamera,
-                .builtInTripleCamera,
-            ])
-        }
-
-        let discoverySession = AVCaptureDevice.DiscoverySession(deviceTypes: deviceTypes, mediaType: .video, position: .unspecified)
+        let cameras = cameraUtil.getAvailableCameras()
         var availableCameras = [[String: Any]]()
 
-        for camera in discoverySession.devices {
+        for camera in cameras {
             guard camera.isSupported else {
                 continue
             }

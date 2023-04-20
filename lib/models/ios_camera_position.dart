@@ -17,9 +17,6 @@ extension IosCameraPositionCode on IosCameraPosition {
   /// Returns the position corresponding to the [code].
   static IosCameraPosition fromCode(int code) => _codeToPosition[code]!;
 
-  /// Returns the code corresponding to the [position].
-  static int toCode(IosCameraPosition position) => _positionToCode[position]!;
-
   static final _positionToCode = {
     IosCameraPosition.unspecified: 0,
     IosCameraPosition.back: 1,

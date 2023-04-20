@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:mlkit_scanner/models/initial_arguments.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 
 /// Signature for the CameraPreview error function.
@@ -19,9 +20,13 @@ class CameraPreview extends StatefulWidget {
   /// Callback if camera cannot be initialized.
   final CameraInitilizeError? onCameraInitializeError;
 
+  /// Parameters for initializing the scanner.
+  final InitialArguments? initialArguments;
+
   const CameraPreview({
     Key? key,
     required this.onCameraInitialized,
+    this.initialArguments,
     this.onCameraInitializeError,
   }) : super(key: key);
 
@@ -93,6 +98,7 @@ class _CameraPreviewState extends State<CameraPreview> {
 
   Future<void> _onViewCreated(int id) async {
     try {
+      await _channel.initCameraPreview(initialArguments: widget.initialArguments);
       widget.onCameraInitialized();
     } on PlatformException catch (e) {
       widget.onCameraInitializeError?.call(e);

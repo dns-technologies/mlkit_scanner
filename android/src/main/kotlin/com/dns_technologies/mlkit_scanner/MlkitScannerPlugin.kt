@@ -62,6 +62,8 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     private var initialScannerParameters: InitialScannerParameters? = null
     private var isLockedAutoResumeCamera: Boolean = false
 
+    private var isAlreadyInitialized: Boolean = false
+
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, PluginConstants.channelName)
         channel.setMethodCallHandler(this)
@@ -138,6 +140,11 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     }
 
     private fun invokeInit(call: MethodCall, result: Result) {
+        // When rebuilding a widget, dispose() is not called,
+        // which causes situations where initCamera() can be called multiple times.
+        if (isAlreadyInitialized) {
+            return
+        }
         initialMethodResult = result
         initialScannerParameters =
             InitialScannerParameters.fromMap(call.arguments as Map<String, Any?>)
@@ -224,17 +231,13 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         cameraLifecycle = null
         scannerOverlay = null
         analyzer?.dispose()
+        isAlreadyInitialized = false
         result.success(true)
     }
 
     private fun initCamera() {
-        // When rebuilding a widget, dispose() is not called,
-        // which causes situations where initCamera() can be called multiple times.
-        scannerOverlay = null
         cameraLifecycle = CameraLifecycle()
-        createScannerCamera(
-            initialZoom = initialScannerParameters?.initialZoom,
-        )
+        createScannerCamera()
         cameraLifecycle!!.resume()
         cameraView.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
             val cropRect = scannerOverlay?.cropRect
@@ -245,11 +248,15 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         }
     }
 
-    private fun createScannerCamera(
-        initialZoom: Double?,
-    ) {
+    private fun createScannerCamera() {
         if (camera == null || camera?.isActive() != true) {
-            camera = CameraViewScannerCamera(cameraLifecycle!!, cameraView, initialZoom)
+            camera = CameraViewScannerCamera(cameraLifecycle!!, cameraView)
+            // Some devices can change zoom before camera is initialized.
+            // This is the reason why this method is called twice.
+            trySetZoom(
+                initialScannerParameters!!.initialZoom!!,
+                result = initialMethodResult
+            )
             camera?.startCamera(this::onInitSuccess, this::onInitError)
         }
     }
@@ -258,12 +265,19 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         if (analyzer != null) {
             camera?.attachAnalyser(analyzer!!)
         }
-        if (initialScannerParameters?.initialCropArea != null) {
-            val rect = initialScannerParameters!!.initialCropArea!!
-            internalSetCropArea(rect)
+        if (initialScannerParameters?.initialZoom != null) {
+            trySetZoom(
+                initialScannerParameters!!.initialZoom!!,
+                result = initialMethodResult
+            )
         }
+        if (initialScannerParameters?.initialCropArea != null) {
+            setCropArea(initialScannerParameters!!.initialCropArea!!)
+        }
+
         initialMethodResult?.success(true)
         initialMethodResult = null
+        isAlreadyInitialized = true
     }
 
     private fun onInitError(e: Exception) {
@@ -291,26 +305,33 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
                 )
                 return
             }
-            try {
-                camera?.setZoom(value.toFloat())
+            if (trySetZoom(value, result = result)) {
                 result.success(true)
-            } catch (e: ZoomNotSupportedException) {
-                result.error(
-                    PluginError.DeviceHasNotZoom.errorCode,
-                    "Zoom is not supported on this device",
-                    null
-                )
             }
+        }
+    }
+
+    private fun trySetZoom(value: Double, result: Result?): Boolean {
+        return try {
+            camera?.setZoom(value.toFloat())
+            true
+        } catch (e: ZoomNotSupportedException) {
+            result?.error(
+                PluginError.DeviceHasNotZoom.errorCode,
+                "Zoom is not supported on this device",
+                null
+            )
+            false
         }
     }
 
     private fun invokeSetCropArea(call: MethodCall, result: Result) {
         val rect = RecognizeVisorCropRect.fromMap(call.arguments as Map<String, Any?>)
-        internalSetCropArea(rect)
+        setCropArea(rect)
         result.success(true)
     }
 
-    private fun internalSetCropArea(rect: RecognizeVisorCropRect) {
+    private fun setCropArea(rect: RecognizeVisorCropRect) {
         updateCropOptions(rect)
         if (scannerOverlay != null) {
             scannerOverlay?.cropRect = rect

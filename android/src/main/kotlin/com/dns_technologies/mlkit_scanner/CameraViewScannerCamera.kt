@@ -28,24 +28,20 @@ import com.otaliastudios.cameraview.size.Size as CameraViewSize
 class CameraViewScannerCamera(
     private val lifecycleOwner: LifecycleOwner,
     private val cameraView: CameraView,
-    initialZoom: Double?,
 ) : ScannerCamera,
     LifecycleObserver,
     CameraListener() {
     private var analyzer: CameraImageAnalyzer? = null
     private lateinit var onInitSuccess: OnInit
     private lateinit var onInitError: OnError
-    private lateinit var cameraOptions: CameraOptions
+    private var cameraOptions: CameraOptions? = null
     private val hasSupportedFlash: Boolean by lazy {
-        cameraOptions.supportedFlash.containsAll(arrayListOf(Flash.OFF, Flash.TORCH))
+        cameraOptions?.supportedFlash?.containsAll(arrayListOf(Flash.OFF, Flash.TORCH)) ?: false
     }
     private var focusCenter: Pair<Float, Float> = Pair(0.0F, 0.0F)
 
     init {
         cameraView.useDeviceOrientation = false
-        if (initialZoom != null) {
-            cameraView.zoom = initialZoom.toFloat()
-        }
         cameraView.addCameraListener(this)
         cameraView.setLifecycleOwner(lifecycleOwner)
         cameraView.setPreviewStreamSize {
@@ -130,7 +126,7 @@ class CameraViewScannerCamera(
     }
 
     override fun setZoom(value: Float) {
-        if (cameraOptions.isZoomSupported) {
+        if (cameraOptions?.isZoomSupported != false) {
             cameraView.zoom = value
         } else {
             throw ZoomNotSupportedException()

@@ -17,17 +17,6 @@ class BarcodeScanner extends StatefulWidget {
   /// Callback on success scanner initialize, with [BarcodeScannerController] for control camera and detection.
   final BarcodeScannerInitializeCallback onScannerInitialized;
 
-  /// Optional initial scanner overlay with [CropRect] of the detection area.
-  final CropRect? cropOverlay;
-
-  /// Optional initial zoom.
-  final double? initialZoom;
-
-  /// Optional initial camera.
-  ///
-  /// Work only on Ios.
-  final IosCamera? initialCamera;
-
   /// Callback if camera cannot be initialized.
   final CameraInitilizeError? onCameraInitializeError;
 
@@ -36,12 +25,13 @@ class BarcodeScanner extends StatefulWidget {
   /// Work only on IOS
   final ValueChanged<bool>? onChangeFlashState;
 
+  /// Parameters for initializing the scanner.
+  final InitialArguments? initialArguments;
+
   const BarcodeScanner({
     required this.onScan,
     required this.onScannerInitialized,
-    this.cropOverlay,
-    this.initialZoom,
-    this.initialCamera,
+    this.initialArguments,
     this.onCameraInitializeError,
     this.onChangeFlashState,
     Key? key,
@@ -69,17 +59,16 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   @override
   void didUpdateWidget(covariant BarcodeScanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cropOverlay != widget.cropOverlay && widget.cropOverlay != null) {
-      _channel.setCropArea(widget.cropOverlay!);
-    }
-    if (oldWidget.initialZoom != widget.initialZoom && widget.initialZoom != null) {
-      _channel.setZoom(widget.initialZoom!);
+    if (oldWidget.initialArguments?.initialCropRect != widget.initialArguments?.initialCropRect &&
+        widget.initialArguments?.initialCropRect != null) {
+      _channel.setCropArea(widget.initialArguments!.initialCropRect!);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return CameraPreview(
+      initialArguments: widget.initialArguments,
       onCameraInitializeError: widget.onCameraInitializeError,
       onCameraInitialized: _onCameraInitialized,
     );
@@ -99,11 +88,6 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   Future<void> _onCameraInitialized() async {
-    await _channel.initCameraPreview(
-      initialZoom: widget.initialZoom,
-      initialCropRect: widget.cropOverlay,
-      initialCamera: widget.initialCamera,
-    );
     widget.onScannerInitialized(_barcodeScannerController);
   }
 
