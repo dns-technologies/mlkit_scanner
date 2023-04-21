@@ -255,10 +255,12 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
             camera = CameraViewScannerCamera(cameraLifecycle!!, cameraView)
             // Some devices can change zoom before camera is initialized.
             // This is the reason why this method is called twice.
-            trySetZoom(
-                initialScannerParameters!!.zoom!!,
-                result = initialMethodResult
-            )
+            if (initialScannerParameters?.zoom != null) {
+                trySetZoom(
+                    initialScannerParameters!!.zoom!!,
+                    result = initialMethodResult
+                )
+            }
             camera?.startCamera(this::onInitSuccess, this::onInitError)
         }
     }
