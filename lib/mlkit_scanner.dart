@@ -1,4 +1,7 @@
 export 'models/android_scanner_parameters.dart';
+export 'models/barcode.dart';
+export 'models/barcode_format.dart';
+export 'models/barcode_value_type.dart';
 export 'models/crop_rect.dart';
 export 'models/ios_camera.dart';
 export 'models/ios_camera_position.dart';

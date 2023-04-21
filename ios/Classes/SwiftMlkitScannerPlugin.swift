@@ -277,8 +277,8 @@ extension SwiftMlkitScannerPlugin: FlutterPlatformViewFactory {
 
 extension SwiftMlkitScannerPlugin: RecognitionResultDelegate {
     
-    func onRecognition(result: String) {
-        channel.invokeMethod(PluginConstants.scanResultMethod, arguments: result)
+    func onRecognition(result: Barcode) {
+        channel.invokeMethod(PluginConstants.scanResultMethod, arguments: result.toJson())
     }
     
     func onError(error: Error) {

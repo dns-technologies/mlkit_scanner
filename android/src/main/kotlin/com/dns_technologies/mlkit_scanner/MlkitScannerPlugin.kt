@@ -17,7 +17,9 @@ import androidx.lifecycle.OnLifecycleEvent
 import com.dns_technologies.mlkit_scanner.analyzer.AnalyzerCreator
 import com.dns_technologies.mlkit_scanner.analyzer.CameraImageAnalyzer
 import com.dns_technologies.mlkit_scanner.analyzer.TAG
+import com.dns_technologies.mlkit_scanner.extensions.toJson
 import com.dns_technologies.mlkit_scanner.models.*
+import com.google.mlkit.vision.barcode.Barcode
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -382,8 +384,8 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         }
     }
 
-    private fun onScan(barcode: Any) =
-        channel.invokeMethod(PluginConstants.scanResultMethod, barcode as String)
+    private fun onScan(barcode: Barcode) =
+        channel.invokeMethod(PluginConstants.scanResultMethod, barcode.toJson())
 
     @OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
     private fun onResume() {

@@ -68,7 +68,7 @@ class _MyAppState extends State<MyApp> {
                           ),
                     onScan: (code) {
                       setState(() {
-                        _barcode = code;
+                        _barcode = code.rawValue;
                       });
                     },
                     onScannerInitialized: (controller) async {
