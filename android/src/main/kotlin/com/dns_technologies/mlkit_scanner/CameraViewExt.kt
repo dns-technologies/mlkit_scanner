@@ -91,7 +91,11 @@ fun CameraView.removeCenterFocus() {
  *
  * Use [offsetX] and [offsetY] to shift the center of focus
  */
-private fun CameraView.focusOnCenter(resetDelay: Long, offsetX: Float = 0.0F, offsetY: Float = 0.0F) {
+private fun CameraView.focusOnCenter(
+    resetDelay: Long,
+    offsetX: Float = 0.0F,
+    offsetY: Float = 0.0F
+) {
     autoFocusResetDelay = resetDelay
     startAutoFocus(width / 2 + offsetX, height / 2 + offsetY)
 }

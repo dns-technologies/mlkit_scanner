@@ -16,12 +16,9 @@ extension AVCaptureDevice {
         && position.code != AVCaptureDevice.Position.unsupportedCode
         && deviceType.code != AVCaptureDevice.DeviceType.unsupportedCode
     }
-    
-    /// Creates json for transmission over the platform channel.
-    func toJson() -> [String: Any] {
-        [
-            "position": position.code,
-            "type": deviceType.code,
-        ]
+
+    /// Creates CameraData from camera.
+    func toCameraData() -> CameraData {
+        CameraData(type: deviceType, position: position)
     }
 }

@@ -55,8 +55,8 @@ class MlKitChannel {
   ///
   /// Can throw a [PlatformException] if device has problem with camera, or doesn't have one.
   /// Plugin ask permission to use camera, if user doesn't grant permission also throw a [PlatformException].
-  Future<void> initCameraPreview() {
-    return _channel.invokeMethod(_initCameraMethod);
+  Future<void> initCameraPreview({ScannerParameters? initialArguments}) {
+    return _channel.invokeMethod(_initCameraMethod, initialArguments?.toJson());
   }
 
   /// Release resources of the camera.

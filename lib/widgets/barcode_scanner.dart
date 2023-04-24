@@ -18,9 +18,6 @@ class BarcodeScanner extends StatefulWidget {
   /// Callback on success scanner initialize, with [BarcodeScannerController] for control camera and detection.
   final BarcodeScannerInitializeCallback onScannerInitialized;
 
-  /// Optional scanner overlay with [CropRect] of the detection area.
-  final CropRect? cropOverlay;
-
   /// Callback if camera cannot be initialized.
   final CameraInitilizeError? onCameraInitializeError;
 
@@ -29,10 +26,13 @@ class BarcodeScanner extends StatefulWidget {
   /// Work only on IOS
   final ValueChanged<bool>? onChangeFlashState;
 
+  /// Parameters for initializing the scanner.
+  final ScannerParameters? initialArguments;
+
   const BarcodeScanner({
     required this.onScan,
     required this.onScannerInitialized,
-    this.cropOverlay,
+    this.initialArguments,
     this.onCameraInitializeError,
     this.onChangeFlashState,
     Key? key,
@@ -61,15 +61,17 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   @override
   void didUpdateWidget(covariant BarcodeScanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cropOverlay != widget.cropOverlay &&
-        widget.cropOverlay != null) {
-      _channel.setCropArea(widget.cropOverlay!);
+    if (oldWidget.initialArguments?.cropRect !=
+            widget.initialArguments?.cropRect &&
+        widget.initialArguments?.cropRect != null) {
+      _channel.setCropArea(widget.initialArguments!.cropRect!);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return CameraPreview(
+      initialArguments: widget.initialArguments,
       onCameraInitializeError: widget.onCameraInitializeError,
       onCameraInitialized: _onCameraInitialized,
     );
@@ -88,10 +90,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     super.deactivate();
   }
 
-  void _onCameraInitialized() {
-    if (widget.cropOverlay != null) {
-      _channel.setCropArea(widget.cropOverlay!);
-    }
+  Future<void> _onCameraInitialized() async {
     widget.onScannerInitialized(_barcodeScannerController);
   }
 
@@ -126,10 +125,6 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
 
   Future<void> _setZoom(double value) {
     return _channel.setZoom(value);
-  }
-
-  Future<List<IosCamera>> _getIosAvailableCameras() {
-    return _channel.getIosAvailableCameras();
   }
 
   Future<void> _setIosCamera({
@@ -202,11 +197,6 @@ class BarcodeScannerController {
       "Value can only be in the range from 0 to 1",
     );
     return _barcodeScannerState?._setZoom(value);
-  }
-
-  /// Gets all available iOS cameras.
-  Future<List<IosCamera>>? getIosAvailableCameras() {
-    return _barcodeScannerState?._getIosAvailableCameras();
   }
 
   /// Sets iOS camera with [position] and [type].

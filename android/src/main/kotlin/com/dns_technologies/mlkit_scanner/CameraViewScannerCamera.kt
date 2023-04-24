@@ -25,17 +25,23 @@ import com.otaliastudios.cameraview.size.Size as CameraViewSize
  *
  * @see [CameraView](https://github.com/natario1/CameraView)
  */
-class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
-                              private val cameraView: CameraView): ScannerCamera,
+class CameraViewScannerCamera(
+    private val lifecycleOwner: LifecycleOwner,
+    private val cameraView: CameraView,
+) : ScannerCamera,
     LifecycleObserver,
     CameraListener() {
     private var analyzer: CameraImageAnalyzer? = null
     private lateinit var onInitSuccess: OnInit
     private lateinit var onInitError: OnError
-    private lateinit var cameraOptions: CameraOptions
-    private val hasSupportedFlash: Boolean by lazy {
-        cameraOptions.supportedFlash.containsAll(arrayListOf(Flash.OFF, Flash.TORCH))
-    }
+    private var cameraOptions: CameraOptions? = null
+    private val hasSupportedFlash
+        get() = cameraOptions?.supportedFlash?.containsAll(
+            arrayListOf(
+                Flash.OFF,
+                Flash.TORCH
+            )
+        ) ?: false
     private var focusCenter: Pair<Float, Float> = Pair(0.0F, 0.0F)
 
     init {
@@ -111,13 +117,22 @@ class CameraViewScannerCamera(private val lifecycleOwner: LifecycleOwner,
     private fun analyzeFrame(frame: Frame) {
         if (analyzer != null) {
             with(frame) {
-                analyzer!!.analyze(NV21AnalysingImage(getData(), Size(size.width, size.height), format, rotationToUser))
+                analyzer!!.analyze(
+                    NV21AnalysingImage(
+                        getData(),
+                        Size(size.width, size.height),
+                        format,
+                        rotationToUser
+                    )
+                )
             }
         }
     }
 
     override fun setZoom(value: Float) {
-        if (cameraOptions.isZoomSupported) {
+        // We ignore the check for zoom support when the camera is not initialized,
+        // because at this moment there is no [CameraOptions] yet.
+        if (cameraOptions?.isZoomSupported != false) {
             cameraView.zoom = value
         } else {
             throw ZoomNotSupportedException()
