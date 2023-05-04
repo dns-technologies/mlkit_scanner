@@ -102,8 +102,8 @@ class CameraViewScannerCamera(
 
     override fun onCameraOpened(options: CameraOptions) {
         cameraOptions = options
-        onInitSuccess.invoke()
         cameraView.useCenterFocus(focusCenter)
+        onInitSuccess.invoke()
         cameraView.removeCameraListener(this)
         super.onCameraOpened(options)
     }

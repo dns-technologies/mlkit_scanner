@@ -25,6 +25,8 @@ class CenterFocusView constructor(
         duration = 300
         fillAfter = true
     }
+    private val autofocusLockedFinalPosition: Pair<Float, Float>
+        get() = Pair(lock.width * 0.8F - lock.x, lock.height * 0.8F - lock.y)
     val cameraListener: CameraListener
 
     init {
@@ -123,8 +125,7 @@ class CenterFocusView constructor(
     }
 
     private fun lockMovementAnimation(): Animation {
-        val deltaX = lock.width * 0.8F - lock.x
-        val deltaY = lock.height * 0.8F - lock.y
+        val (deltaX, deltaY) = autofocusLockedFinalPosition
         return TranslateAnimation(center.first, deltaX, center.second, deltaY).apply {
             startOffset = 300
             duration = 500
@@ -165,8 +166,9 @@ class CenterFocusView constructor(
             return
         }
         if (lock.visibility == View.VISIBLE) {
+            val (deltaX, deltaY) = autofocusLockedFinalPosition
             lock.apply {
-                val translateAnimation = lockMovementAnimation().apply {
+                val translateAnimation = TranslateAnimation(deltaX, deltaX, deltaY, deltaY).apply {
                     startOffset = 0
                     duration = 0
                     fillAfter = true
