@@ -28,8 +28,7 @@
 [fix]
 
 - Fix auto resume camera after manually pause (Android).
-- Fix lateinit property center has not been initialized at CenterFocusView.lockMovementAnimation (
-  Android).
+- Fix lateinit property center has not been initialized at CenterFocusView.lockMovementAnimation (Android).
 
 ## 0.3.4
 
@@ -43,8 +42,7 @@
 
 [fix]
 
-- Fix "smart cast to 'String' is impossible, because 'it.message' is a property that has open or
-  custom getter" in MISingleBarcodeAnalyzer.kt
+- Fix "smart cast to 'String' is impossible, because 'it.message' is a property that has open or custom getter" in MISingleBarcodeAnalyzer.kt
 - Fix camera focus on ios
 - Fix example xcode asked to sign scanner assets for each build problem
 
