@@ -1,8 +1,14 @@
-## unreleased
+## 0.5.0
 
 [feature]
 
 - Add scanned barcode info.
+- Add ability to initialize the scanner with parameters (zoom, cropRect and camera (Ios)).
+
+[fix]
+ 
+- Fix lock animation when layout changing.
+- Fix cropRect initialization.
 
 ## 0.4.0
 
