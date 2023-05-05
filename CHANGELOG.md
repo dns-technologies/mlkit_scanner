@@ -1,8 +1,14 @@
-## unreleased
+## 0.5.0
 
 [feature]
 
 - Add scanned barcode info.
+- Add ability to initialize the scanner with parameters (zoom, cropRect and camera(Ios)).
+
+[fix]
+ 
+- Fix lock animation when layout changing.
+- Fix cropRect initialization.
 
 ## 0.4.0
 
@@ -22,7 +28,8 @@
 [fix]
 
 - Fix auto resume camera after manually pause (Android).
-- Fix lateinit property center has not been initialized at CenterFocusView.lockMovementAnimation (Android).
+- Fix lateinit property center has not been initialized at CenterFocusView.lockMovementAnimation (
+  Android).
 
 ## 0.3.4
 
@@ -36,7 +43,8 @@
 
 [fix]
 
-- Fix "smart cast to 'String' is impossible, because 'it.message' is a property that has open or custom getter" in MISingleBarcodeAnalyzer.kt
+- Fix "smart cast to 'String' is impossible, because 'it.message' is a property that has open or
+  custom getter" in MISingleBarcodeAnalyzer.kt
 - Fix camera focus on ios
 - Fix example xcode asked to sign scanner assets for each build problem
 
