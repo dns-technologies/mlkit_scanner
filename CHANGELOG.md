@@ -3,7 +3,7 @@
 [feature]
 
 - Add scanned barcode info.
-- Add ability to initialize the scanner with parameters (zoom, cropRect and camera(Ios)).
+- Add ability to initialize the scanner with parameters (zoom, cropRect and camera (Ios)).
 
 [fix]
  
