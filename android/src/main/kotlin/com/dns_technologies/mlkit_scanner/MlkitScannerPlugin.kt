@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Point
-import android.util.ArrayMap
 import android.util.Log
 import android.view.WindowManager
 import androidx.annotation.NonNull
@@ -19,7 +18,7 @@ import com.dns_technologies.mlkit_scanner.analyzer.CameraImageAnalyzer
 import com.dns_technologies.mlkit_scanner.analyzer.TAG
 import com.dns_technologies.mlkit_scanner.extensions.toJson
 import com.dns_technologies.mlkit_scanner.models.*
-import com.google.mlkit.vision.barcode.Barcode
+import com.google.mlkit.vision.barcode.common.Barcode
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
