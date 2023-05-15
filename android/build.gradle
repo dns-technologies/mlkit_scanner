@@ -47,9 +47,9 @@ android {
 }
 
 dependencies {
-    api "com.otaliastudios:cameraview:2.7.1"
+    api "com.otaliastudios:cameraview:2.7.2"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
-    implementation 'com.google.mlkit:barcode-scanning:16.1.1'
+    implementation 'com.google.mlkit:barcode-scanning:17.1.0'
 
     testImplementation 'junit:junit:4.13.2'
 }

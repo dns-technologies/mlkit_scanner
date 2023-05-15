@@ -1,3 +1,9 @@
+## 0.5.1
+
+[fix]
+
+- Update dependency versions.
+
 ## 0.5.0
 
 [feature]
