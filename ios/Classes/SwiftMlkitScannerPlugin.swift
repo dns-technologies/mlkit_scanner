@@ -104,11 +104,15 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     }
 
     private func dispose(result: @escaping FlutterResult) {
-        cameraPreview?.dispose()
+        DispatchQueue.global(qos: .background).async { [cameraPreview] in
+            cameraPreview?.dispose()
+        }
+        
         cameraPreview = nil
         scannerOverlay = nil
         recognitionHandler = nil
         isAlreadyInitialized = false
+        
         result(nil)
     }
 

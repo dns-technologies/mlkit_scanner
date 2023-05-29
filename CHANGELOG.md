@@ -1,3 +1,9 @@
+## dev
+
+[fix]
+
+- Fix iOS freeze on dispose.
+
 ## 0.5.1
 
 [fix]
