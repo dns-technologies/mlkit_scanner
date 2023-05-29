@@ -237,6 +237,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     }
 
     private fun initCamera() {
+        isLockedAutoResumeCamera = false
         cameraLifecycle = CameraLifecycle()
         createScannerCamera()
         cameraLifecycle!!.resume()
