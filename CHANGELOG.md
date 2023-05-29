@@ -3,6 +3,7 @@
 [fix]
 
 - Fix iOS freeze on dispose.
+- Fix Android camera pauses after reinitialization.
 
 ## 0.5.1
 
