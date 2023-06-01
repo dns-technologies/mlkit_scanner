@@ -1,11 +1,12 @@
 package com.dns_technologies.mlkit_scanner.analyzer
 
+import com.dns_technologies.mlkit_scanner.analyzer.interfaces.MlKitImageBuilder
 import com.dns_technologies.mlkit_scanner.models.RecognitionType
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 
 typealias OnSuccessListener = (result: Barcode) -> Unit
-typealias ImageAnalyzePreparer = (image: AnalysingImage) -> InputImage?
+typealias ImageAnalyzePreparer = (image: MlKitImageBuilder) -> InputImage?
 
 /**
  * Abstract class of an image analyzer
@@ -26,7 +27,8 @@ abstract class CameraImageAnalyzer(val type: RecognitionType) {
     protected var isPause = false
         private set
 
-    abstract fun analyze(image: AnalysingImage)
+    /** Analyzes the resulting image from the builder */
+    abstract fun analyze(image: MlKitImageBuilder)
 
     /**
      * Method for cleaning analyzer resources

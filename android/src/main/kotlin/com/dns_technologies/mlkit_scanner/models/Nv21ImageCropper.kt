@@ -17,7 +17,7 @@ class Nv21ImageCropper {
          * This page also presents an improved version of the algorithm, which,
          * according to the author, is 4 times faster than the current implementation.
          */
-        fun crop(data: ByteArray, size: Size, croppingRect: Rect): ByteArray? {
+        fun crop(data: ByteArray, size: Size, croppingRect: Rect): ByteArray {
             val newWidth = croppingRect.width()
             val newHeight = croppingRect.height()
             val ySize = newHeight * newWidth

@@ -19,6 +19,7 @@ import com.dns_technologies.mlkit_scanner.analyzer.TAG
 import com.dns_technologies.mlkit_scanner.extensions.toJson
 import com.dns_technologies.mlkit_scanner.models.*
 import com.google.mlkit.vision.barcode.common.Barcode
+import com.otaliastudios.cameraview.controls.Engine
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
