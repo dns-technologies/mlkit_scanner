@@ -13,9 +13,7 @@ class YUV420888MlKitImageBuilder(
     private val size: Size,
     private val rotationDegree: Int
 ) : MlKitImageBuilder {
-    override fun cropToRect(rect: Rect) {
-        image.cropRect = rect
-    }
+    override fun cropToRect(rect: Rect) {}
 
     override fun buildMlKitImage(): InputImage = InputImage.fromMediaImage(image, rotationDegree)
 

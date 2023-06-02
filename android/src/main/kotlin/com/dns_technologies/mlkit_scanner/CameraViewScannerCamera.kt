@@ -1,7 +1,6 @@
 package com.dns_technologies.mlkit_scanner
 
 import android.media.Image
-import android.util.Log
 import android.util.Size
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
@@ -13,8 +12,6 @@ import com.dns_technologies.mlkit_scanner.analyzer.YUV420888MlKitImageBuilder
 import com.dns_technologies.mlkit_scanner.configs.ImageProcessingConfig
 import com.dns_technologies.mlkit_scanner.models.HasNoFlashUnitException
 import com.dns_technologies.mlkit_scanner.models.ZoomNotSupportedException
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.common.InputImage.ImageFormat
 import com.otaliastudios.cameraview.CameraException
 import com.otaliastudios.cameraview.CameraListener
 import com.otaliastudios.cameraview.CameraOptions
@@ -58,7 +55,12 @@ class CameraViewScannerCamera(
             setPreviewStreamSize {
                 it.apply {
                     clear()
-                    add(with(ImageProcessingConfig) { CameraViewSize(resolution.first, resolution.second) })
+                    add(with(ImageProcessingConfig) {
+                        CameraViewSize(
+                            resolution.first,
+                            resolution.second
+                        )
+                    })
                 }
             }
         }

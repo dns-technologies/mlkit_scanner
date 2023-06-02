@@ -3,17 +3,17 @@ package com.dns_technologies.mlkit_scanner.analyzer
 import android.graphics.*
 import android.util.Size
 import com.dns_technologies.mlkit_scanner.analyzer.interfaces.MlKitImageBuilder
-import com.dns_technologies.mlkit_scanner.models.Nv21ImageCropper
 import com.google.mlkit.vision.common.InputImage
 
 /** [MlKitImageBuilder] implementation representing an image of the [ImageFormat.NV21] format. */
-class NV21MlKitImageBuilder(private var data: ByteArray, private var size: Size, private val rotationDegrees: Int) :
+class NV21MlKitImageBuilder(
+    private var data: ByteArray,
+    private var size: Size,
+    private val rotationDegrees: Int
+) :
     MlKitImageBuilder {
 
-    override fun cropToRect(rect: Rect) {
-        data = Nv21ImageCropper.crop(data, size, rect)
-        size = Size(rect.width(), rect.height())
-    }
+    override fun cropToRect(rect: Rect) {}
 
     override fun buildMlKitImage(): InputImage {
         return InputImage.fromByteArray(

@@ -19,8 +19,8 @@ class CameraViewFactory(private val onCreate: OnCreateViewListener) :
         val cameraView = CameraView(context!!)
         with(cameraView) {
             // todo(ilyushin): Убрать после тестов (или вынести как параметр)
-            cameraView.setExperimental(true)
-            cameraView.engine = Engine.CAMERA2
+            setExperimental(true)
+            engine = Engine.CAMERA2
             playSounds = false
             audio = Audio.OFF
             with(ImageProcessingConfig) {
