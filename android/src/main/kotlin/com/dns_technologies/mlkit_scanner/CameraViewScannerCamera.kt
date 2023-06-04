@@ -1,12 +1,15 @@
 package com.dns_technologies.mlkit_scanner
 
+import android.media.Image
 import android.util.Size
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.OnLifecycleEvent
 import com.dns_technologies.mlkit_scanner.analyzer.CameraImageAnalyzer
-import com.dns_technologies.mlkit_scanner.analyzer.NV21AnalysingImage
+import com.dns_technologies.mlkit_scanner.analyzer.NV21MlKitImageBuilder
+import com.dns_technologies.mlkit_scanner.analyzer.YUV420888MlKitImageBuilder
+import com.dns_technologies.mlkit_scanner.configs.ImageProcessingConfig
 import com.dns_technologies.mlkit_scanner.models.HasNoFlashUnitException
 import com.dns_technologies.mlkit_scanner.models.ZoomNotSupportedException
 import com.otaliastudios.cameraview.CameraException
@@ -45,13 +48,20 @@ class CameraViewScannerCamera(
     private var focusCenter: Pair<Float, Float> = Pair(0.0F, 0.0F)
 
     init {
-        cameraView.useDeviceOrientation = false
-        cameraView.addCameraListener(this)
-        cameraView.setLifecycleOwner(lifecycleOwner)
-        cameraView.setPreviewStreamSize {
-            it.apply {
-                clear()
-                add(CameraViewSize(720, 1280))
+        with(cameraView) {
+            useDeviceOrientation = false
+            addCameraListener(this@CameraViewScannerCamera)
+            setLifecycleOwner(lifecycleOwner)
+            setPreviewStreamSize {
+                it.apply {
+                    clear()
+                    add(with(ImageProcessingConfig) {
+                        CameraViewSize(
+                            resolution.first,
+                            resolution.second
+                        )
+                    })
+                }
             }
         }
     }
@@ -115,13 +125,25 @@ class CameraViewScannerCamera(
     }
 
     private fun analyzeFrame(frame: Frame) {
-        if (analyzer != null) {
-            with(frame) {
+        if (analyzer == null) {
+            return
+        }
+        with(frame) {
+            val size = Size(size.width, size.height)
+
+            if (dataClass == Image::class.java) {
                 analyzer!!.analyze(
-                    NV21AnalysingImage(
-                        getData(),
-                        Size(size.width, size.height),
-                        format,
+                    YUV420888MlKitImageBuilder(
+                        getData() as Image,
+                        size,
+                        rotationToUser
+                    )
+                )
+            } else {
+                analyzer!!.analyze(
+                    NV21MlKitImageBuilder(
+                        getData() as ByteArray,
+                        size,
                         rotationToUser
                     )
                 )

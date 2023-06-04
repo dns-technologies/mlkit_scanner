@@ -183,6 +183,20 @@ class _MyAppState extends State<MyApp> {
                 _controller?.setZoom(_zoomValues[_actualZoomIndex]);
               },
             ),
+            TextButton(
+              child: SizedBox(
+                width: 88,
+                child: Text(
+                  'Reset scan text',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              onPressed: () {
+                setState(() {
+                  _barcode = 'Please, scan';
+                });
+              },
+            ),
             if (defaultTargetPlatform == TargetPlatform.iOS)
               TextButton(
                 child: Text(

@@ -14,9 +14,9 @@ This Plugin uses Android CameraView library and iOS AVFoundation APIs for detect
 * Set area for detect object.
 * Pause/Resume camera preview.
 * Toogle device flash.
-* Set a preview scale
-* Use camera Zoom 
-* Lock autofocus
+* Set a preview scale.
+* Use camera Zoom.
+* Lock autofocus.
 
 | Google MLKit APIs:             | Android | iOS |
 |--------------------------------|---------|-----|
