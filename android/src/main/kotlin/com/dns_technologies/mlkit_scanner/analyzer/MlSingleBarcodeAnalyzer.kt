@@ -84,7 +84,7 @@ class MlSingleBarcodeAnalyzer(type: RecognitionType) : CameraImageAnalyzer(type)
             && !isDelayedTimerStarted
 
     private fun tryAnalyzeInputImage(image: InputImage) {
-        val task = barcodeScanner.process(image)
+        barcodeScanner.process(image)
             .addOnSuccessListener(this::onSuccessScan)
             .addOnCompleteListener {
                 increaseSkippingFrameCount()
@@ -92,11 +92,10 @@ class MlSingleBarcodeAnalyzer(type: RecognitionType) : CameraImageAnalyzer(type)
             }
             .addOnFailureListener {
                 if (it.message != null) {
-                    Log.e(TAG, it.message!! + "\n" + it.stackTraceToString())
+                    Log.e(TAG, it.message!!)
                 }
                 isAnalysisInProgress = false
             }
-        Tasks.await(task)
     }
 
     private fun onSuccessScan(barcodeList: List<Barcode>) {
