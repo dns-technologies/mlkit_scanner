@@ -21,6 +21,13 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
     var type: RecognitionType = RecognitionType.barcodeRecognition
     weak var delegate: RecognitionResultDelegate?
     
+    /// Can the barcode be recognized.
+    ///
+    /// Used for optimization so as not to recognize the barcode on every frame.
+    var canRecognize: Bool {
+        !isDelayed && !isRecognitionInProgress
+    }
+    
     required init(delay: Int, cropRect: CropRect?) {
         scanner = BarcodeScanner.barcodeScanner()
         self.delay = delay
@@ -30,12 +37,13 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
     }
     
     func proccessVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation) {
-        if (!canRecognize()) {
+        if (!canRecognize) {
             return
         }
         isRecognitionInProgress = true
+        defer { isRecognitionInProgress = false }
+
         recognizeBarcodeOnFrame(sampleBuffer: sampleBuffer, scaleX: scaleX, scaleY: scaleY, orientation: orientation)
-        isRecognitionInProgress = false
     }
     
     /// Recognizes a barcode on frame [sampleBuffer].
@@ -69,13 +77,6 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
             self?.isDelayed = false
         }
-    }
-    
-    /// Can the barcode be recognized.
-    ///
-    /// Used for optimization so as not to recognize the barcode on every frame.
-    private func canRecognize() -> Bool {
-        return !isDelayed && !isRecognitionInProgress
     }
     
     func updateCropRect(cropRect: CropRect) {
