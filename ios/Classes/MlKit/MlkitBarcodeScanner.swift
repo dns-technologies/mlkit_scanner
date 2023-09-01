@@ -37,7 +37,7 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
     }
     
     /// Recognizes a barcode on frame [sampleBuffer].
-    func proccessVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation) {
+    func processVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation) {
         if (!canRecognize) {
             return
         }
