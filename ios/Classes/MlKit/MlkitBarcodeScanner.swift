@@ -36,25 +36,27 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
         startDelay()
     }
     
+    /// Recognizes a barcode on frame [sampleBuffer].
     func proccessVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation) {
         if (!canRecognize) {
             return
         }
         isRecognitionInProgress = true
-        defer { isRecognitionInProgress = false }
-
-        recognizeBarcodeOnFrame(sampleBuffer: sampleBuffer, scaleX: scaleX, scaleY: scaleY, orientation: orientation)
-    }
-    
-    /// Recognizes a barcode on frame [sampleBuffer].
-    private func recognizeBarcodeOnFrame(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation) {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let cimage = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let image = UIImage(ciImage: cimage, scaleX: scaleX, scaleY: scaleY, orientation: orientation, cropRect: cropRect) else {
+        
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            isRecognitionInProgress = false
             return
         }
+        
+        let cimage = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let image = UIImage(ciImage: cimage, scaleX: scaleX, scaleY: scaleY, orientation: orientation, cropRect: cropRect) else {
+            isRecognitionInProgress = false
+            return
+        }
+        
         let visionImage = VisionImage(image: image)
         scanner.process(visionImage) { [weak self] features, error in
+            defer { self?.isRecognitionInProgress = false }
             if let error = error {
                 self?.delegate?.onError(error: error)
                 return
