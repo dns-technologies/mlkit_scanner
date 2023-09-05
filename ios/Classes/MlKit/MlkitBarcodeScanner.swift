@@ -16,9 +16,17 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
     private var delay: Int
     private var isDelayed = false
     private var cropRect: CropRect?
+    private var isRecognitionInProgress = false
     
     var type: RecognitionType = RecognitionType.barcodeRecognition
     weak var delegate: RecognitionResultDelegate?
+    
+    /// Can the barcode be recognized.
+    ///
+    /// Used for optimization so as not to recognize the barcode on every frame.
+    var canRecognize: Bool {
+        !isDelayed && !isRecognitionInProgress
+    }
     
     required init(delay: Int, cropRect: CropRect?) {
         scanner = BarcodeScanner.barcodeScanner()
@@ -28,18 +36,27 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
         startDelay()
     }
     
-    func proccessVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation) {
-        if isDelayed {
+    /// Recognizes a barcode on frame [sampleBuffer].
+    func processVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation) {
+        if (!canRecognize) {
             return
         }
-        startDelay()
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        isRecognitionInProgress = true
+        
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            isRecognitionInProgress = false
+            return
+        }
+        
         let cimage = CIImage(cvPixelBuffer: pixelBuffer)
         guard let image = UIImage(ciImage: cimage, scaleX: scaleX, scaleY: scaleY, orientation: orientation, cropRect: cropRect) else {
+            isRecognitionInProgress = false
             return
         }
+        
         let visionImage = VisionImage(image: image)
         scanner.process(visionImage) { [weak self] features, error in
+            defer { self?.isRecognitionInProgress = false }
             if let error = error {
                 self?.delegate?.onError(error: error)
                 return
@@ -49,13 +66,14 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
             }
             guard let barcode = features.first, let _ = barcode.rawValue else { return }
             self?.delegate?.onRecognition(result: barcode)
+            self?.startDelay()
         }
     }
-    
+
     func setDelay(delay: Int) {
         self.delay = delay
     }
-    
+
     private func startDelay() {
         isDelayed = true
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
