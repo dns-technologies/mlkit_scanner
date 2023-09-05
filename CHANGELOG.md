@@ -1,3 +1,9 @@
+## 0.5.3
+
+[fix]
+
+- Fix iOS scan throttling.
+
 ## 0.5.2
 
 [fix]
