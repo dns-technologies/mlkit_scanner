@@ -78,16 +78,16 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   @override
+  void activate() {
+    _barcodeScannerController._attach(this);
+    super.activate();
+  }
+
+  @override
   void dispose() {
     _cancelScan();
     _toggleFlashStreamSubscription?.cancel();
     super.dispose();
-  }
-
-  @override
-  void activate() {
-    _barcodeScannerController._attach(this);
-    super.activate();
   }
 
   @override
