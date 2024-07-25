@@ -84,16 +84,16 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   @override
+  void deactivate() {
+    _barcodeScannerController._detach();
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
     _cancelScan();
     _toggleFlashStreamSubscription?.cancel();
     super.dispose();
-  }
-
-  @override
-  void deactivate() {
-    _barcodeScannerController._detach();
-    super.deactivate();
   }
 
   Future<void> _onCameraInitialized() async {
