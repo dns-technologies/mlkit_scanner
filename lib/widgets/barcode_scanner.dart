@@ -85,6 +85,12 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   @override
+  void activate() {
+    _barcodeScannerController._attach(this);
+    super.activate();
+  }
+
+  @override
   void deactivate() {
     _barcodeScannerController._detach();
     super.deactivate();
