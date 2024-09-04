@@ -18,7 +18,8 @@ class CameraLifecycle : LifecycleOwner {
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
     }
 
-    override fun getLifecycle() = lifecycleRegistry
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry
 
     /** Invoke after initialisation or pause camera */
     fun resume() {
