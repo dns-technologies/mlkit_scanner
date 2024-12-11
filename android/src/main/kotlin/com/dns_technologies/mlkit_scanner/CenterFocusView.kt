@@ -58,12 +58,12 @@ class CenterFocusView constructor(
 
     private fun createGestureDetector(): GestureDetector {
         return GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onSingleTapUp(e: MotionEvent?): Boolean {
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
                 autoFocus()
                 return true
             }
 
-            override fun onLongPress(e: MotionEvent?) {
+            override fun onLongPress(e: MotionEvent) {
                 lockFocus()
             }
         })
@@ -133,7 +133,7 @@ class CenterFocusView constructor(
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(event: MotionEvent?): Boolean {
+    override fun onTouchEvent(event: MotionEvent): Boolean {
         return gestureDetector.onTouchEvent(event)
     }
 
