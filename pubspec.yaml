@@ -1,11 +1,11 @@
 name: mlkit_scanner
 description: A Flutter plugin to detect barcodes, text, faces, and objects using Google MLKit API for iOS and Android
-version: 0.5.3
+version: 0.5.4
 homepage: https://www.dns-tech.ru/
 repository: https://github.com/dns-technologies/mlkit_scanner
 
 environment:
-  sdk: '>=2.14.3 <3.0.0'
+  sdk: '>=3.1.3 <4.0.0'
   flutter: ">=1.20.0"
 
 dependencies:
