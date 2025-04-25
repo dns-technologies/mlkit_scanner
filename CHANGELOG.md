@@ -1,3 +1,10 @@
+## 0.5.4
+
+[feature]
+
+- Availability use Scanner with global key.
+- Gradle 8 migration
+
 ## 0.5.3
 
 [fix]

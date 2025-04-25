@@ -112,9 +112,9 @@ class ScannerOverlay(
         }
     }
 
-    override fun onDraw(canvas: Canvas?) {
+    override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        canvas?.apply {
+        canvas.apply {
             drawPath(backgroundPath, backgroundColor)
             cornerPaint.color = getBorderColor()
             drawPath(borderPath, cornerPaint)

@@ -12,17 +12,17 @@ import androidx.lifecycle.LifecycleRegistry
  * the camera based on the lifecycle of the flutter components
  */
 class CameraLifecycle : LifecycleOwner {
-    private var lifecycleRegistry: LifecycleRegistry = LifecycleRegistry(this)
+    private val lifecycleRegistry: LifecycleRegistry = LifecycleRegistry(this)
 
     init {
-        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED;
     }
 
-    override fun getLifecycle() = lifecycleRegistry
+    override val lifecycle: Lifecycle = lifecycleRegistry;
 
     /** Invoke after initialisation or pause camera */
     fun resume() {
-        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+        lifecycleRegistry.currentState = Lifecycle.State.RESUMED;
     }
 
     /**
@@ -30,11 +30,11 @@ class CameraLifecycle : LifecycleOwner {
      * but it also does not require clearing the camera resources
      */
     fun pause() {
-        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED;
     }
 
     /** Clear camera resources */
     fun dispose() {
-        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED;
     }
 }
