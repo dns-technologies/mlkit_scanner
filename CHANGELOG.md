@@ -1,3 +1,12 @@
+## 0.5.5
+
+[fix] [compatibility]
+
+- **CRITICAL FIX**: Updated Google ML Kit dependencies to version 17.3.0 to resolve 16KB memory page alignment issues on newer Android devices (Android 14/15, ARMv9-based devices)
+- Added NDK configuration for better compatibility with both 4KB and 16KB page sizes
+- Enabled modern JNI library packaging to prevent installation failures on affected devices
+- Added comprehensive documentation about 16KB page size compatibility in README
+
 ## 0.5.4
 
 [feature]

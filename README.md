@@ -45,6 +45,53 @@ Change the minimum Android sdk version to 21 (or higher) in your `android/app/bu
 ```
 minSdkVersion 21
 ```
+
+#### 16KB Memory Page Compatibility (Android 14/15)
+
+**Important:** If you're targeting newer Android devices (especially ARMv9-based devices running Android 14/15), you may encounter compatibility issues due to 16KB memory page alignment requirements.
+
+**Symptoms:**
+- App fails to install on affected devices
+- App crashes immediately on startup
+- Google Play Console flags compatibility issues
+
+**Solution:**
+This plugin has been updated to use the latest Google ML Kit dependencies that support 16KB page alignment. However, if you encounter issues, you can:
+
+1. **Update Dependencies** (recommended): Ensure you're using the latest version of this plugin
+2. **Add NDK Configuration**: In your `android/app/build.gradle`, add:
+   ```gradle
+   android {
+       // ... existing configuration
+       
+       packagingOptions {
+           jniLibs {
+               useLegacyPackaging = false
+           }
+       }
+       
+       // Optional: Enable 16KB page support explicitly
+       defaultConfig {
+           // ... existing configuration
+           ndk {
+               // Ensure compatibility with both 4KB and 16KB page sizes
+               abiFilters 'arm64-v8a', 'x86_64'
+           }
+       }
+   }
+   ```
+
+3. **Exclude Problematic Libraries** (if needed): If you still encounter issues, you can exclude the problematic native libraries and let the system use the updated versions:
+   ```gradle
+   dependencies {
+       implementation('com.google.mlkit:barcode-scanning:17.3.0') {
+           exclude group: 'com.google.android.gms', module: 'play-services-mlkit-barcode-scanning'
+       }
+       implementation 'com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1'
+   }
+   ```
+
+For more information, see [Android's 16KB page size documentation](https://developer.android.com/guide/practices/page-sizes).
 ### Example 
 
 ```
