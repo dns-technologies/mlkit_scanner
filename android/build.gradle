@@ -35,7 +35,7 @@ android {
 
 dependencies {
     api "com.otaliastudios:cameraview:2.7.2"
-    implementation 'com.google.mlkit:barcode-scanning:17.1.0'
+    implementation 'com.google.mlkit:barcode-scanning:17.3.0'
 
     testImplementation 'junit:junit:4.13.2'
 }
