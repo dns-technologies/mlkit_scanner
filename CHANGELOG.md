@@ -1,3 +1,9 @@
+## 0.6.0
+
+[fix]
+
+- Update Google ML Kit dependencies to support 16KB page alignment
+
 ## 0.5.4
 
 [feature]
