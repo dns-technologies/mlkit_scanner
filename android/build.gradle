@@ -1,68 +1,44 @@
-group 'com.dns_technologies.mlkit_scanner'
-version '1.0-SNAPSHOT'
-
-buildscript {
-    ext.kotlin_version = '1.9.23'
-    repositories {
-        google()
-        mavenCentral()
-    }
-
-    dependencies {
-        classpath 'com.android.tools.build:gradle:8.3.1'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-    }
+plugins {
+    id "com.android.library"
+    id "kotlin-android"
 }
 
-rootProject.allprojects {
+allprojects {
     repositories {
         google()
         mavenCentral()
     }
 }
-
-apply plugin: 'com.android.library'
-apply plugin: 'kotlin-android'
 
 android {
     compileSdkVersion 34
-    buildToolsVersion "34.0.0"
     namespace 'com.dns_technologies.mlkit_scanner'
 
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+        test.java.srcDirs += 'src/test/kotlin'
+    }
+    defaultConfig {
+        minSdkVersion 21
+    }
+    lintOptions {
+        disable 'InvalidPackage'
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = "17"
     }
-
-    buildFeatures {
-        viewBinding true
-    }
-
-    sourceSets {
-        main.java.srcDirs += 'src/main/kotlin'
-    }
-
-    lintOptions {
-        disable 'InvalidPackage'
-        checkReleaseBuilds false
-    }
-
-    defaultConfig {
-        minSdkVersion 24
-        targetSdkVersion 34
-        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
-    }
-
 }
 
 dependencies {
     api "com.otaliastudios:cameraview:2.7.2"
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
-    implementation 'com.google.mlkit:barcode-scanning:17.1.0'
+    implementation 'com.google.mlkit:barcode-scanning:17.3.0'
 
     testImplementation 'junit:junit:4.13.2'
 }
+
+group 'com.dns_technologies.mlkit_scanner'
+version '1.0-SNAPSHOT'

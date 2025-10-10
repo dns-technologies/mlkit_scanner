@@ -11,7 +11,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   var _barcode = 'Please, scan';
-  var _zoomValues = [0.0, 0.33, 0.66];
+  final _zoomValues = [0.0, 0.33, 0.66];
   var _actualZoomIndex = 0;
 
   static const _delayOptions = {
@@ -60,11 +60,11 @@ class _MyAppState extends State<MyApp> {
                   height: 200,
                   child: BarcodeScanner(
                     initialArguments: (defaultTargetPlatform == TargetPlatform.iOS)
-                        ? IosScannerParameters(
-                            cropRect: const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
+                        ? const IosScannerParameters(
+                            cropRect: CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
                           )
-                        : AndroidScannerParameters(
-                            cropRect: const CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
+                        : const AndroidScannerParameters(
+                            cropRect: CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
                           ),
                     onScan: (code) {
                       setState(() {
@@ -80,10 +80,10 @@ class _MyAppState extends State<MyApp> {
                     },
                   ),
                 ),
-                Align(
+                const Align(
                   alignment: Alignment.topCenter,
                   child: Padding(
-                    padding: const EdgeInsets.only(top: 8),
+                    padding: EdgeInsets.only(top: 8),
                     child: Text(
                       "Tap to focus on Center / LongTap to lock focus",
                       style: TextStyle(
@@ -98,14 +98,14 @@ class _MyAppState extends State<MyApp> {
               padding: const EdgeInsets.all(16),
               child: Text(
                 _barcode,
-                style: TextStyle(fontSize: 18),
+                style: const TextStyle(fontSize: 18),
               ),
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 TextButton(
-                  child: SizedBox(
+                  child: const SizedBox(
                     width: 88,
                     child: Text(
                       'Start scan',
@@ -116,7 +116,7 @@ class _MyAppState extends State<MyApp> {
                 ),
                 const SizedBox(width: 8),
                 TextButton(
-                  child: SizedBox(
+                  child: const SizedBox(
                     width: 88,
                     child: Text(
                       'Cancel scan',
@@ -131,7 +131,7 @@ class _MyAppState extends State<MyApp> {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 TextButton(
-                  child: SizedBox(
+                  child: const SizedBox(
                     width: 88,
                     child: Text(
                       'Pause camera',
@@ -142,7 +142,7 @@ class _MyAppState extends State<MyApp> {
                 ),
                 const SizedBox(width: 8),
                 TextButton(
-                  child: SizedBox(
+                  child: const SizedBox(
                     width: 88,
                     child: Text(
                       'Resume camera',
@@ -157,7 +157,7 @@ class _MyAppState extends State<MyApp> {
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 TextButton(
-                  child: SizedBox(
+                  child: const SizedBox(
                     width: 88,
                     child: Text(
                       'Toggle flash',
@@ -171,7 +171,7 @@ class _MyAppState extends State<MyApp> {
               ],
             ),
             TextButton(
-              child: SizedBox(
+              child: const SizedBox(
                 width: 88,
                 child: Text(
                   'Zoom',
@@ -203,7 +203,7 @@ class _MyAppState extends State<MyApp> {
         width: 88,
         child: PopupMenuButton<int>(
           onSelected: (delay) => _controller?.setDelay(delay),
-          child: Text(
+          child: const Text(
             'Set Delay',
             textAlign: TextAlign.center,
           ),
