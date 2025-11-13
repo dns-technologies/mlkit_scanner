@@ -15,6 +15,15 @@ const val TAG = "ML_BARCODE_SCANNER"
 const val MIN_ANALYZE_DELAY_MS = 16
 const val SKIP_FRAME_COUNT = 7
 
+/** Enables or disables 1D barcode verification functionality */
+const val BARCODE_VERIFICATION_ENABLED = true
+
+/**
+ * Specifies the number of consecutive frames to analyze for barcode data confirmation.
+ * Increasing this value affects performance
+ */
+const val BARCODE_VERIFICATION_FRAME_COUNT = 2
+
 /**
  * [CameraImageAnalyzer] realisation using for barcode analyzing
  *
@@ -32,6 +41,9 @@ class MlSingleBarcodeAnalyzer(type: RecognitionType) : CameraImageAnalyzer(type)
     private var imagePreparer: ImageAnalyzePreparer? = null
     private var analyzePermissionExecutor: ScheduledExecutorService? = null
     private var skippingFrameCount = 0
+    private var isVerificationInProgress = false
+    private var verificationIteration = 0
+    private var verifyingBarcodeValue: String? = null
     private lateinit var onSuccessListener: OnSuccessListener
 
     override fun analyze(image: AnalysingImage) {
@@ -94,14 +106,62 @@ class MlSingleBarcodeAnalyzer(type: RecognitionType) : CameraImageAnalyzer(type)
     }
 
     private fun onSuccessScan(barcodeList: List<Barcode>) {
-        if (barcodeList.isNotEmpty()) {
-            val barcode = barcodeList.first()
-            if (barcode.rawValue != null) {
-                Log.d(TAG, barcode.rawValue.toString())
-                skippingFrameCount = 0
-                startAnalyzeDelayTimer()
-                onSuccessListener.invoke(barcode)
+        if (barcodeList.isEmpty()) {
+            return
+        }
+
+        val barcode = barcodeList.first()
+        if (barcode.rawValue == null) {
+            return
+        }
+
+        if (BARCODE_VERIFICATION_ENABLED && shouldVerifyBarcode(barcode) && !isVerificationInProgress) {
+            verifyingBarcodeValue = barcode.rawValue
+            isVerificationInProgress = true
+
+            Log.d(TAG, "Verification process is started for barcode: $verifyingBarcodeValue")
+        }
+
+        if (isVerificationInProgress) {
+            verificationIteration++
+            if (barcode.rawValue != verifyingBarcodeValue)  {
+                resetBarcodeVerification()
+                return
             }
+
+            if (verificationIteration >= BARCODE_VERIFICATION_FRAME_COUNT) {
+                resetBarcodeVerification()
+            }
+        }
+
+        if (!isVerificationInProgress) {
+            Log.d(TAG, barcode.rawValue.toString())
+
+            skippingFrameCount = 0
+            increaseSkippingFrameCount()
+            startAnalyzeDelayTimer()
+            onSuccessListener.invoke(barcode)
+        }
+    }
+
+    private fun resetBarcodeVerification() {
+        verifyingBarcodeValue = null
+        verificationIteration = 0
+        isVerificationInProgress = false
+    }
+
+    private fun shouldVerifyBarcode(barcode: Barcode): Boolean {
+        return when(barcode.format) {
+            Barcode.FORMAT_CODE_128,
+            Barcode.FORMAT_CODE_39,
+            Barcode.FORMAT_CODE_93,
+            Barcode.FORMAT_CODABAR,
+            Barcode.FORMAT_EAN_13,
+            Barcode.FORMAT_EAN_8,
+            Barcode.FORMAT_ITF,
+            Barcode.FORMAT_UPC_A,
+            Barcode.FORMAT_UPC_E -> true
+            else -> false
         }
     }
 
