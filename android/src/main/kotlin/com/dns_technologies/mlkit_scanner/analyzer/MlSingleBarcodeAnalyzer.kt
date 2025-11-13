@@ -118,8 +118,6 @@ class MlSingleBarcodeAnalyzer(type: RecognitionType) : CameraImageAnalyzer(type)
         if (BARCODE_VERIFICATION_ENABLED && shouldVerifyBarcode(barcode) && !isVerificationInProgress) {
             verifyingBarcodeValue = barcode.rawValue
             isVerificationInProgress = true
-
-            Log.d(TAG, "Verification process is started for barcode: $verifyingBarcodeValue")
         }
 
         if (isVerificationInProgress) {
