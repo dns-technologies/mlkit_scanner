@@ -24,10 +24,8 @@ class MlKitChannel {
 
   static MlKitChannel? _instance;
   final MethodChannel _channel = const MethodChannel('mlkit_channel');
-  final StreamController<Barcode> _scanResultStreamController =
-      StreamController<Barcode>.broadcast();
-  final StreamController<bool> _torchToggleStreamController =
-      StreamController<bool>.broadcast();
+  final StreamController<Barcode> _scanResultStreamController = StreamController<Barcode>.broadcast();
+  final StreamController<bool> _torchToggleStreamController = StreamController<bool>.broadcast();
 
   /// Stream inform when torch change state.
   ///
@@ -42,10 +40,8 @@ class MlKitChannel {
   MlKitChannel._() {
     _channel.setMethodCallHandler((call) async {
       if (call.method == _scanResultMethod && call.arguments is Map) {
-        _scanResultStreamController
-            .add(Barcode.fromJson(call.arguments.cast<String, dynamic>()));
-      } else if (call.method == _changeTorchStateMethod &&
-          call.arguments is bool) {
+        _scanResultStreamController.add(Barcode.fromJson(call.arguments.cast<String, dynamic>()));
+      } else if (call.method == _changeTorchStateMethod && call.arguments is bool) {
         _torchToggleStreamController.add(call.arguments);
       }
     });
@@ -79,10 +75,11 @@ class MlKitChannel {
   /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
   /// Detection happens every [delay] milliseconds, skipping frames during delay
   /// Can throw [PlatformException] if camera is not initialized.
-  Future<Stream<Barcode>> startScan(RecognitionType type, int delay) async {
+  Future<Stream<Barcode>> startScan(RecognitionType type, int delay, bool useDoubleVerification) async {
     final args = {
       'type': type.rawValue,
       'delay': delay,
+      'useDoubleVerification': useDoubleVerification,
     };
     await _channel.invokeMethod(_startScanMethod, args);
     return _scanResultStreamController.stream;
@@ -140,11 +137,8 @@ class MlKitChannel {
 
   /// Gets all available iOS cameras.
   Future<List<IosCamera>> getIosAvailableCameras() async {
-    final availableCameras =
-        (await _channel.invokeListMethod<dynamic>(_getIosAvailableCameras))!;
-    return availableCameras
-        .map((json) => IosCamera.fromJson(Map<String, dynamic>.from(json)))
-        .toList();
+    final availableCameras = (await _channel.invokeListMethod<dynamic>(_getIosAvailableCameras))!;
+    return availableCameras.map((json) => IosCamera.fromJson(Map<String, dynamic>.from(json))).toList();
   }
 
   /// Sets iOS camera with [position] and [type].

@@ -15,9 +15,6 @@ const val TAG = "ML_BARCODE_SCANNER"
 const val MIN_ANALYZE_DELAY_MS = 16
 const val SKIP_FRAME_COUNT = 7
 
-/** Enables or disables 1D barcode verification functionality */
-const val BARCODE_VERIFICATION_ENABLED = true
-
 /**
  * Specifies the number of consecutive frames to analyze for barcode data confirmation.
  * Increasing this value affects performance
@@ -41,9 +38,12 @@ class MlSingleBarcodeAnalyzer(type: RecognitionType) : CameraImageAnalyzer(type)
     private var imagePreparer: ImageAnalyzePreparer? = null
     private var analyzePermissionExecutor: ScheduledExecutorService? = null
     private var skippingFrameCount = 0
+
+    private var useDoubleVerification = false
     private var isVerificationInProgress = false
     private var verificationIteration = 0
     private var verifyingBarcodeValue: String? = null
+
     private lateinit var onSuccessListener: OnSuccessListener
 
     override fun analyze(image: AnalysingImage) {
@@ -63,10 +63,12 @@ class MlSingleBarcodeAnalyzer(type: RecognitionType) : CameraImageAnalyzer(type)
     /** Initialization of analyzer parameters and an analyze permission control thread */
     override fun init(
         period: Int,
+        useDoubleVerification: Boolean,
         successAnalyzeListener: OnSuccessListener,
         imagePreparer: ImageAnalyzePreparer?
     ) {
         analyzePeriodMs = period
+        this.useDoubleVerification = useDoubleVerification
         onSuccessListener = successAnalyzeListener
         this.imagePreparer = imagePreparer
         startAnalyzeDelayTimer()
@@ -115,7 +117,7 @@ class MlSingleBarcodeAnalyzer(type: RecognitionType) : CameraImageAnalyzer(type)
             return
         }
 
-        if (BARCODE_VERIFICATION_ENABLED && shouldVerifyBarcode(barcode) && !isVerificationInProgress) {
+        if (useDoubleVerification && shouldVerifyBarcode(barcode) && !isVerificationInProgress) {
             verifyingBarcodeValue = barcode.rawValue
             isVerificationInProgress = true
         }

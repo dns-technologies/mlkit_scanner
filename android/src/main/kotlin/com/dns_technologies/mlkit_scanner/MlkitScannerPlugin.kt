@@ -200,7 +200,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         analyzer?.resumeScan(options.periodMs)
         if (analyzer?.isDisposed == true || analyzer?.type != options.recognizeType) {
             analyzer = AnalyzerCreator.create(options.recognizeType)
-            analyzer?.init(options.periodMs, this::onScan, cameraImagePreparer::prepare)
+            analyzer?.init(options.periodMs, options.useDoubleVerification, this::onScan, cameraImagePreparer::prepare)
         }
         camera?.attachAnalyser(analyzer!!)
         scannerOverlay?.isActive = true

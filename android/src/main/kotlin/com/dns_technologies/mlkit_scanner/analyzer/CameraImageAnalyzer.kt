@@ -39,12 +39,14 @@ abstract class CameraImageAnalyzer(val type: RecognitionType) {
      * Initialisation of the analyzer
      *
      * [period] - for the initialisation of the [analyzePeriodMs]
+     * [useDoubleVerification] — for using analysis two consecutive frames to check the recognition quality
      * [successAnalyzeListener] - the method is called upon successful image analysis,
      * when required by user information is found in it (barcode for example)
      * [imagePreparer] - preparing an image transmitted by a camera for analysis
      */
     abstract fun init(
         period: Int,
+        doubleVerification: Boolean,
         successAnalyzeListener: OnSuccessListener,
         imagePreparer: ImageAnalyzePreparer? = null
     )

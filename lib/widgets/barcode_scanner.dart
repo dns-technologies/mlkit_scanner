@@ -7,8 +7,7 @@ import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 /// Signature of the BarcodeScanner success initialize scanner function.
-typedef BarcodeScannerInitializeCallback = void Function(
-    BarcodeScannerController controller);
+typedef BarcodeScannerInitializeCallback = void Function(BarcodeScannerController controller);
 
 /// Widget for scanning barcodes using MLkit Barcode Scanning.
 class BarcodeScanner extends StatefulWidget {
@@ -53,17 +52,14 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     super.initState();
     _channel = MlKitChannel();
     _barcodeScannerController = BarcodeScannerController._();
-    _toggleFlashStreamSubscription = _channel.torchToggleStream
-        .listen((event) => widget.onChangeFlashState?.call(event));
+    _toggleFlashStreamSubscription = _channel.torchToggleStream.listen((event) => widget.onChangeFlashState?.call(event));
     _barcodeScannerController._attach(this);
   }
 
   @override
   void didUpdateWidget(covariant BarcodeScanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialArguments?.cropRect !=
-            widget.initialArguments?.cropRect &&
-        widget.initialArguments?.cropRect != null) {
+    if (oldWidget.initialArguments?.cropRect != widget.initialArguments?.cropRect && widget.initialArguments?.cropRect != null) {
       _channel.setCropArea(widget.initialArguments!.cropRect!);
     }
   }
@@ -104,9 +100,12 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     return _channel.toggleFlash();
   }
 
-  Future<void> _startScan(int delay) async {
-    final scanStream =
-        await _channel.startScan(RecognitionType.barcodeRecognition, delay);
+  Future<void> _startScan(int delay, bool useDoubleVerification) async {
+    final scanStream = await _channel.startScan(
+      RecognitionType.barcodeRecognition,
+      delay,
+      useDoubleVerification,
+    );
     _scanStreamSubscription?.cancel();
     _scanStreamSubscription = scanStream.listen(widget.onScan);
   }
@@ -161,10 +160,14 @@ class BarcodeScannerController {
   /// Start recognition objects of type [RecognitionType]
   ///
   /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
+  /// `useDoubleVerification` — analyzing two consecutive frames to check the recognition quality
   /// Detection happens every [delay] milliseconds, skipping frames during delay
   /// Can throw [PlatformException] if camera is not initialized.
-  Future<void> startScan(int delay) async {
-    return _barcodeScannerState?._startScan(delay);
+  Future<void> startScan(
+    int delay, {
+    bool useDoubleVerification = false,
+  }) async {
+    return _barcodeScannerState?._startScan(delay, useDoubleVerification);
   }
 
   /// Stop recognition of objects.

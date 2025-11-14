@@ -112,7 +112,7 @@ class _MyAppState extends State<MyApp> {
                       textAlign: TextAlign.center,
                     ),
                   ),
-                  onPressed: () => _controller?.startScan(100),
+                  onPressed: () => _controller?.startScan(100, useDoubleVerification: false),
                 ),
                 const SizedBox(width: 8),
                 TextButton(
