@@ -128,7 +128,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
             return
         }
-        guard let args = arguments as? Dictionary<String, Any>, let type = args["type"] as? Int, let delay = args["delay"] as? Int else {
+        guard let args = arguments as? Dictionary<String, Any>, let type = args["type"] as? Int, let delay = args["delay"] as? Int, let useDoubleVerification = args["useDoubleVerification"] as? Bool else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
@@ -137,7 +137,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             return
         }
         if recognitionType != recognitionHandler?.type {
-            recognitionHandler = recognitionType.createRecognitionHandler(delay: delay, cropRect: scannerOverlay?.cropRect)
+            recognitionHandler = recognitionType.createRecognitionHandler(delay: delay, useDoubleVerification: useDoubleVerification, cropRect: scannerOverlay?.cropRect)
             recognitionHandler!.delegate = self
             cameraPreview.recognitionHandler = recognitionHandler
             scannerOverlay?.isActive = true

@@ -29,7 +29,7 @@ protocol RecognitionHandler: AnyObject {
     /// Initialization of RecognitionHandler.
     /// `delay` - delay between detections
     /// `cropRect` optional `CropRect`, area of the detection.
-    init(delay: Int, cropRect: CropRect?)
+    init(delay: Int, useDoubleVerification: Bool, cropRect: CropRect?)
 
     /// Set delay when detection is active.
     /// `delay` - delay between detections

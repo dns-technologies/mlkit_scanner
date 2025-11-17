@@ -17,10 +17,10 @@ extension RecognitionType {
     /// Creation of RecognitionHandler by RecognitionType.
     /// `delay` - delay between detections
     /// `cropRect` optional `CropRect`, area of the detection.
-    func createRecognitionHandler(delay: Int, cropRect: CropRect?) -> RecognitionHandler {
+    func createRecognitionHandler(delay: Int, useDoubleVerification: Bool, cropRect: CropRect?) -> RecognitionHandler {
         switch self {
         case .barcodeRecognition:
-            return MlkitBarcodeScanner(delay: delay, cropRect: cropRect)
+            return MlkitBarcodeScanner(delay: delay, useDoubleVerification: useDoubleVerification, cropRect: cropRect)
         }
     }
 }
