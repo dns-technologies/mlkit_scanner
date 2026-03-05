@@ -133,6 +133,10 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     return _channel.setZoom(value);
   }
 
+  Future<void> _setCropArea(CropRect rect) {
+    return _channel.setCropArea(rect);
+  }
+
   Future<void> _setIosCamera({
     required IosCameraPosition position,
     required IosCameraType type,
@@ -203,6 +207,17 @@ class BarcodeScannerController {
       "Value can only be in the range from 0 to 1",
     );
     return _barcodeScannerState?._setZoom(value);
+  }
+
+  /// Sets the detection area for barcode recognition.
+  ///
+  /// The [rect] parameter defines the crop area relative to the [CameraPreview] size
+  /// using scale and offset values in percentage. If the detection area exceeds
+  /// the [CameraPreview] bounds, no detection will occur.
+  ///
+  /// Can throw [PlatformException] if camera is not initialized.
+  Future<void> setCropArea(CropRect rect) async {
+    return _barcodeScannerState?._setCropArea(rect);
   }
 
   /// Sets iOS camera with [position] and [type].
