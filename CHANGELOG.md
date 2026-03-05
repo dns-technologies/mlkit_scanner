@@ -1,3 +1,9 @@
+## 0.7.0
+
+[feature]
+
+- Add setCropArea method to BarcodeScannerController
+
 ## 0.6.0
 
 [fix]
