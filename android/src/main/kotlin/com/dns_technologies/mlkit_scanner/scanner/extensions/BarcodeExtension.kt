@@ -1,4 +1,4 @@
-package com.dns_technologies.mlkit_scanner.extensions
+package com.dns_technologies.mlkit_scanner.scanner.extensions
 
 import com.google.mlkit.vision.barcode.common.Barcode
 

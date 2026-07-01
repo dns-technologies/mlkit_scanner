@@ -1,7 +1,8 @@
-package com.dns_technologies.mlkit_scanner.analyzer
+package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 
 import android.util.Log
-import com.dns_technologies.mlkit_scanner.models.RecognitionType
+import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.models.AnalysingImage
+import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.models.RecognitionType
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage

@@ -1,4 +1,4 @@
-package com.dns_technologies.mlkit_scanner.models
+package com.dns_technologies.mlkit_scanner.scanner.components.analyzer.models
 
 import android.graphics.Rect
 import android.graphics.ImageFormat

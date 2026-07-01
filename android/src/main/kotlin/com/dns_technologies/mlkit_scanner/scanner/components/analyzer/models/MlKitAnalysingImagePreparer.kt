@@ -1,7 +1,7 @@
-package com.dns_technologies.mlkit_scanner.models
+package com.dns_technologies.mlkit_scanner.scanner.components.analyzer.models
 
 import android.graphics.Rect
-import com.dns_technologies.mlkit_scanner.analyzer.AnalysingImage
+import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.models.AnalysingImage
 import com.google.mlkit.vision.common.InputImage
 
 /**

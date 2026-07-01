@@ -1,6 +1,7 @@
-package com.dns_technologies.mlkit_scanner.models
+package com.dns_technologies.mlkit_scanner.scanner.components.analyzer.models
 
 import android.graphics.Rect
+import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 
 /**
  * Class forms [Rect] for cropping an image

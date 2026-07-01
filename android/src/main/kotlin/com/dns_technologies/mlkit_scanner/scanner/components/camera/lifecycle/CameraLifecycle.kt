@@ -1,4 +1,4 @@
-package com.dns_technologies.mlkit_scanner
+package com.dns_technologies.mlkit_scanner.scanner.components.camera.lifecycle
 
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner

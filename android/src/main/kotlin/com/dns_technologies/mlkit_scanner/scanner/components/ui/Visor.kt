@@ -1,16 +1,16 @@
-package com.dns_technologies.mlkit_scanner
+package com.dns_technologies.mlkit_scanner.scanner.components.ui
 
 import android.content.Context
 import android.graphics.*
 import android.view.View
-import com.dns_technologies.mlkit_scanner.models.RecognizeVisorCropRect
+import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 
 /**
  * Standard scanner overlay
  *
  * Draw with [RecognizeVisorCropRect]
  **/
-class ScannerOverlay(
+class Visor(
     private var cropArea: RecognizeVisorCropRect, context: Context
 ) : View(context) {
 

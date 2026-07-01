@@ -1,4 +1,4 @@
-package com.dns_technologies.mlkit_scanner.models
+package com.dns_technologies.mlkit_scanner.scanner.models
 
 /**
  * Defines a rectangle of the camera image recognition area

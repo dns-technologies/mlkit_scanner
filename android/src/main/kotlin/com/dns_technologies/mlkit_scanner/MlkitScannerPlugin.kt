@@ -1,23 +1,30 @@
 package com.dns_technologies.mlkit_scanner
 
-import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Point
 import android.util.Log
 import android.view.WindowManager
 import androidx.annotation.NonNull
-import com.otaliastudios.cameraview.CameraView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.OnLifecycleEvent
-import com.dns_technologies.mlkit_scanner.analyzer.AnalyzerCreator
-import com.dns_technologies.mlkit_scanner.analyzer.CameraImageAnalyzer
-import com.dns_technologies.mlkit_scanner.analyzer.TAG
-import com.dns_technologies.mlkit_scanner.extensions.toJson
-import com.dns_technologies.mlkit_scanner.models.*
+import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.AnalyzerCreator
+import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.CameraImageAnalyzer
+import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.TAG
+import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.models.*
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.HasNoFlashUnitException
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.ZoomNotSupportedException
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.lifecycle.CameraLifecycle
+import com.dns_technologies.mlkit_scanner.scanner.models.PermissionsConstants
+import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import com.dns_technologies.mlkit_scanner.scanner.models.ScannerParameters
+import com.dns_technologies.mlkit_scanner.scanner.extensions.toJson
+import com.dns_technologies.mlkit_scanner.scanner.CameraViewFactory
+import com.dns_technologies.mlkit_scanner.scanner.ScannerCamera
+import com.dns_technologies.mlkit_scanner.scanner.components.ui.Visor
 import com.google.mlkit.vision.barcode.common.Barcode
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -30,24 +37,16 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlin.Exception
 
-class PermissionsConstants {
-    companion object {
-        const val REQUEST_CODE_PERMISSIONS = 10
-        val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
-    }
-}
-
 /**
  * Android plugin for working with ML Kit scanner
  *
- * The [CameraView] library is used for simplification of Camera1
+ * CameraX is used for camera preview and image analysis.
  * [CameraLifecycle] is used for [ScannerCamera] lifecycle managing
  * Plugin inherits [ActivityAware] for checking camera user permissions
  */
 class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, LifecycleObserver {
     private lateinit var channel: MethodChannel
     private lateinit var binding: ActivityPluginBinding
-    private lateinit var cameraView: CameraView
     private var camera: ScannerCamera? = null
     private var cameraLifecycle: CameraLifecycle? = null
 
@@ -57,7 +56,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     private var initialMethodResult: Result? = null
     private var cameraImagePreparer = MlKitAnalysingImagePreparer()
     private var analyzer: CameraImageAnalyzer? = null
-    private var scannerOverlay: ScannerOverlay? = null
+    private var scannerOverlay: Visor? = null
 
     // Parameters configuring the scanner at the time of its initialization.
     private var initialScannerParameters: ScannerParameters? = null
@@ -71,9 +70,12 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         flutterPluginBinding
             .platformViewRegistry
             .registerViewFactory(PluginConstants.cameraPlatformViewName,
-                CameraViewFactory {
-                    cameraView = it
-                })
+                CameraViewFactory(
+                    onCreate = {
+                        camera = it
+                    },
+                    onDispose = this::onPlatformViewDisposed,
+                ))
     }
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -144,6 +146,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         // When rebuilding a widget, dispose() is not called,
         // which causes situations where initCamera() can be called multiple times.
         if (isAlreadyInitialized) {
+            result.success(true)
             return
         }
         initialMethodResult = result
@@ -155,17 +158,18 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         } else {
             requestAllPermission()
         }
+        result.success(true)
     }
 
     private fun resumeCamera(result: Result) {
         isLockedAutoResumeCamera = false
-        cameraLifecycle!!.resume()
+        cameraLifecycle?.resume()
         result.success(true)
     }
 
     private fun pauseCamera(result: Result) {
         isLockedAutoResumeCamera = true
-        cameraLifecycle!!.pause()
+        cameraLifecycle?.pause()
         result.success(true)
     }
 
@@ -228,20 +232,36 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     }
 
     private fun invokeDispose(result: Result) {
+        disposeCameraResources()
+        result.success(true)
+    }
+
+    private fun onPlatformViewDisposed(disposedCamera: ScannerCamera) {
+        if (disposedCamera === camera) {
+            disposeCameraResources()
+            camera = null
+        }
+    }
+
+    private fun disposeCameraResources() {
+        initialMethodResult?.success(false)
+        initialMethodResult = null
+        camera?.releaseCamera()
         cameraLifecycle?.dispose()
         cameraLifecycle = null
         scannerOverlay = null
         analyzer?.dispose()
+        analyzer = null
         isAlreadyInitialized = false
-        result.success(true)
     }
 
     private fun initCamera() {
+        val camera = camera ?: return
         isLockedAutoResumeCamera = false
         cameraLifecycle = CameraLifecycle()
         createScannerCamera()
-        cameraLifecycle!!.resume()
-        cameraView.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
+        cameraLifecycle?.resume()
+        camera.cameraRootView.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
             val cropRect = scannerOverlay?.cropRect
             // exclude parasite redraws
             if ((l != oldL || t != oldT || r != oldR || b != oldB) && cropRect != null) {
@@ -251,8 +271,9 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     }
 
     private fun createScannerCamera() {
-        if (camera == null || camera?.isActive() != true) {
-            camera = CameraViewScannerCamera(cameraLifecycle!!, cameraView)
+        val lifecycle = cameraLifecycle ?: return
+        val camera = camera ?: return
+        if (!camera.isActive()) {
             // Some devices can change zoom before camera is initialized.
             // This is the reason why this method is called twice.
             if (initialScannerParameters?.zoom != null) {
@@ -261,7 +282,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
                     result = initialMethodResult
                 )
             }
-            camera?.startCamera(this::onInitSuccess, this::onInitError)
+            camera.startCamera(lifecycle, this::onInitSuccess, this::onInitError)
         }
     }
 
@@ -336,12 +357,13 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     }
 
     private fun setCropArea(rect: RecognizeVisorCropRect) {
+        val camera = camera ?: return
         updateCropOptions(rect)
         if (scannerOverlay != null) {
             scannerOverlay?.cropRect = rect
         } else {
-            scannerOverlay = ScannerOverlay(rect, cameraView.context)
-            cameraView.addOverlay(scannerOverlay!!)
+            scannerOverlay = Visor(rect, camera.cameraRootView.context)
+            camera.addOverlay(scannerOverlay!!)
         }
     }
 
@@ -367,10 +389,11 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     )
 
     private fun updateCropOptions(cropRect: RecognizeVisorCropRect) {
+        val camera = camera ?: return
         val screenSize = getDisplaySize()
-        val scaleX = cameraView.measuredWidth.toDouble() / screenSize.x
-        val scaleY = cameraView.measuredHeight.toDouble() / screenSize.y
-        camera?.changeFocusCenter(
+        val scaleX = camera.cameraRootView.measuredWidth.toDouble() / screenSize.x
+        val scaleY = camera.cameraRootView.measuredHeight.toDouble() / screenSize.y
+        camera.changeFocusCenter(
             cropRect.centerOffsetX.toFloat(),
             cropRect.centerOffsetY.toFloat()
         )
