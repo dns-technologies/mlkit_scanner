@@ -5,9 +5,6 @@ import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
-import java.util.concurrent.TimeUnit
 
 /**
  * [ImageBarcodeAnalyzer] implementation used for barcode analyzing.
@@ -16,38 +13,35 @@ import java.util.concurrent.TimeUnit
  */
 class MlkitImageBarcodeAnalyzer : ImageBarcodeAnalyzer() {
     private val barcodeScanner = BarcodeScanning.getClient()
+    private val analyzeDelayTimer = AnalyzeDelayTimer(MIN_ANALYZE_DELAY_MS * SKIP_FRAME_COUNT)
+    private val skippingFrameCounter = SkippingFrameCounter(SKIP_FRAME_COUNT)
 
     /** Controls concurrent recognition; only one frame is analyzed at a time. */
     private var isAnalysisInProgress = false
-
-    /** Indicates whether the delay timer is running between recognition attempts. */
-    private var isDelayTimerRunning = false
-
-    private var analyzeDelayExecutor: ScheduledExecutorService? = null
-    private var skippingFrameCount = 0
 
     override fun analyze(image: AnalysingImage): String? {
         return tryAnalyzeInputImage(image.toMlKitInputImage())
     }
 
-    override fun onInit() {
-        startAnalyzeDelayTimer()
+    override fun init(period: Int) {
+        super.init(period)
+        analyzeDelayTimer.restart(analyzePeriodMs)
     }
 
-    override fun onPeriodUpdated() {
-        stopAnalyzeDelayTimer()
-        startAnalyzeDelayTimer()
+    override fun updatePeriod(periodMs: Int) {
+        super.updatePeriod(periodMs)
+        analyzeDelayTimer.restart(analyzePeriodMs)
     }
 
-    override fun clearResources() {
+    override fun dispose() {
         barcodeScanner.close()
-        stopAnalyzeDelayTimer()
+        analyzeDelayTimer.stop()
     }
 
     /** Runs ML Kit barcode recognition when analyzer throttling allows it. */
     private fun tryAnalyzeInputImage(image: InputImage): String? {
         if (!shouldAnalyzeCurrentFrame()) {
-            increaseSkippingFrameCount()
+            skippingFrameCounter.advance()
             return null
         }
 
@@ -61,8 +55,8 @@ class MlkitImageBarcodeAnalyzer : ImageBarcodeAnalyzer() {
             val rawValue = barcode.rawValue ?: return null
             Log.d(TAG, rawValue)
             shouldSkipNextFrame = false
-            skippingFrameCount = 0
-            startAnalyzeDelayTimer()
+            skippingFrameCounter.reset()
+            analyzeDelayTimer.restart(analyzePeriodMs)
             rawValue
         } catch (e: Exception) {
             if (e.message != null) {
@@ -71,7 +65,7 @@ class MlkitImageBarcodeAnalyzer : ImageBarcodeAnalyzer() {
             null
         } finally {
             if (shouldSkipNextFrame) {
-                increaseSkippingFrameCount()
+                skippingFrameCounter.advance()
             }
             isAnalysisInProgress = false
         }
@@ -79,36 +73,9 @@ class MlkitImageBarcodeAnalyzer : ImageBarcodeAnalyzer() {
 
     /** Returns true when the current frame can be sent to ML Kit. */
     private fun shouldAnalyzeCurrentFrame(): Boolean =
-        skippingFrameCount % SKIP_FRAME_COUNT == 0 &&
+        skippingFrameCounter.shouldAnalyzeCurrentFrame() &&
                 !isAnalysisInProgress &&
-                !isDelayTimerRunning
-
-    /** Advances the skipped-frame counter within its configured range. */
-    private fun increaseSkippingFrameCount() {
-        skippingFrameCount = ++skippingFrameCount % SKIP_FRAME_COUNT
-    }
-
-    /** Starts the timer that throttles consecutive analysis attempts. */
-    private fun startAnalyzeDelayTimer() {
-        stopAnalyzeDelayTimer()
-        if (shouldAcceptPeriod()) {
-            isDelayTimerRunning = true
-            analyzeDelayExecutor = Executors.newSingleThreadScheduledExecutor()
-            analyzeDelayExecutor?.schedule({
-                isDelayTimerRunning = false
-            }, analyzePeriodMs.toLong(), TimeUnit.MILLISECONDS)
-        }
-    }
-
-    /** Stops the active analysis delay timer, if one exists. */
-    private fun stopAnalyzeDelayTimer() {
-        analyzeDelayExecutor?.shutdownNow()
-        analyzeDelayExecutor = null
-        isDelayTimerRunning = false
-    }
-
-    /** Returns true when the configured period is large enough to throttle frames. */
-    private fun shouldAcceptPeriod() = analyzePeriodMs > MIN_ANALYZE_DELAY_MS * SKIP_FRAME_COUNT
+                !analyzeDelayTimer.isRunning
 
     /** Converts a scanner image into the ML Kit input image type. */
     private fun AnalysingImage.toMlKitInputImage() = InputImage.fromByteArray(
