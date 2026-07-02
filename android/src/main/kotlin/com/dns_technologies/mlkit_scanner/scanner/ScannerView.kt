@@ -1,0 +1,195 @@
+package com.dns_technologies.mlkit_scanner.scanner
+
+import android.content.Context
+import android.graphics.Point
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
+import android.widget.FrameLayout
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
+import com.dns_technologies.mlkit_scanner.scanner.components.ui.Visor
+import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.Focus
+import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.FocusController
+import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import io.flutter.plugin.platform.PlatformView
+
+/** Android platform view that renders scanner preview and overlays. */
+class ScannerView(
+    context: Context,
+    private val scanner: Scanner,
+    focus: Focus,
+    private val onDispose: (ScannerView) -> Unit,
+) : FrameLayout(context), PlatformView, LifecycleOwner {
+    private val focusController = FocusController(this, focus)
+    private val lifecycleRegistry = LifecycleRegistry(this).apply {
+        currentState = Lifecycle.State.CREATED
+    }
+
+    private var visor: Visor? = null
+
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry
+
+    init {
+        layoutParams = matchParentLayoutParams()
+        addView(scanner.camera.previewView)
+        addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
+            if (l != oldL || t != oldT || r != oldR || b != oldB) {
+                updateScannerWidgetScale()
+            }
+        }
+    }
+
+    /** Starts scanner camera work using this platform view as a lifecycle owner. */
+    fun startCamera(onInit: OnInit, onError: OnError) {
+        scanner.startCamera(
+            lifecycleOwner = this,
+            onInit = {
+                bindFocus()
+                onInit.invoke()
+            },
+            onError = onError,
+        )
+        resumeCamera()
+    }
+
+    /** Moves the platform view lifecycle to the resumed state. */
+    fun resumeCamera() {
+        if (lifecycleRegistry.currentState == Lifecycle.State.DESTROYED) return
+        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+    }
+
+    /** Moves the platform view lifecycle back to the created state. */
+    fun pauseCamera() {
+        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
+            lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        }
+    }
+
+    /** Returns true when the scanner camera is active. */
+    fun isActive(): Boolean = scanner.isActive()
+
+    /** Toggles the scanner camera torch. */
+    fun toggleFlashLight() {
+        scanner.toggleFlashLight()
+    }
+
+    /** Starts frame analysis and updates the visor state. */
+    fun startScan(periodMs: Int) {
+        scanner.startScan(periodMs)
+        setVisorActive(scanner.isScanActive)
+    }
+
+    /** Pauses frame analysis and updates the visor state. */
+    fun pauseScan() {
+        scanner.pauseScan()
+        setVisorActive(false)
+    }
+
+    /** Updates the delay between analysis attempts. */
+    fun updateScanPeriod(periodMs: Int) {
+        scanner.updateScanPeriod(periodMs)
+    }
+
+    /** Subscribes to decoded scanner results through the underlying scanner. */
+    fun observeScanResults(listener: OnScanResultListener): () -> Unit = scanner.observeScanResults(listener)
+
+    /** Updates scanner crop settings and matching focus and visor UI. */
+    fun setCropArea(cropRect: RecognizeVisorCropRect) {
+        scanner.setCropArea(cropRect)
+        updateScannerWidgetScale()
+        focusController.updateCenter(cropRect.centerOffsetX.toFloat(), cropRect.centerOffsetY.toFloat())
+        setVisorCropArea(cropRect, scanner.isScanActive)
+    }
+
+    /** Applies normalized zoom to the scanner camera. */
+    fun setZoom(value: Float) {
+        scanner.setZoom(value)
+    }
+
+    /** Releases scanner resources and destroys the platform view lifecycle. */
+    fun releaseCamera() {
+        pauseCamera()
+        scanner.releaseCamera()
+        destroy()
+    }
+
+    /** Connects focus UI callbacks to the active camera component. */
+    private fun bindFocus() {
+        focusController.bind(scanner.camera::focusOnCenter)
+    }
+
+    /** Creates or updates the visor overlay for the requested crop area. */
+    private fun setVisorCropArea(cropRect: RecognizeVisorCropRect, isScanActive: Boolean) {
+        val activeVisor = visor
+        if (activeVisor != null) {
+            activeVisor.cropRect = cropRect
+        } else {
+            visor = Visor(cropRect, context).also {
+                focusController.addViewBelowFocus(it)
+            }
+        }
+        visor?.isActive = isScanActive
+    }
+
+    /** Updates the visual active state of the current visor overlay. */
+    private fun setVisorActive(isActive: Boolean) {
+        visor?.isActive = isActive
+    }
+
+    /** Sends the current widget-to-display scale to the scanner. */
+    private fun updateScannerWidgetScale() {
+        val (widthScale, heightScale) = calculateWidgetScale()
+        scanner.setWidgetScale(widthScale, heightScale)
+    }
+
+    /** Calculates the ratio between this view size and the display size. */
+    private fun calculateWidgetScale(): Pair<Double, Double> {
+        val screenSize = getDisplaySize()
+        if (screenSize.x == 0 || screenSize.y == 0) return Pair(1.0, 1.0)
+        return Pair(
+            measuredWidth.toDouble() / screenSize.x,
+            measuredHeight.toDouble() / screenSize.y,
+        )
+    }
+
+    /** Marks this platform view lifecycle as destroyed. */
+    private fun destroy() {
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
+    }
+
+    override fun dispose() {
+        onDispose.invoke(this)
+    }
+
+    override fun getView(): View = this
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (focusController.handleTouch(ev, this::performClick)) return true
+        return super.dispatchTouchEvent(ev)
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    /** Reads the current display size used for widget scale calculations. */
+    private fun getDisplaySize(): Point {
+        return Point().apply {
+            val display = (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
+            display.getSize(this)
+        }
+    }
+
+    /** Creates layout parameters that fill the platform view container. */
+    private fun matchParentLayoutParams(): ViewGroup.LayoutParams = ViewGroup.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.MATCH_PARENT,
+    )
+}

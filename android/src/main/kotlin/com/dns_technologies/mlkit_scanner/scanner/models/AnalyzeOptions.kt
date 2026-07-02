@@ -1,14 +1,13 @@
-package com.dns_technologies.mlkit_scanner.scanner.components.analyzer.models
+package com.dns_technologies.mlkit_scanner.scanner.models
 
-/** Describes image recognition configuration  */
+/** Describes image recognition configuration received from Dart. */
 class AnalyzeOptions(
-    val recognizeType: RecognitionType,
     val periodMs: Int
 ) {
     companion object {
+        /** Creates [AnalyzeOptions] from a method channel argument map. */
         fun fromMap(map: Map<String, Any?>): AnalyzeOptions {
             return AnalyzeOptions(
-                RecognitionType.fromValue(map["type"] as Int),
                 map["delay"] as Int
             )
         }

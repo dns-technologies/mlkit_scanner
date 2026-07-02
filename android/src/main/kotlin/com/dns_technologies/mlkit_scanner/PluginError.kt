@@ -1,24 +1,24 @@
 package com.dns_technologies.mlkit_scanner
 
 /**
- * Plugin error enum with associating error code
- *
- * Used for transfer errors between android platform and flutter
+ * Describes plugin errors that can be sent to Dart.
  */
 enum class PluginError(val errorCode: String) {
-    /** Unable to initialize camera due to internal camera error */
+    /** Camera initialization failed due to an internal camera error. */
     InitCameraError("1"),
-    /** App has no user permission for camera using */
+
+    /** The app has no granted camera permission. */
     AuthorizationCameraError("2"),
-    /**
-     * Occur when app try to use camera features (image analysing, flash toggle, etc)
-     * without calling initialization method
-     */
+
+    /** A camera feature was requested before scanner initialization. */
     CameraIsNotInitialized("3"),
-    /** Occurs due to try toggle flash on device that does not support flash */
+
+    /** The device does not expose a flash unit for the active camera. */
     DeviceHasNotFlash("4"),
-    /** Occurs due to transfer incorrect method call arguments */
+
+    /** A method channel call received arguments with an unexpected type or shape. */
     InvalidArguments("5"),
-    /** Occurs due to try use zoom on device that does not support zoom */
+
+    /** The active camera does not support zoom control. */
     DeviceHasNotZoom("6"),
 }

@@ -5,11 +5,7 @@ import android.graphics.*
 import android.view.View
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 
-/**
- * Standard scanner overlay
- *
- * Draw with [RecognizeVisorCropRect]
- **/
+/** Draws the scanner visor overlay for the configured recognition rectangle. */
 class Visor(
     private var cropArea: RecognizeVisorCropRect, context: Context
 ) : View(context) {
@@ -26,12 +22,15 @@ class Visor(
         alpha = 120
         style = Paint.Style.FILL
     }
+
+    /** Controls whether the visor is rendered in active scan state. */
     var isActive = false
         set(value) {
             field = value
             invalidate()
         }
 
+    /** Recognition rectangle used to draw the visible visor area. */
     var cropRect: RecognizeVisorCropRect
         get() = cropArea
         set(value) {
@@ -46,6 +45,7 @@ class Visor(
         invalidate()
     }
 
+    /** Rebuilds paths used to draw the visor border and dimmed background. */
     private fun createBorderPath(w: Int, h: Int) {
         val width = w * cropArea.scaleWidth.toFloat()
         val height = h * cropArea.scaleHeight.toFloat()
@@ -121,6 +121,7 @@ class Visor(
         }
     }
 
+    /** Returns the border color that matches the current scanner activity state. */
     private fun getBorderColor(): Int {
         return when (isActive) {
             true -> Color.parseColor("#43A047")
@@ -129,6 +130,7 @@ class Visor(
     }
 }
 
+/** Adds one rounded visor corner segment to this path. */
 private fun Path.roundCorner(from: PointF, to: PointF, startAngle: Float, roundRect: RectF) {
     moveTo(from.x, from.y)
     arcTo(roundRect, startAngle, 90F)

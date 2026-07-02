@@ -1,11 +1,11 @@
-package com.dns_technologies.mlkit_scanner.scanner.components.camera.backend
+package com.dns_technologies.mlkit_scanner.scanner.components.camera
 
 import android.content.Context
 import android.graphics.ImageFormat
 import android.util.Size
 import android.view.View
 import android.view.ViewGroup
-import androidx.camera.core.Camera
+import androidx.camera.core.Camera as AndroidXCamera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
@@ -16,24 +16,18 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.models.NV21AnalysingImage
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.HasNoFlashUnitException
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.ZoomNotSupportedException
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.exceptions.HasNoFlashUnitException
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.exceptions.ZoomNotSupportedException
+import com.dns_technologies.mlkit_scanner.scanner.models.images.NV21AnalysingImage
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 
 /**
- * CameraX adapter that hides CameraX APIs behind [CameraBackend].
+ * CameraX adapter that hides CameraX APIs behind [Camera].
  */
-class CameraXCameraBackend(
+class XCamera(
     private val context: Context,
-) : CameraBackend {
-    /**
-     * CameraX preview surface used by the preview use case.
-     */
+) : Camera {
     override val previewView: View = PreviewView(context).apply {
         layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -47,14 +41,11 @@ class CameraXCameraBackend(
     private var cameraProvider: ProcessCameraProvider? = null
 
     /** Active CameraX camera instance. */
-    private var camera: Camera? = null
+    private var camera: AndroidXCamera? = null
 
     /** Invalidates pending asynchronous CameraX initialization callbacks after release. */
     private var cameraSessionId = 0
 
-    /**
-     * Starts CameraX and binds preview plus analysis use cases to the provided lifecycle.
-     */
     override fun start(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
@@ -76,14 +67,8 @@ class CameraXCameraBackend(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    /**
-     * Returns true when CameraX has an active camera binding.
-     */
     override fun isActive(): Boolean = camera != null
 
-    /**
-     * Toggles the torch for the active CameraX camera.
-     */
     override fun toggleFlashLight() {
         val activeCamera = camera ?: return
         if (!activeCamera.cameraInfo.hasFlashUnit()) throw HasNoFlashUnitException()
@@ -92,9 +77,6 @@ class CameraXCameraBackend(
         activeCamera.cameraControl.enableTorch(!isTorchEnabled)
     }
 
-    /**
-     * Starts CameraX focus and metering at the current visual focus point.
-     */
     override fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
         val activeCamera = camera ?: return
         val preview = previewView as PreviewView
@@ -115,9 +97,6 @@ class CameraXCameraBackend(
         activeCamera.cameraControl.startFocusAndMetering(focusActionBuilder.build())
     }
 
-    /**
-     * Sets linear CameraX zoom in the 0..1 range.
-     */
     override fun setZoom(value: Float) {
         val activeCamera = camera ?: return
         if (activeCamera.cameraInfo.zoomState.value == null) {
@@ -126,9 +105,6 @@ class CameraXCameraBackend(
         activeCamera.cameraControl.setLinearZoom(value.coerceIn(0.0F, 1.0F))
     }
 
-    /**
-     * Releases CameraX resources and invalidates pending initialization callbacks.
-     */
     override fun release() {
         cameraSessionId++
         cameraProvider?.unbindAll()
