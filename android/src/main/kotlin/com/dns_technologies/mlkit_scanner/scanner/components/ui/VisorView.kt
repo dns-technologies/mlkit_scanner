@@ -2,13 +2,22 @@ package com.dns_technologies.mlkit_scanner.scanner.components.ui
 
 import android.content.Context
 import android.graphics.*
+import android.util.AttributeSet
 import android.view.View
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import androidx.core.graphics.toColorInt
 
 /** Draws the scanner visor overlay for the configured recognition rectangle. */
-class Visor(
-    private var cropArea: RecognizeVisorCropRect, context: Context
-) : View(context) {
+class VisorView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0,
+) : View(context, attrs, defStyleAttr) {
+    private var cropArea = RecognizeVisorCropRect()
+
+    constructor(cropArea: RecognizeVisorCropRect, context: Context) : this(context) {
+        this.cropArea = cropArea
+    }
 
     private var borderPath = Path()
     private var backgroundPath = Path()
@@ -124,8 +133,8 @@ class Visor(
     /** Returns the border color that matches the current scanner activity state. */
     private fun getBorderColor(): Int {
         return when (isActive) {
-            true -> Color.parseColor("#43A047")
-            else -> Color.parseColor("#616161")
+            true -> "#43A047".toColorInt()
+            else -> "#616161".toColorInt()
         }
     }
 }

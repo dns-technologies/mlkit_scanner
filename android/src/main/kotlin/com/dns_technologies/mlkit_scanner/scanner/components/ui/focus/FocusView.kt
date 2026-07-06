@@ -13,23 +13,32 @@ import android.view.animation.AnimationUtils
 import android.view.animation.TranslateAnimation
 import android.widget.FrameLayout
 import com.dns_technologies.mlkit_scanner.R
+import androidx.core.view.isVisible
+import androidx.core.view.isInvisible
 
-/** Handles autofocus gestures and draws focus/lock animation over camera preview. */
+/** Draws focus/lock animation over camera preview and emits focus gestures. */
 @SuppressLint("ViewConstructor")
-class Focus(
+class FocusView(
     context: Context,
-    private var center: Pair<Float, Float>,
 ) : FrameLayout(context), Animation.AnimationListener, View.OnLayoutChangeListener {
+    private var centerOffsetX = 0.0F
+    private var centerOffsetY = 0.0F
     private lateinit var lock: View
     private lateinit var circle: View
     private val fadeAnimation = AnimationUtils.loadAnimation(context, R.anim.fade)
     private val fadeOutAnimation = AnimationUtils.loadAnimation(context, R.anim.fade_out)
-    private var autoFocusSetListener: ((Boolean) -> Unit)? = null
     private val gestureDetector: GestureDetector = createGestureDetector()
     private val fadeInAnimation = AlphaAnimation(0F, 1F).apply {
         duration = 300
         fillAfter = true
     }
+
+    /** Invoked when a tap requests regular autofocus. */
+    var onAutoFocusRequested: (() -> Unit)? = null
+
+    /** Invoked when a long press requests locked autofocus. */
+    var onLockFocusRequested: (() -> Unit)? = null
+
     private val autofocusLockedFinalPosition: Pair<Float, Float>
         get() = Pair(lock.width * 0.8F - lock.x, lock.height * 0.8F - lock.y)
 
@@ -37,35 +46,7 @@ class Focus(
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         fadeInAnimation.setAnimationListener(this)
         fadeOutAnimation.setAnimationListener(this)
-        addView(LayoutInflater.from(context).inflate(R.layout.center_focus_layout, null))
-    }
-
-    /** Updates the visual focus center offset relative to the preview center. */
-    fun setFocusCenter(horizontalOffset: Float, verticalOffset: Float) {
-        center = Pair(horizontalOffset, verticalOffset)
-        circle.apply {
-            translationX = horizontalOffset
-            translationY = verticalOffset
-        }
-    }
-
-    /** Registers a listener invoked when the user requests auto focus or focus lock. */
-    fun setAutoFocusSetListener(listener: (Boolean) -> Unit) {
-        autoFocusSetListener = listener
-    }
-
-    /** Creates the gesture detector that maps taps and long presses to focus actions. */
-    private fun createGestureDetector(): GestureDetector {
-        return GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onSingleTapUp(e: MotionEvent): Boolean {
-                autoFocus()
-                return true
-            }
-
-            override fun onLongPress(e: MotionEvent) {
-                lockFocus()
-            }
-        })
+        addView(LayoutInflater.from(context).inflate(R.layout.center_focus_layout, this))
     }
 
     override fun onAttachedToWindow() {
@@ -78,47 +59,6 @@ class Focus(
     override fun onDetachedFromWindow() {
         lock.removeOnLayoutChangeListener(this)
         super.onDetachedFromWindow()
-    }
-
-    /** Starts regular autofocus and releases a visible focus lock. */
-    private fun autoFocus() {
-        autoFocusSetListener?.invoke(false)
-        releaseLock()
-        circle.startAnimation(fadeAnimation)
-    }
-
-    /** Hides the focus lock indicator when it is visible. */
-    private fun releaseLock() {
-        if (lock.visibility == View.VISIBLE) {
-            lock.startAnimation(fadeOutAnimation)
-        }
-    }
-
-    /** Starts autofocus lock animation and notifies the listener about lock state. */
-    private fun lockFocus() {
-        autoFocusSetListener?.invoke(true)
-        circle.startAnimation(fadeAnimation)
-        if (lock.visibility == View.INVISIBLE) {
-            lock.startAnimation(buildLockAnimation())
-        }
-    }
-
-    /** Builds the combined fade and movement animation for the lock indicator. */
-    private fun buildLockAnimation(): Animation {
-        return AnimationSet(false).apply {
-            fillAfter = true
-            addAnimation(fadeInAnimation)
-            addAnimation(lockMovementAnimation())
-        }
-    }
-
-    /** Builds the lock indicator movement animation from focus center to final position. */
-    private fun lockMovementAnimation(): Animation {
-        val (deltaX, deltaY) = autofocusLockedFinalPosition
-        return TranslateAnimation(center.first, deltaX, center.second, deltaY).apply {
-            startOffset = 300
-            duration = 500
-        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -153,7 +93,7 @@ class Focus(
         // exclude parasite redraws
         if (l == oldL && t == oldT && r == oldR && b == oldB) return
 
-        if (lock.visibility == View.VISIBLE) {
+        if (lock.isVisible) {
             val (deltaX, deltaY) = autofocusLockedFinalPosition
             lock.startAnimation(
                 TranslateAnimation(deltaX, deltaX, deltaY, deltaY).apply {
@@ -162,6 +102,71 @@ class Focus(
                     fillAfter = true
                 }
             )
+        }
+    }
+
+    /** Updates the visual focus center offset relative to the preview center. */
+    fun setCenterOffset(x: Float, y: Float) {
+        centerOffsetX = x
+        centerOffsetY = y
+        circle.apply {
+            translationX = x
+            translationY = y
+        }
+    }
+
+    /** Creates the gesture detector that maps taps and long presses to focus actions. */
+    private fun createGestureDetector(): GestureDetector {
+        return GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                autoFocus()
+                return true
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                lockFocus()
+            }
+        })
+    }
+
+    /** Starts regular autofocus and releases a visible focus lock. */
+    private fun autoFocus() {
+        onAutoFocusRequested?.invoke()
+        releaseLock()
+        circle.startAnimation(fadeAnimation)
+    }
+
+    /** Hides the focus lock indicator when it is visible. */
+    private fun releaseLock() {
+        if (lock.isVisible) {
+            lock.startAnimation(fadeOutAnimation)
+        }
+    }
+
+    /** Starts autofocus lock animation and notifies the listener about lock state. */
+    private fun lockFocus() {
+        onLockFocusRequested?.invoke()
+        circle.startAnimation(fadeAnimation)
+        if (lock.isInvisible) {
+            lock.startAnimation(buildLockAnimation())
+        }
+    }
+
+    /** Builds the combined fade and movement animation for the lock indicator. */
+    private fun buildLockAnimation(): Animation {
+        return AnimationSet(false).apply {
+            fillAfter = true
+            addAnimation(fadeInAnimation)
+            addAnimation(lockMovementAnimation())
+        }
+    }
+
+    /** Builds the lock indicator movement animation from focus center to final position. */
+    private fun lockMovementAnimation(): Animation {
+        val (deltaX, deltaY) = autofocusLockedFinalPosition
+        return TranslateAnimation(centerOffsetX, deltaX, centerOffsetY, deltaY).apply {
+            startOffset = 300
+            duration = 500
         }
     }
 }

@@ -12,6 +12,8 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.TorchState
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
@@ -37,14 +39,20 @@ class XCamera(
         scaleType = PreviewView.ScaleType.FILL_CENTER
     }
 
-    /** CameraX provider used to bind and unbind use cases. */
+    /** CameraX provider used to bind and unbind. */
     private var cameraProvider: ProcessCameraProvider? = null
 
     /** Active CameraX camera instance. */
     private var camera: AndroidXCamera? = null
 
-    /** Invalidates pending asynchronous CameraX initialization callbacks after release. */
-    private var cameraSessionId = 0
+    /** Preview owned by this camera adapter. */
+    private var preview: Preview? = null
+
+    /** Image analysis owned by this camera adapter. */
+    private var imageAnalysis: ImageAnalysis? = null
+
+    /** Token of the active asynchronous CameraX start operation. */
+    private var startToken: Any? = null
 
     override fun start(
         lifecycleOwner: LifecycleOwner,
@@ -53,16 +61,23 @@ class XCamera(
         onInit: OnInit,
         onError: OnError,
     ) {
-        val sessionId = ++cameraSessionId
+        if (isStarting() || isActive()) return
+
+        val token = Any()
+        startToken = token
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
-            if (sessionId != cameraSessionId) return@addListener
+            if (startToken !== token) return@addListener
             try {
                 cameraProvider = providerFuture.get()
                 bindCamera(lifecycleOwner, analysisExecutor, onFrame)
                 onInit.invoke()
             } catch (e: Exception) {
                 onError.invoke(e)
+            } finally {
+                if (startToken === token) {
+                    startToken = null
+                }
             }
         }, ContextCompat.getMainExecutor(context))
     }
@@ -106,11 +121,14 @@ class XCamera(
     }
 
     override fun release() {
-        cameraSessionId++
-        cameraProvider?.unbindAll()
+        startToken = null
+        unbindViews()
         cameraProvider = null
         camera = null
     }
+
+    /** Returns true while CameraX provider initialization or binding is in progress. */
+    private fun isStarting(): Boolean = startToken != null
 
     /** Binds CameraX preview and analysis to the scanner lifecycle. */
     private fun bindCamera(
@@ -122,21 +140,23 @@ class XCamera(
         val preview = createPreview()
         val imageAnalysis = createImageAnalysis(analysisExecutor, onFrame)
 
-        provider.unbindAll()
+        unbindViews()
         camera = provider.bindToLifecycle(
             lifecycleOwner,
             CameraSelector.DEFAULT_BACK_CAMERA,
             preview,
             imageAnalysis,
         )
+        this.preview = preview
+        this.imageAnalysis = imageAnalysis
     }
 
     /** Creates the CameraX preview. */
     private fun createPreview(): Preview = Preview.Builder()
-        .setTargetResolution(DEFAULT_TARGET_RESOLUTION)
+        .setResolutionSelector(DEFAULT_RESOLUTION_SELECTOR)
         .build()
         .also {
-            it.setSurfaceProvider((previewView as PreviewView).surfaceProvider)
+            it.surfaceProvider = (previewView as PreviewView).surfaceProvider
         }
 
     /** Creates the CameraX image analysis. */
@@ -144,29 +164,36 @@ class XCamera(
         analysisExecutor: ExecutorService,
         onFrame: OnCameraFrame,
     ): ImageAnalysis = ImageAnalysis.Builder()
-        .setTargetResolution(DEFAULT_TARGET_RESOLUTION)
+        .setResolutionSelector(DEFAULT_RESOLUTION_SELECTOR)
         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
         .build()
         .also { imageAnalysis ->
             imageAnalysis.setAnalyzer(analysisExecutor) { image ->
-                analyzeImage(image, onFrame)
+                try {
+                    onFrame.invoke(
+                        NV21AnalysingImage(
+                            image.toNv21ByteArray(),
+                            Size(image.width, image.height),
+                            ImageFormat.NV21,
+                            image.imageInfo.rotationDegrees,
+                        )
+                    )
+                } finally {
+                    image.close()
+                }
             }
         }
 
-    /** Converts a CameraX frame and sends it to the common scanner layer. */
-    private fun analyzeImage(image: ImageProxy, onFrame: OnCameraFrame) {
-        try {
-            onFrame.invoke(
-                NV21AnalysingImage(
-                    image.toNv21ByteArray(),
-                    Size(image.width, image.height),
-                    ImageFormat.NV21,
-                    image.imageInfo.rotationDegrees,
-                )
-            )
-        } finally {
-            image.close()
-        }
+    /** Unbinds only created by this adapter views. */
+    private fun unbindViews() {
+        val ownedPreview = preview
+        val ownedImageAnalysis = imageAnalysis
+
+        if (ownedPreview != null) cameraProvider?.unbind(ownedPreview)
+        if (ownedImageAnalysis != null) cameraProvider?.unbind(ownedImageAnalysis)
+
+        preview = null
+        imageAnalysis = null
     }
 
     /** Converts the CameraX YUV image into the NV21 format expected by the analyzer. */
@@ -203,6 +230,14 @@ class XCamera(
 
     private companion object {
         /** Default CameraX target resolution used by preview and analysis. */
-        val DEFAULT_TARGET_RESOLUTION = Size(720, 1280)
+        private val DEFAULT_TARGET_RESOLUTION = Size(720, 1280)
+        private val DEFAULT_RESOLUTION_SELECTOR = ResolutionSelector.Builder()
+            .setResolutionStrategy(
+                ResolutionStrategy(
+                    DEFAULT_TARGET_RESOLUTION,
+                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                )
+            )
+            .build()
     }
 }

@@ -5,9 +5,9 @@ import android.util.Log
 import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleObserver
-import androidx.lifecycle.OnLifecycleEvent
+import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.MlkitImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.exceptions.HasNoFlashUnitException
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.exceptions.ZoomNotSupportedException
@@ -17,8 +17,7 @@ import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.models.InitialScannerParameters
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.ScannerViewFactory
-import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.Focus
-import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.FocusController
+import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.FocusView
 import com.dns_technologies.mlkit_scanner.scanner.models.AnalyzeOptions
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -37,7 +36,7 @@ import kotlin.Exception
  * CameraX is used for camera preview and image analysis.
  * Plugin inherits [ActivityAware] for checking camera user permissions
  */
-class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, LifecycleObserver {
+class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, DefaultLifecycleObserver {
     private lateinit var channel: MethodChannel
     private lateinit var binding: ActivityPluginBinding
     private var scannerView: ScannerView? = null
@@ -50,6 +49,9 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
 
     private var isAlreadyInitialized: Boolean = false
 
+    private val activityLifecycle: Lifecycle
+        get() = (binding.lifecycle as HiddenLifecycleReference).lifecycle
+
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, PluginConstants.channelName)
         channel.setMethodCallHandler(this)
@@ -58,8 +60,8 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
             .registerViewFactory(PluginConstants.cameraPlatformViewName,
                 ScannerViewFactory(
                     createCamera = ::XCamera,
-                    createImageAnalyzer = ::MlkitImageBarcodeAnalyzer,
-                    createFocus = { context -> Focus(context, FocusController.INITIAL_FOCUS_CENTER) },
+                    createImageAnalyzer = { MlkitImageBarcodeAnalyzer(TAG) },
+                    createFocusView = { context -> FocusView(context) },
                     onCreate = {
                         scannerView = it
                         scanResultSubscription?.invoke()
@@ -91,14 +93,12 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     }
 
     override fun onDetachedFromActivity() {
-        val activityLifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
         activityLifecycle.removeObserver(this)
         binding.removeRequestPermissionsResultListener(this::listenPermissionResult)
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        this.binding = binding
-        binding.addRequestPermissionsResultListener(this::listenPermissionResult)
+        setActivityBinding(binding, observeLifecycle = false)
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -106,9 +106,14 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        setActivityBinding(binding, observeLifecycle = true)
+    }
+
+    private fun setActivityBinding(binding: ActivityPluginBinding, observeLifecycle: Boolean) {
         this.binding = binding
-        val activityLifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
-        activityLifecycle.addObserver(this)
+        if (observeLifecycle) {
+            activityLifecycle.addObserver(this)
+        }
         binding.addRequestPermissionsResultListener(this::listenPermissionResult)
     }
 
@@ -123,7 +128,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
             if (allPermissionsGranted()) {
                 initializeScanner()
             } else {
-                completeInitializationWithError(
+                completeError(
                     PluginError.AuthorizationCameraError.errorCode,
                     "The app does not have camera permission",
                     null
@@ -139,6 +144,11 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         // which causes situations where initialization can be called multiple times.
         if (isAlreadyInitialized) {
             result.success(true)
+            return
+        }
+        val activeInitialization = pendingInitialization
+        if (activeInitialization != null) {
+            activeInitialization.addResult(result)
             return
         }
         val args = call.arguments as Map<String, Any?>?
@@ -210,37 +220,37 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
             )
             return
         }
-        scannerView?.updateScanPeriod(delay as Int)
+        scannerView?.updateScanPeriod(delay.toInt())
         result.success(true)
     }
 
     /** Handles the Dart request to release scanner resources. */
     private fun invokeDispose(result: Result) {
-        disposeCameraResources()
+        disposeScannerView()
         result.success(true)
     }
 
     /** Releases plugin state when the active platform view is disposed. */
     private fun onPlatformViewDisposed(disposedScannerView: ScannerView) {
         if (disposedScannerView === scannerView) {
-            disposeCameraResources()
-            scannerView = null
+            disposeScannerView()
         }
     }
 
     /** Clears scanner resources, subscriptions and pending initialization state. */
-    private fun disposeCameraResources() {
-        completeInitializationWithSuccess(false)
+    private fun disposeScannerView() {
+        completeSuccess(false)
         scanResultSubscription?.invoke()
         scanResultSubscription = null
         scannerView?.releaseCamera()
+        scannerView = null
         isAlreadyInitialized = false
     }
 
     /** Starts scanner initialization after permission checks are complete. */
     private fun initializeScanner() {
         if (scannerView == null) {
-            completeInitializationWithError(
+            completeError(
                 PluginError.CameraIsNotInitialized.errorCode,
                 ERROR_SCANNER_VIEW_NOT_CREATED,
                 null
@@ -267,7 +277,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
             }
             scannerView.startCamera(this::onInitSuccess, this::onInitError)
         } else {
-            completeInitializationWithSuccess(true)
+            completeSuccess(true)
             isAlreadyInitialized = true
         }
     }
@@ -279,7 +289,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
         val initialZoom = parameters?.zoom
         if (initialZoom != null) {
             if (!trySetZoom(scannerView, initialZoom, result = null)) {
-                completeInitializationWithError(
+                completeError(
                     PluginError.DeviceHasNotZoom.errorCode,
                     "Zoom is not supported on this device",
                     null
@@ -291,14 +301,14 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
             scannerView.setCropArea(parameters.cropRect)
         }
 
-        completeInitializationWithSuccess(true)
+        completeSuccess(true)
         isAlreadyInitialized = true
     }
 
     /** Completes pending initialization with a camera init error. */
     private fun onInitError(e: Exception) {
         Log.e(TAG, e.toString())
-        completeInitializationWithError(
+        completeError(
             PluginError.InitCameraError.errorCode,
             "Internal camera initialisation error",
             e.message
@@ -306,14 +316,14 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     }
 
     /** Completes the pending initialization call with success once. */
-    private fun completeInitializationWithSuccess(value: Boolean) {
+    private fun completeSuccess(value: Boolean) {
         val initialization = pendingInitialization ?: return
         pendingInitialization = null
         initialization.success(value)
     }
 
     /** Completes the pending initialization call with an error once. */
-    private fun completeInitializationWithError(errorCode: String, errorMessage: String, errorDetails: Any?) {
+    private fun completeError(errorCode: String, errorMessage: String, errorDetails: Any?) {
         val initialization = pendingInitialization ?: return
         pendingInitialization = null
         initialization.error(errorCode, errorMessage, errorDetails)
@@ -331,7 +341,7 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
                 )
                 return@withActiveScannerView
             }
-            if (trySetZoom(scannerView, value, result = result)) {
+            if (trySetZoom(scannerView, value, result)) {
                 result.success(true)
             }
         }
@@ -361,12 +371,12 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
 
     /** Runs an action only when the scanner view exists and its camera is active. */
     private fun withActiveScannerView(result: Result, errorMessage: String, action: (ScannerView) -> Unit) {
-        val scannerView = scannerView
-        if (scannerView?.isActive() != true) {
+        val activeScannerView = scannerView
+        if (activeScannerView?.isActive() != true) {
             result.error(PluginError.CameraIsNotInitialized.errorCode, errorMessage, null)
             return
         }
-        action(scannerView)
+        action(activeScannerView)
     }
 
     /** Returns true when all scanner Android permissions are granted. */
@@ -397,15 +407,13 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     )
 
     /** Resumes scanner camera lifecycle with the host activity. */
-    @OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
-    private fun onResume() {
+    override fun onResume(owner: LifecycleOwner) {
         if (isLockedAutoResumeCamera) return
         scannerView?.resumeCamera()
     }
 
     /** Pauses scanner camera lifecycle with the host activity. */
-    @OnLifecycleEvent(Lifecycle.Event.ON_PAUSE)
-    private fun onPause() {
+    override fun onPause(owner: LifecycleOwner) {
         if (scannerView?.isActive() == true) {
             scannerView?.pauseCamera()
         }
@@ -423,14 +431,22 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
 }
 
 private class PendingScannerInitialization(
-    private val result: Result,
+    result: Result,
     val parameters: InitialScannerParameters?,
 ) {
+    private val results = mutableListOf(result)
+
+    fun addResult(result: Result) {
+        results += result
+    }
+
     fun success(value: Boolean) {
-        result.success(value)
+        results.forEach { result -> result.success(value) }
+        results.clear()
     }
 
     fun error(errorCode: String, errorMessage: String, errorDetails: Any?) {
-        result.error(errorCode, errorMessage, errorDetails)
+        results.forEach { result -> result.error(errorCode, errorMessage, errorDetails) }
+        results.clear()
     }
 }

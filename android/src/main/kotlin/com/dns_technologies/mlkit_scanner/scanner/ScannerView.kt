@@ -5,16 +5,15 @@ import android.graphics.Point
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
-import com.dns_technologies.mlkit_scanner.scanner.components.ui.Visor
-import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.Focus
+import com.dns_technologies.mlkit_scanner.scanner.components.ui.VisorView
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.FocusController
+import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.FocusView
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import io.flutter.plugin.platform.PlatformView
 
@@ -22,15 +21,15 @@ import io.flutter.plugin.platform.PlatformView
 class ScannerView(
     context: Context,
     private val scanner: Scanner,
-    focus: Focus,
+    private val focusView: FocusView,
     private val onDispose: (ScannerView) -> Unit,
 ) : FrameLayout(context), PlatformView, LifecycleOwner {
-    private val focusController = FocusController(this, focus)
+    private val focusController = FocusController(this, focusView)
     private val lifecycleRegistry = LifecycleRegistry(this).apply {
         currentState = Lifecycle.State.CREATED
     }
 
-    private var visor: Visor? = null
+    private var visor: VisorView? = null
 
     override val lifecycle: Lifecycle
         get() = lifecycleRegistry
@@ -121,25 +120,46 @@ class ScannerView(
 
     /** Connects focus UI callbacks to the active camera component. */
     private fun bindFocus() {
-        focusController.bind(scanner.camera::focusOnCenter)
+        addFocusView()
+        focusController.bind(
+            onAutoFocusRequest = { offsetX, offsetY ->
+                scanner.camera.focusOnCenter(AUTO_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
+            },
+            onLockedFocusRequest = { offsetX, offsetY ->
+                scanner.camera.focusOnCenter(LOCKED_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
+            },
+        )
     }
 
     /** Creates or updates the visor overlay for the requested crop area. */
     private fun setVisorCropArea(cropRect: RecognizeVisorCropRect, isScanActive: Boolean) {
-        val activeVisor = visor
-        if (activeVisor != null) {
-            activeVisor.cropRect = cropRect
-        } else {
-            visor = Visor(cropRect, context).also {
-                focusController.addViewBelowFocus(it)
-            }
-        }
-        visor?.isActive = isScanActive
+        val activeVisor = visor ?: addVisor(cropRect)
+        activeVisor.cropRect = cropRect
+        activeVisor.isActive = isScanActive
     }
 
     /** Updates the visual active state of the current visor overlay. */
     private fun setVisorActive(isActive: Boolean) {
         visor?.isActive = isActive
+    }
+
+    /** Adds the focus overlay above scanner overlays. */
+    private fun addFocusView() {
+        if (focusView.parent === this) return
+        addView(focusView)
+    }
+
+    /** Adds the visor below the focus overlay. */
+    private fun addVisor(cropRect: RecognizeVisorCropRect): VisorView {
+        return VisorView(cropRect, context).also { newVisor ->
+            val focusIndex = indexOfChild(focusView)
+            if (focusView.parent === this && focusIndex >= 0) {
+                addView(newVisor, focusIndex)
+            } else {
+                addView(newVisor)
+            }
+            visor = newVisor
+        }
     }
 
     /** Sends the current widget-to-display scale to the scanner. */
@@ -170,7 +190,13 @@ class ScannerView(
     override fun getView(): View = this
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (focusController.handleTouch(ev, this::performClick)) return true
+        if (focusView.parent === this) {
+            if (ev.action == MotionEvent.ACTION_UP) {
+                performClick()
+            }
+            focusView.onTouchEvent(ev)
+            return true
+        }
         return super.dispatchTouchEvent(ev)
     }
 
@@ -181,15 +207,20 @@ class ScannerView(
 
     /** Reads the current display size used for widget scale calculations. */
     private fun getDisplaySize(): Point {
-        return Point().apply {
-            val display = (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
-            display.getSize(this)
-        }
+        val displayMetrics = resources.displayMetrics
+        return Point(displayMetrics.widthPixels, displayMetrics.heightPixels)
     }
 
     /** Creates layout parameters that fill the platform view container. */
     private fun matchParentLayoutParams(): ViewGroup.LayoutParams = ViewGroup.LayoutParams(
-        ViewGroup.LayoutParams.MATCH_PARENT,
-        ViewGroup.LayoutParams.MATCH_PARENT,
+        LayoutParams.MATCH_PARENT,
+        LayoutParams.MATCH_PARENT,
     )
+    private companion object {
+        /** No reset delay is used while the focus point is locked. */
+        const val LOCKED_FOCUS_RESET_DELAY_MS = 0L
+
+        /** Default reset delay after a regular autofocus tap. */
+        const val AUTO_FOCUS_RESET_DELAY_MS = 3000L
+    }
 }

@@ -94,10 +94,10 @@ class Scanner(
 
     /** Releases scanner components and stops pending analysis work. */
     fun releaseCamera() {
-        analyzer.dispose()
         camera.release()
         analysisExecutor?.shutdownNow()
         analysisExecutor = null
+        analyzer.dispose()
     }
 
     /** Returns an active single-thread executor used for frame analysis. */

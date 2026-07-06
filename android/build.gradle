@@ -11,17 +11,22 @@ allprojects {
 }
 
 android {
-    compileSdkVersion 34
+    compileSdk 35
     namespace 'com.dns_technologies.mlkit_scanner'
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        main.kotlin.srcDirs += 'src/main/kotlin'
         test.java.srcDirs += 'src/test/kotlin'
+        test.kotlin.srcDirs += 'src/test/kotlin'
     }
     defaultConfig {
-        minSdkVersion 21
+        minSdk 21
     }
-    lintOptions {
+    buildFeatures {
+        buildConfig true
+    }
+    lint {
         disable 'InvalidPackage'
     }
     compileOptions {

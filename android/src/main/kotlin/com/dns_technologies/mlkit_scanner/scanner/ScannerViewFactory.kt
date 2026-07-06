@@ -3,7 +3,7 @@ package com.dns_technologies.mlkit_scanner.scanner
 import android.content.Context
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
-import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.Focus
+import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.FocusView
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
@@ -20,8 +20,8 @@ typealias CreateCamera = (context: Context) -> Camera
 /** Factory callback that creates a concrete barcode analyzer component. */
 typealias CreateImageAnalyzer = () -> ImageBarcodeAnalyzer
 
-/** Factory callback that creates a focus overlay component. */
-typealias CreateFocus = (context: Context) -> Focus
+/** Factory callback that creates a focus overlay view. */
+typealias CreateFocusView = (context: Context) -> FocusView
 
 /**
  * Creates scanner camera platform views.
@@ -29,7 +29,7 @@ typealias CreateFocus = (context: Context) -> Focus
 class ScannerViewFactory(
     private val createCamera: CreateCamera,
     private val createImageAnalyzer: CreateImageAnalyzer,
-    private val createFocus: CreateFocus,
+    private val createFocusView: CreateFocusView,
     private val onCreate: OnCreateScannerViewListener,
     private val onDispose: OnDisposeScannerViewListener,
 ) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
@@ -43,7 +43,7 @@ class ScannerViewFactory(
         val scannerView = ScannerView(
             context = safeContext,
             scanner = scanner,
-            focus = createFocus(safeContext),
+            focusView = createFocusView(safeContext),
             onDispose = onDispose,
         )
         onCreate.invoke(scannerView)
