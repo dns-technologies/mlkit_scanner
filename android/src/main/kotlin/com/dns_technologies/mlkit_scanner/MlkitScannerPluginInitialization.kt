@@ -3,6 +3,7 @@ package com.dns_technologies.mlkit_scanner
 import android.Manifest
 import android.util.Log
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
+import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.exceptions.ZoomNotSupportedException
 import com.dns_technologies.mlkit_scanner.scanner.models.InitialScannerParameters
 import io.flutter.plugin.common.MethodCall
@@ -12,7 +13,7 @@ import io.flutter.plugin.common.MethodChannel.Result
 internal class MlkitScannerPluginInitialization(
     private val logTag: String,
     private val permissionGateway: PermissionGateway,
-    private val session: MlkitScannerPluginSession,
+    private val scannerViewProvider: () -> ScannerView?,
 ) {
     /** Indicates whether the scanner has already completed initialization. */
     var isInitialized = false
@@ -42,13 +43,12 @@ internal class MlkitScannerPluginInitialization(
 
     /** Starts scanner initialization after permission checks are complete. */
     private fun initialize(parameters: InitialScannerParameters?, result: Result) {
-        val scannerView = session.scannerView
+        val scannerView = scannerViewProvider()
         if (scannerView == null) {
             completeError(result, PluginError.CameraIsNotInitialized.errorCode, ERROR_VIEW_NOT_CREATED, null)
             return
         }
 
-        session.isAutoResumeEnabled = true
         if (scannerView.isActive()) {
             completeInitialized(result)
             return

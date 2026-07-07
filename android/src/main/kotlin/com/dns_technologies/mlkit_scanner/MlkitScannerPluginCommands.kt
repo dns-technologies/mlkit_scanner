@@ -10,12 +10,12 @@ import io.flutter.plugin.common.MethodChannel.Result
 
 /** Executes scanner commands received from the Flutter method channel. */
 internal class MlkitScannerPluginCommands(
-    private val session: MlkitScannerPluginSession,
+    private val scannerViewProvider: () -> ScannerView?,
 ) {
     /** Handles the Dart request to toggle camera flash. */
     fun toggleFlash(result: Result) {
-        val scannerView = activeScannerView(result, ERROR_FLASH_REQUIRES_INIT) ?: return
         try {
+            val scannerView = activeScannerView(result, ERROR_FLASH_REQUIRES_INIT) ?: return
             scannerView.toggleFlashLight()
             result.success(true)
         } catch (e: HasNoFlashUnitException) {
@@ -26,13 +26,14 @@ internal class MlkitScannerPluginCommands(
     /** Handles the Dart request to start barcode scanning. */
     fun startScan(call: MethodCall, result: Result) {
         val scannerView = activeScannerView(result, ERROR_SCAN_REQUIRES_INIT) ?: return
-        scannerView.startScan(AnalyzeOptions.fromMap(call.arguments as Map<String, Any?>).periodMs)
+        val options = AnalyzeOptions.fromMap(call.arguments as Map<String, Any?>)
+        scannerView.startScan(options.periodMs)
         result.success(true)
     }
 
     /** Handles the Dart request to pause barcode scanning. */
     fun cancelScan(result: Result) {
-        session.scannerView?.pauseScan()
+        scannerViewProvider()?.pauseScan()
         result.success(true)
     }
 
@@ -43,7 +44,7 @@ internal class MlkitScannerPluginCommands(
             result.error(PluginError.InvalidArguments.errorCode, ERROR_INVALID_NUMBER, null)
             return
         }
-        session.scannerView?.updateScanPeriod(delay.toInt())
+        scannerViewProvider()?.updateScanPeriod(delay.toInt())
         result.success(true)
     }
 
@@ -66,16 +67,18 @@ internal class MlkitScannerPluginCommands(
 
     /** Handles the Dart request to update scanner crop area. */
     fun setCropArea(call: MethodCall, result: Result) {
-        session.scannerView?.setCropArea(RecognizeVisorCropRect.fromMap(call.arguments as Map<String, Any?>))
+        val cropRect = RecognizeVisorCropRect.fromMap(call.arguments as Map<String, Any?>)
+        scannerViewProvider()?.setCropArea(cropRect)
         result.success(true)
     }
 
     /** Returns the active scanner view or reports a command-specific initialization error. */
     private fun activeScannerView(result: Result, errorMessage: String): ScannerView? {
-        return session.activeScannerViewOrNull() ?: run {
+        val scannerView = scannerViewProvider()?.takeIf { it.isActive() }
+        if (scannerView == null) {
             result.error(PluginError.CameraIsNotInitialized.errorCode, errorMessage, null)
-            null
         }
+        return scannerView
     }
 
     private companion object {
