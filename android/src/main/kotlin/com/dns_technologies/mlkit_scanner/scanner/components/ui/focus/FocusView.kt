@@ -46,7 +46,7 @@ class FocusView(
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         fadeInAnimation.setAnimationListener(this)
         fadeOutAnimation.setAnimationListener(this)
-        addView(LayoutInflater.from(context).inflate(R.layout.center_focus_layout, this))
+        LayoutInflater.from(context).inflate(R.layout.center_focus_layout, this, true)
     }
 
     override fun onAttachedToWindow() {

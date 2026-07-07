@@ -6,13 +6,14 @@ import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarco
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
+import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /** Listener that receives decoded scanner results. */
-typealias OnScanResultListener = (result: String) -> Unit
+typealias OnScanResultListener = (result: Barcode) -> Unit
 
 /** Owns scanner behavior independent from Flutter platform view plumbing. */
 class Scanner(
@@ -20,9 +21,8 @@ class Scanner(
     private val analyzer: ImageBarcodeAnalyzer,
 ) {
     private var analysisExecutor: ExecutorService? = null
-    private var scanArea: RecognizeVisorCropRect = RecognizeVisorCropRect()
-    private var widgetWidthScale: Double = 1.0
-    private var widgetHeightScale: Double = 1.0
+    private var scanArea: RecognizeVisorCropRect? = null
+    private var scale: Pair<Double, Double> = DEFAULT_SCALE
     private val scanResultListeners = mutableSetOf<OnScanResultListener>()
 
     /** Indicates whether incoming frames should be sent to the analyzer. */
@@ -32,9 +32,13 @@ class Scanner(
 
     /** Starts the delegated camera and wires it to common frame handling. */
     fun startCamera(lifecycleOwner: LifecycleOwner, onInit: OnInit, onError: OnError) {
+        val executor = analysisExecutor
+            ?.takeUnless { it.isShutdown }
+            ?: Executors.newSingleThreadExecutor().also { analysisExecutor = it }
+
         camera.start(
             lifecycleOwner = lifecycleOwner,
-            analysisExecutor = ensureAnalysisExecutor(),
+            analysisExecutor = executor,
             onFrame = this::analyzeFrame,
             onInit = onInit,
             onError = onError,
@@ -71,20 +75,19 @@ class Scanner(
     }
 
     /** Subscribes to decoded scanner results and returns an unsubscribe callback. */
-    fun observeScanResults(listener: OnScanResultListener): () -> Unit {
+    fun subscribeToScanResults(listener: OnScanResultListener): () -> Unit {
         scanResultListeners += listener
         return { scanResultListeners -= listener }
     }
 
-    /** Updates scanner crop settings used for focus, visor UI and frame preparation. */
+    /** Updates scanner crop settings used for frame preparation. */
     fun setCropArea(cropRect: RecognizeVisorCropRect) {
         scanArea = cropRect
     }
 
     /** Updates the ratio between the scanner widget and the physical display. */
-    fun setWidgetScale(widthScale: Double, heightScale: Double) {
-        widgetWidthScale = widthScale
-        widgetHeightScale = heightScale
+    fun setScale(widthScale: Double, heightScale: Double) {
+        scale = Pair(widthScale, heightScale)
     }
 
     /** Applies normalized zoom to the active camera. */
@@ -100,16 +103,6 @@ class Scanner(
         analyzer.dispose()
     }
 
-    /** Returns an active single-thread executor used for frame analysis. */
-    private fun ensureAnalysisExecutor(): ExecutorService {
-        val activeExecutor = analysisExecutor
-        if (activeExecutor != null && !activeExecutor.isShutdown) return activeExecutor
-
-        return Executors.newSingleThreadExecutor().also {
-            analysisExecutor = it
-        }
-    }
-
     /** Processes a camera frame when scanning is active. */
     private fun analyzeFrame(image: AnalysingImage) {
         if (!isScanActive) return
@@ -118,41 +111,32 @@ class Scanner(
         analyzer.analyze(image)?.let(::emitScanResult)
     }
 
-    /** Crops the frame to the configured scanner area when needed. */
+    /** Crops the frame when a scanner area has been configured. */
     private fun cropToScanArea(image: AnalysingImage) {
-        if (!shouldCropScanArea()) return
+        val activeScanArea = scanArea ?: return
 
-        buildScanAreaRect(image).let { rect ->
-            image.crop(rect.left, rect.top, rect.right, rect.bottom)
-        }
-    }
-
-    /** Returns true when scanner geometry requires frame cropping. */
-    private fun shouldCropScanArea(): Boolean =
-        scanArea.shouldCrop() || widgetWidthScale != 1.0 || widgetHeightScale != 1.0
-
-    /** Builds the image-space rectangle that should be sent to the analyzer. */
-    private fun buildScanAreaRect(image: AnalysingImage): Rect {
-        val resultScaleX = widgetWidthScale * scanArea.scaleWidth
-        val resultScaleY = widgetHeightScale * scanArea.scaleHeight * HEIGHT_COMPENSATION
+        val (widthScale, heightScale) = scale
+        val resultScaleX = widthScale * activeScanArea.scaleWidth
+        val resultScaleY = heightScale * activeScanArea.scaleHeight * HEIGHT_COMPENSATION
         val (widthCrop, heightCrop) = when (image.rotationDegree) {
             90, 270 -> Pair(resultScaleY, resultScaleX)
             else -> Pair(resultScaleX, resultScaleY)
         }
-        return Rect(0, 0, image.width, image.height).apply {
+        val cropRect = Rect(0, 0, image.width, image.height).apply {
             inset(
                 (image.width * (1 - widthCrop) / 2).toInt(),
                 (image.height * (1 - heightCrop) / 2).toInt(),
             )
             offset(
-                (calculateScanAreaOffsetX(image) * widgetHeightScale).toInt(),
-                (calculateScanAreaOffsetY(image) * widgetWidthScale).toInt(),
+                (calculateScanAreaOffsetX(image, activeScanArea) * heightScale).toInt(),
+                (calculateScanAreaOffsetY(image, activeScanArea) * widthScale).toInt(),
             )
         }
+        image.crop(cropRect.left, cropRect.top, cropRect.right, cropRect.bottom)
     }
 
     /** Calculates horizontal scan-area offset for the current image rotation. */
-    private fun calculateScanAreaOffsetX(image: AnalysingImage): Int =
+    private fun calculateScanAreaOffsetX(image: AnalysingImage, scanArea: RecognizeVisorCropRect): Int =
         when (image.rotationDegree) {
             0 -> ((image.width / 2) * scanArea.centerOffsetX).toInt()
             90 -> ((image.width / 2) * scanArea.centerOffsetY).toInt()
@@ -161,7 +145,7 @@ class Scanner(
         }
 
     /** Calculates vertical scan-area offset for the current image rotation. */
-    private fun calculateScanAreaOffsetY(image: AnalysingImage): Int =
+    private fun calculateScanAreaOffsetY(image: AnalysingImage, scanArea: RecognizeVisorCropRect): Int =
         when (image.rotationDegree) {
             0 -> (image.height / 2 * scanArea.centerOffsetY).toInt()
             90 -> -((image.height / 2) * scanArea.centerOffsetX).toInt()
@@ -170,13 +154,16 @@ class Scanner(
         }
 
     /** Notifies all active listeners about a recognized scanner result. */
-    private fun emitScanResult(result: String) {
+    private fun emitScanResult(result: Barcode) {
         scanResultListeners.toList().forEach { listener ->
             listener.invoke(result)
         }
     }
 
     companion object {
+        /** Default scale when scanner widget size matches the display size. */
+        private val DEFAULT_SCALE = Pair(1.0, 1.0)
+
         /** Keeps parity with the existing visor-to-camera height mapping. */
         const val HEIGHT_COMPENSATION = 1.2
     }

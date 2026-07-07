@@ -2,8 +2,6 @@ package com.dns_technologies.mlkit_scanner.scanner.models
 
 /**
  * Defines the recognized area inside the scanner camera preview.
- *
- * By default, the recognition rectangle matches the full scanner widget.
  */
 data class RecognizeVisorCropRect(
     val scaleWidth: Double = 1.0,
@@ -22,10 +20,4 @@ data class RecognizeVisorCropRect(
             )
         }
     }
-
-    /** Returns true when the scanner should crop frames before analysis. */
-    fun shouldCrop(): Boolean = scaleWidth != 1.0 
-            || scaleHeight != 1.0
-            || centerOffsetX != 0.0
-            || centerOffsetY != 0.0
 }

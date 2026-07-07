@@ -2,6 +2,7 @@ package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 
 import android.util.Log
 import com.dns_technologies.mlkit_scanner.BuildConfig
+import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -21,8 +22,8 @@ class MlkitImageBarcodeAnalyzer(
         barcodeScanner.close()
     }
 
-    /** Runs ML Kit barcode recognition when analyzer throttling allows it. */
-    override fun analyzeImage(image: AnalysingImage): String? {
+    /** Runs ML Kit barcode recognition for the provided scanner image. */
+    override fun analyzeImage(image: AnalysingImage): Barcode? {
         return try {
             val barcode = Tasks.await(barcodeScanner.process(image.toMlKitInputImage()))
                 .firstOrNull { it.rawValue != null }
@@ -32,7 +33,7 @@ class MlkitImageBarcodeAnalyzer(
             if (BuildConfig.DEBUG) {
                 Log.d(logTag, rawValue)
             }
-            rawValue
+            Barcode(rawValue)
         } catch (e: Exception) {
             if (e.message != null) {
                 Log.e(logTag, e.message!!)

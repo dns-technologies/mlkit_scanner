@@ -14,6 +14,7 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.VisorView
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.FocusController
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.FocusView
+import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import io.flutter.plugin.platform.PlatformView
 
@@ -21,9 +22,9 @@ import io.flutter.plugin.platform.PlatformView
 class ScannerView(
     context: Context,
     private val scanner: Scanner,
-    private val focusView: FocusView,
     private val onDispose: (ScannerView) -> Unit,
 ) : FrameLayout(context), PlatformView, LifecycleOwner {
+    private val focusView = FocusView(context)
     private val focusController = FocusController(this, focusView)
     private val lifecycleRegistry = LifecycleRegistry(this).apply {
         currentState = Lifecycle.State.CREATED
@@ -44,13 +45,25 @@ class ScannerView(
         }
     }
 
-    /** Starts scanner camera work using this platform view as a lifecycle owner. */
-    fun startCamera(onInit: OnInit, onError: OnError) {
+    /** Starts scanner camera work and applies optional initial view settings. */
+    fun startCamera(
+        initialZoom: Float? = null,
+        initialCropRect: RecognizeVisorCropRect? = null,
+        onReady: OnInit,
+        onError: OnError,
+    ) {
         scanner.startCamera(
             lifecycleOwner = this,
             onInit = {
                 bindFocus()
-                onInit.invoke()
+                try {
+                    initialZoom?.let(::setZoom)
+                    initialCropRect?.let(::setCropArea)
+                } catch (e: Exception) {
+                    onError.invoke(e)
+                    return@startCamera
+                }
+                onReady.invoke()
             },
             onError = onError,
         )
@@ -96,7 +109,7 @@ class ScannerView(
     }
 
     /** Subscribes to decoded scanner results through the underlying scanner. */
-    fun observeScanResults(listener: OnScanResultListener): () -> Unit = scanner.observeScanResults(listener)
+    fun subscribeToScanResults(listener: (Barcode) -> Unit): () -> Unit = scanner.subscribeToScanResults(listener)
 
     /** Updates scanner crop settings and matching focus and visor UI. */
     fun setCropArea(cropRect: RecognizeVisorCropRect) {
@@ -162,10 +175,10 @@ class ScannerView(
         }
     }
 
-    /** Sends the current widget-to-display scale to the scanner. */
+    /** Sends the current view-to-display scale to the scanner. */
     private fun updateScannerWidgetScale() {
         val (widthScale, heightScale) = calculateWidgetScale()
-        scanner.setWidgetScale(widthScale, heightScale)
+        scanner.setScale(widthScale, heightScale)
     }
 
     /** Calculates the ratio between this view size and the display size. */
@@ -205,7 +218,7 @@ class ScannerView(
         return true
     }
 
-    /** Reads the current display size used for widget scale calculations. */
+    /** Reads the current display size used for scale calculations. */
     private fun getDisplaySize(): Point {
         val displayMetrics = resources.displayMetrics
         return Point(displayMetrics.widthPixels, displayMetrics.heightPixels)

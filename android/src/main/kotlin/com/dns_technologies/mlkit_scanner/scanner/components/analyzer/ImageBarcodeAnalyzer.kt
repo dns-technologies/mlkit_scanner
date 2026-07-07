@@ -1,15 +1,16 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.optimization.AnalyzeDelayTimer
+import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
 
 /**
- * Abstract class of an image analyzer
+ * Abstract class of a barcode image analyzer.
  *
- * The class provides a common interface for working with the analyzer
+ * The class provides common timing and concurrency behavior for analyzer implementations.
  */
 abstract class ImageBarcodeAnalyzer {
-    /** An image will be analyzed once during this period */
+    /** Minimum delay between image analysis attempts. */
     var analyzePeriodMs: Int = 0
         protected set
 
@@ -18,8 +19,8 @@ abstract class ImageBarcodeAnalyzer {
     /** Controls concurrent recognition; only one frame is analyzed at a time. */
     private var isAnalysisInProgress = false
 
-    /** Attempts to recognize a barcode value from the provided image. */
-    fun analyze(image: AnalysingImage): String? {
+    /** Attempts to recognize a barcode from the provided image. */
+    fun analyze(image: AnalysingImage): Barcode? {
         if (!shouldAnalyzeCurrentFrame()) {
             return null
         }
@@ -51,8 +52,8 @@ abstract class ImageBarcodeAnalyzer {
         disposeAnalyzer()
     }
 
-    /** Attempts to recognize a barcode value from the provided image. */
-    protected abstract fun analyzeImage(image: AnalysingImage): String?
+    /** Attempts to recognize a barcode from the provided image. */
+    protected abstract fun analyzeImage(image: AnalysingImage): Barcode?
 
     /** Releases implementation-specific analyzer resources. */
     protected abstract fun disposeAnalyzer()
