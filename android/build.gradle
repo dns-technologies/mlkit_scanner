@@ -11,7 +11,7 @@ allprojects {
 }
 
 android {
-    compileSdk 35
+    compileSdk 34
     namespace 'com.dns_technologies.mlkit_scanner'
 
     sourceSets {
