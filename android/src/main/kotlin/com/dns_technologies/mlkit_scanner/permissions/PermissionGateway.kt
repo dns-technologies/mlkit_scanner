@@ -19,6 +19,7 @@ internal class PermissionGateway {
 
     /** Clears the current activity binding. */
     fun detach() {
+        completePendingPermissionRequests(isGranted = false)
         binding = null
     }
 
@@ -113,6 +114,17 @@ internal class PermissionGateway {
         activePermissionRequest = null
         pendingPermissionRequests.remove(PermissionRequestKey(request.permissions))
         request.complete(allPermissionsGranted(request.permissions.toTypedArray()))
+    }
+
+    /** Completes and clears every request that can no longer be resolved by Android. */
+    private fun completePendingPermissionRequests(isGranted: Boolean) {
+        activePermissionRequest?.complete(isGranted)
+        activePermissionRequest = null
+
+        pendingPermissionRequests.values.forEach { request ->
+            request.complete(isGranted)
+        }
+        pendingPermissionRequests.clear()
     }
 
     /** Returns true when a single permission is already granted. */

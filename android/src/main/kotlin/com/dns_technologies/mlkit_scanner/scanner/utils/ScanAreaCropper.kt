@@ -6,7 +6,7 @@ import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
 
 /** Applies configured scanner visor geometry to incoming analysis frames. */
 internal object ScanAreaCropper {
-    /** Crops the image using the configured scanner area and widget-to-display scale. */
+    /** Crops the image using the configured scanner area and view-to-display scale. */
     fun crop(
         image: AnalysingImage,
         scanArea: RecognizeVisorCropRect,

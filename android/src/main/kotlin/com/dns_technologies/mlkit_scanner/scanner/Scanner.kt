@@ -99,7 +99,7 @@ class Scanner(
         scanArea = cropRect
     }
 
-    /** Updates the ratio between the scanner widget and the physical display. */
+    /** Updates the ratio between the scanner view and the physical display. */
     fun setScale(widthScale: Double, heightScale: Double) {
         scale = Pair(widthScale, heightScale)
     }
@@ -139,7 +139,7 @@ class Scanner(
     }
 
     companion object {
-        /** Default scale when scanner widget size matches the display size. */
+        /** Default scale when scanner view size matches the display size. */
         private val DEFAULT_SCALE = Pair(1.0, 1.0)
     }
 }

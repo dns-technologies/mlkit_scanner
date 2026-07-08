@@ -1,4 +1,4 @@
-package com.dns_technologies.mlkit_scanner.scanner.components.ui
+package com.dns_technologies.mlkit_scanner.scanner.components.ui.visor
 
 import android.content.Context
 import android.graphics.*
