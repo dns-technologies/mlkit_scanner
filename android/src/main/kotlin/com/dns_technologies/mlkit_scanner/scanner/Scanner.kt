@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner.scanner
 
+import android.view.View
 import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
@@ -21,7 +22,7 @@ typealias OnScanResultListener = (result: Barcode) -> Unit
  * @property camera Camera adapter used for preview, focus, flash and zoom.
  */
 class Scanner(
-    val camera: Camera,
+    private val camera: Camera,
     private val analyzer: ImageBarcodeAnalyzer,
 ) {
     private var analysisExecutor: ExecutorService? = null
@@ -33,6 +34,10 @@ class Scanner(
     var isScanActive = false
         private set
     private var isAnalyzerInitialized = false
+
+    /** Native preview view supplied by the camera adapter. */
+    val previewView: View
+        get() = camera.previewView
 
     /** Starts the delegated camera and wires it to common frame handling. */
     fun startCamera(lifecycleOwner: LifecycleOwner, onInit: OnInit, onError: OnError) {
@@ -55,6 +60,11 @@ class Scanner(
     /** Toggles torch state through the active camera component. */
     fun toggleFlashLight() {
         camera.toggleFlashLight()
+    }
+
+    /** Starts camera focus and metering around the visual scanner focus point. */
+    fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
+        camera.focusOnCenter(resetDelayMs, offsetX, offsetY)
     }
 
     /** Starts analysis with the configured analyzer component. */

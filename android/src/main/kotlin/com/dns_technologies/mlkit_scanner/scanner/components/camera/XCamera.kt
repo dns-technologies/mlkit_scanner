@@ -16,8 +16,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.exceptions.HasNoFlashUnitException
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.exceptions.ZoomNotSupportedException
+import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
@@ -88,7 +87,9 @@ class XCamera(
     /** Toggles torch state for the active CameraX camera. */
     override fun toggleFlashLight() {
         val activeCamera = camera ?: return
-        if (!activeCamera.cameraInfo.hasFlashUnit()) throw HasNoFlashUnitException()
+        if (!activeCamera.cameraInfo.hasFlashUnit()) {
+            throw PluginError.DeviceHasNotFlash
+        }
 
         val isTorchEnabled = activeCamera.cameraInfo.torchState.value == TorchState.ON
         activeCamera.cameraControl.enableTorch(!isTorchEnabled)
@@ -119,7 +120,7 @@ class XCamera(
     override fun setZoom(value: Float) {
         val activeCamera = camera ?: return
         if (activeCamera.cameraInfo.zoomState.value == null) {
-            throw ZoomNotSupportedException()
+            throw PluginError.DeviceHasNotZoom
         }
         activeCamera.cameraControl.setLinearZoom(value.coerceIn(0.0F, 1.0F))
     }

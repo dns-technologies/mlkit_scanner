@@ -6,8 +6,17 @@ import androidx.annotation.NonNull
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import com.dns_technologies.mlkit_scanner.handlers.ScannerCommandHandler
-import com.dns_technologies.mlkit_scanner.handlers.ScannerInitializationHandler
+import com.dns_technologies.mlkit_scanner.commands.CancelScanCommand
+import com.dns_technologies.mlkit_scanner.commands.DisposeCameraCommand
+import com.dns_technologies.mlkit_scanner.commands.InitCameraCommand
+import com.dns_technologies.mlkit_scanner.commands.PauseCameraCommand
+import com.dns_technologies.mlkit_scanner.commands.ResumeCameraCommand
+import com.dns_technologies.mlkit_scanner.commands.SetCropAreaCommand
+import com.dns_technologies.mlkit_scanner.commands.SetScanDelayCommand
+import com.dns_technologies.mlkit_scanner.commands.SetZoomCommand
+import com.dns_technologies.mlkit_scanner.commands.StartScanCommand
+import com.dns_technologies.mlkit_scanner.commands.ToggleFlashCommand
+import com.dns_technologies.mlkit_scanner.commands.UpdateConstraintsCommand
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
@@ -15,7 +24,10 @@ import com.dns_technologies.mlkit_scanner.scanner.ScannerViewFactory
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.MlkitImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.XCamera
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
-import com.dns_technologies.mlkit_scanner.scanner.models.InitialScannerParameters
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.SupervisorJob
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -30,17 +42,12 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
     private var channel: MethodChannel? = null
     private var activityBinding: ActivityPluginBinding? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val commandScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var scannerSession: ScannerSession? = null
     private val staleScannerSessions = mutableListOf<ScannerSession>()
 
     private val permissionGateway = PermissionGateway()
-    private val commands = ScannerCommandHandler(::scannerSession)
-    private val initialization = ScannerInitializationHandler(
-        logTag = TAG,
-        permissionGateway = permissionGateway,
-        scannerSessionProvider = ::scannerSession,
-    )
 
     /** Lifecycle attached to the current Flutter activity binding. */
     private val ActivityPluginBinding.activityLifecycle: Lifecycle
@@ -67,6 +74,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
     /** Releases scanner state and disconnects the method channel from the Flutter engine. */
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         disposeScanner()
+        commandScope.cancel()
         mainHandler.removeCallbacksAndMessages(null)
         channel?.setMethodCallHandler(null)
         channel = null
@@ -95,26 +103,21 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
     /** Routes Flutter method channel calls to scanner initialization and command handlers. */
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
         when (call.method) {
-            PluginConstants.initCameraMethod -> initializeScanner(call, result)
-            PluginConstants.resumeCameraMethod -> {
-                scannerSession?.resumeCamera()
-                result.success(true)
-            }
-            PluginConstants.pauseCameraMethod -> {
-                scannerSession?.pauseCamera()
-                result.success(true)
-            }
-            PluginConstants.disposeCameraMethod -> {
-                disposeScanner()
-                result.success(true)
-            }
-            PluginConstants.toggleFlashMethod -> commands.toggleFlash(result)
-            PluginConstants.startScanMethod -> commands.startScan(call, result)
-            PluginConstants.cancelScanMethod -> commands.cancelScan(result)
-            PluginConstants.setScanDelayMethod -> commands.setScanDelay(call, result)
-            PluginConstants.updateConstraintsMethod -> result.success(true)
-            PluginConstants.setZoomMethod -> commands.setZoom(call, result)
-            PluginConstants.setCropAreaMethod -> commands.setCropArea(call, result)
+            PluginConstants.initCameraMethod -> InitCameraCommand(
+                scannerSessionProvider = ::scannerSession,
+                permissionGateway = permissionGateway,
+                commandScope = commandScope,
+            ).execute(call, result)
+            PluginConstants.resumeCameraMethod -> ResumeCameraCommand(::scannerSession).execute(call, result)
+            PluginConstants.pauseCameraMethod -> PauseCameraCommand(::scannerSession).execute(call, result)
+            PluginConstants.disposeCameraMethod -> DisposeCameraCommand(::disposeScanner).execute(call, result)
+            PluginConstants.toggleFlashMethod -> ToggleFlashCommand(::scannerSession).execute(call, result)
+            PluginConstants.startScanMethod -> StartScanCommand(::scannerSession).execute(call, result)
+            PluginConstants.cancelScanMethod -> CancelScanCommand(::scannerSession).execute(call, result)
+            PluginConstants.setScanDelayMethod -> SetScanDelayCommand(::scannerSession).execute(call, result)
+            PluginConstants.updateConstraintsMethod -> UpdateConstraintsCommand().execute(call, result)
+            PluginConstants.setZoomMethod -> SetZoomCommand(::scannerSession).execute(call, result)
+            PluginConstants.setCropAreaMethod -> SetCropAreaCommand(::scannerSession).execute(call, result)
             else -> result.notImplemented()
         }
     }
@@ -150,25 +153,8 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
     private fun bindScannerView(scannerView: ScannerView) {
         scannerSession?.let(staleScannerSessions::add)
         scannerSession = ScannerSession(scannerView, ::emitScanResult)
-        initialization.reset()
     }
 
-    /** Initializes the active scanner session after Dart requests camera startup. */
-    private fun initializeScanner(call: MethodCall, result: Result) {
-        if (initialization.isInitialized) {
-            result.success(true)
-            return
-        }
-
-        val args = call.arguments as Map<String, Any?>?
-        initialization.requestInitialization(
-            parameters = if (args != null) InitialScannerParameters(args) else null,
-            onInitialized = { result.success(true) },
-            onError = { error -> result.error(error.code, error.message, error.details) },
-        )
-    }
-
-    /** Releases the active scanner session and clears initialization state. */
     private fun disposeScanner() {
         val activeSession = scannerSession
         val staleSessions = staleScannerSessions.toList()
@@ -178,7 +164,6 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
 
         activeSession?.release()
         staleSessions.forEach { it.release() }
-        initialization.reset()
     }
 
     /** Unbinds a disposed scanner platform view without disturbing a newer active session. */
@@ -187,7 +172,6 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
         if (activeSession?.owns(scannerView) == true) {
             activeSession.release()
             scannerSession = null
-            initialization.reset()
             return
         }
 

@@ -39,7 +39,7 @@ class ScannerView(
 
     init {
         layoutParams = matchParentLayoutParams()
-        addView(scanner.camera.previewView)
+        addView(scanner.previewView)
         addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
             if (l != oldL || t != oldT || r != oldR || b != oldB) {
                 updateScannerWidgetScale()
@@ -131,10 +131,10 @@ class ScannerView(
         addFocusView()
         focusController.bind(
             onAutoFocusRequest = { offsetX, offsetY ->
-                scanner.camera.focusOnCenter(AUTO_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
+                scanner.focusOnCenter(AUTO_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
             },
             onLockedFocusRequest = { offsetX, offsetY ->
-                scanner.camera.focusOnCenter(LOCKED_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
+                scanner.focusOnCenter(LOCKED_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
             },
         )
     }

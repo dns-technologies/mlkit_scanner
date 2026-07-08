@@ -4,6 +4,7 @@ import android.content.pm.PackageManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import kotlinx.coroutines.CompletableDeferred
 
 /** Wraps Android runtime permission checks and requests for the plugin. */
 internal class PermissionGateway {
@@ -32,37 +33,28 @@ internal class PermissionGateway {
         }
     }
 
-    /** Requests missing Android permissions and runs the matching completion branch for the requested set. */
-    fun requestPermissions(
+    /** Requests missing Android permissions and suspends until a single result is known. */
+    suspend fun requestPermissions(
         permissions: Array<String>,
-        onGranted: () -> Unit,
-        onDenied: () -> Unit,
-    ): () -> Unit {
+    ): Boolean {
         val requestedPermissions = permissions.normalized()
         if (requestedPermissions.isEmpty() || allPermissionsGranted(requestedPermissions.toTypedArray())) {
-            onGranted.invoke()
-            return {}
+            return true
         }
 
         val activeBinding = binding
         if (activeBinding == null) {
-            onDenied.invoke()
-            return {}
+            return false
         }
 
         val requestKey = PermissionRequestKey(requestedPermissions)
         val permissionRequest = pendingPermissionRequests.getOrPut(requestKey) {
             PermissionRequest(requestedPermissions)
         }
-        permissionRequest.addCallback(onGranted, onDenied)
+        val permissionResult = permissionRequest.await()
 
         processNextPermissionRequest()
-        return {
-            permissionRequest.removeCallback(onGranted, onDenied)
-            if (activePermissionRequest !== permissionRequest && permissionRequest.canBeRemoved()) {
-                pendingPermissionRequests.remove(requestKey)
-            }
-        }
+        return permissionResult.await()
     }
 
     /** Handles Android permission request results for plugin permission requests. */
@@ -144,42 +136,37 @@ internal class PermissionGateway {
     private class PermissionRequest(
         val permissions: List<String>,
     ) {
-        private val callbacks = mutableSetOf<PermissionCallback>()
+        private val deferredResults = mutableSetOf<CompletableDeferred<Boolean>>()
 
         /** Adds a caller callback to this permission request. */
-        fun addCallback(onGranted: () -> Unit, onDenied: () -> Unit) {
-            callbacks += PermissionCallback(onGranted, onDenied)
+        fun await(): CompletableDeferred<Boolean> {
+            val deferred = CompletableDeferred<Boolean>()
+            deferredResults += deferred
+            return deferred
         }
 
         /** Removes a caller callback from this permission request. */
-        fun removeCallback(onGranted: () -> Unit, onDenied: () -> Unit) {
-            callbacks -= PermissionCallback(onGranted, onDenied)
+        private fun cleanupCompleted() {
+            deferredResults.removeIf { it.isCompleted || it.isCancelled }
         }
 
-        /** Returns true when this request has no callers and is not useful anymore. */
-        fun canBeRemoved(): Boolean = callbacks.isEmpty()
-
         /** Returns true when no callers are waiting for this request. */
-        fun isEmpty(): Boolean = callbacks.isEmpty()
+        fun isEmpty(): Boolean {
+            cleanupCompleted()
+            return deferredResults.isEmpty()
+        }
 
         /** Notifies every caller about the final state of the requested permission set. */
         fun complete(isGranted: Boolean) {
-            callbacks.toList().forEach { callback ->
-                if (isGranted) {
-                    callback.onGranted.invoke()
-                } else {
-                    callback.onDenied.invoke()
+            val awaiting = deferredResults.toList()
+            deferredResults.clear()
+            awaiting.forEach { deferred ->
+                if (!deferred.isCompleted && !deferred.isCancelled) {
+                    deferred.complete(isGranted)
                 }
             }
-            callbacks.clear()
         }
     }
-
-    /** Stores one caller callback pair for a permission request. */
-    private data class PermissionCallback(
-        val onGranted: () -> Unit,
-        val onDenied: () -> Unit,
-    )
 
     private companion object {
         /** Request code used for plugin runtime permission requests. */

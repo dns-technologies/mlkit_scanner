@@ -1,26 +1,30 @@
 package com.dns_technologies.mlkit_scanner
 
 /**
- * Describes plugin errors that can be sent to Dart.
+ * Describes plugin errors that can be sent to Dart and propagated as exceptions.
  *
  * @property errorCode Method channel error code exposed to Flutter.
+ * @property message Human-readable error message.
  */
-enum class PluginError(val errorCode: String) {
+internal sealed class PluginError(
+    val errorCode: String,
+    override val message: String,
+) : Exception(message) {
     /** Camera initialization failed due to an internal camera error. */
-    InitCameraError("1"),
+    object InitCameraError : PluginError("1", "Internal camera initialisation error")
 
     /** The app has no granted camera permission. */
-    AuthorizationCameraError("2"),
+    object AuthorizationCameraError : PluginError("2", "The app does not have camera permission")
 
     /** A camera feature was requested before scanner initialization. */
-    CameraIsNotInitialized("3"),
+    object CameraIsNotInitialized : PluginError("3", "Camera platform view is not created")
 
     /** The device does not expose a flash unit for the active camera. */
-    DeviceHasNotFlash("4"),
-
-    /** A method channel call received arguments with an unexpected type or shape. */
-    InvalidArguments("5"),
+    object DeviceHasNotFlash : PluginError("4", "Device has no flash")
 
     /** The active camera does not support zoom control. */
-    DeviceHasNotZoom("6"),
+    object DeviceHasNotZoom : PluginError("6", "Zoom is not supported on this device")
+
+    /** Unexpected internal error while handling scanner operations. */
+    object UnknownError : PluginError("7", "Unknown scanner error")
 }
