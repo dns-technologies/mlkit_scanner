@@ -3,9 +3,15 @@ package com.dns_technologies.mlkit_scanner.scanner.components.ui.focus
 import android.content.res.Configuration
 import android.widget.FrameLayout
 
+/** Listener invoked when focus should be requested at preview-relative offsets. */
 typealias OnFocusRequestListener = (offsetX: Float, offsetY: Float) -> Unit
 
-/** Maps focus UI requests to camera autofocus calls. */
+/**
+ * Maps focus UI requests to camera autofocus calls.
+ *
+ * @property boundsView View whose bounds are used to convert normalized offsets to pixels.
+ * @property focusView Overlay view that emits focus gestures and displays focus state.
+ */
 class FocusController(
     private val boundsView: FrameLayout,
     private val focusView: FocusView,

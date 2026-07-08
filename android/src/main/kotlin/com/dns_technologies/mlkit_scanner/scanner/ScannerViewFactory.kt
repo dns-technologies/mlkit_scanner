@@ -28,6 +28,7 @@ class ScannerViewFactory(
     private val onCreate: OnCreateScannerViewListener,
     private val onDispose: OnDisposeScannerViewListener,
 ) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+    /** Creates a scanner platform view and reports it to the plugin session owner. */
     override fun create(context: Context?, viewId: Int, args: Any?): PlatformView {
         val safeContext = context!!
         val scanner = Scanner(

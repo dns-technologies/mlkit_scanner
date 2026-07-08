@@ -1,7 +1,7 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.exceptions
 
-/** This exception is thrown, when device does not support flash */
+/** Thrown when the active camera does not support torch/flash control. */
 class HasNoFlashUnitException : Exception()
 
-/** This exception is thrown, when device does not support zoom */
+/** Thrown when the active camera does not support zoom control. */
 class ZoomNotSupportedException : Exception()

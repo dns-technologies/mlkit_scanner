@@ -18,7 +18,7 @@ import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import io.flutter.plugin.platform.PlatformView
 
-/** Android platform view that renders scanner preview and overlays. */
+/** Android platform view that renders scanner preview and scanner overlays. */
 class ScannerView(
     context: Context,
     private val scanner: Scanner,
@@ -31,7 +31,9 @@ class ScannerView(
     }
 
     private var visor: VisorView? = null
+    private var isDisposed = false
 
+    /** Lifecycle used by CameraX to bind camera resources to this platform view. */
     override val lifecycle: Lifecycle
         get() = lifecycleRegistry
 
@@ -124,13 +126,6 @@ class ScannerView(
         scanner.setZoom(value)
     }
 
-    /** Releases scanner resources and destroys the platform view lifecycle. */
-    fun releaseCamera() {
-        pauseCamera()
-        scanner.releaseCamera()
-        destroy()
-    }
-
     /** Connects focus UI callbacks to the active camera component. */
     private fun bindFocus() {
         addFocusView()
@@ -196,12 +191,21 @@ class ScannerView(
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
     }
 
+    /** Releases scanner resources, destroys the platform view lifecycle, and notifies the owner. */
     override fun dispose() {
+        if (isDisposed) return
+
+        isDisposed = true
+        pauseCamera()
+        scanner.dispose()
+        destroy()
         onDispose.invoke(this)
     }
 
+    /** Returns this native view to Flutter's platform view host. */
     override fun getView(): View = this
 
+    /** Routes touch gestures to the focus overlay when it is attached. */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (focusView.parent === this) {
             if (ev.action == MotionEvent.ACTION_UP) {
@@ -213,6 +217,7 @@ class ScannerView(
         return super.dispatchTouchEvent(ev)
     }
 
+    /** Confirms accessibility click handling for focus touch events. */
     override fun performClick(): Boolean {
         super.performClick()
         return true

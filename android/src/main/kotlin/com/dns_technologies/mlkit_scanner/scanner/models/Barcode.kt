@@ -1,6 +1,10 @@
 package com.dns_technologies.mlkit_scanner.scanner.models
 
-/** Describes a recognized barcode value sent to Dart. */
+/**
+ * Describes a recognized barcode value sent to Dart.
+ *
+ * @property value Raw value decoded from the barcode.
+ */
 class Barcode(
     private val value: String,
 ) {

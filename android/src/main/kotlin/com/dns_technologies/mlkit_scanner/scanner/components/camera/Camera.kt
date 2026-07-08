@@ -43,5 +43,5 @@ interface Camera {
     fun setZoom(value: Float)
 
     /** Releases resources owned by the concrete camera implementation. */
-    fun release()
+    fun dispose()
 }

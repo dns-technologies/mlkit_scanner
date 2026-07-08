@@ -2,6 +2,8 @@ package com.dns_technologies.mlkit_scanner
 
 /**
  * Describes plugin errors that can be sent to Dart.
+ *
+ * @property errorCode Method channel error code exposed to Flutter.
  */
 enum class PluginError(val errorCode: String) {
     /** Camera initialization failed due to an internal camera error. */

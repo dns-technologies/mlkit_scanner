@@ -49,6 +49,7 @@ class FocusView(
         LayoutInflater.from(context).inflate(R.layout.center_focus_layout, this, true)
     }
 
+    /** Initializes focus child views and layout listeners after attachment. */
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         lock = findViewById(R.id.lockImage)
@@ -56,16 +57,19 @@ class FocusView(
         lock.addOnLayoutChangeListener(this)
     }
 
+    /** Removes focus layout listeners before the view leaves the window. */
     override fun onDetachedFromWindow() {
         lock.removeOnLayoutChangeListener(this)
         super.onDetachedFromWindow()
     }
 
+    /** Delegates touch events to the focus gesture detector. */
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         return gestureDetector.onTouchEvent(event)
     }
 
+    /** Updates lock visibility before focus animations start. */
     override fun onAnimationStart(animation: Animation?) {
         when (animation) {
             fadeInAnimation -> lock.visibility = View.VISIBLE
@@ -73,12 +77,15 @@ class FocusView(
         }
     }
 
+    /** Handles the end of focus animations. */
     override fun onAnimationEnd(animation: Animation?) {
     }
 
+    /** Handles repeating focus animations. */
     override fun onAnimationRepeat(animation: Animation?) {
     }
 
+    /** Reapplies lock indicator position when its layout bounds change. */
     override fun onLayoutChange(
         v: View?,
         l: Int,

@@ -10,6 +10,9 @@ import java.io.ByteArrayOutputStream
 
 /**
  * [AnalysingImage] implementation representing an image of the [ImageFormat.NV21] format.
+ *
+ * @property format Android image format. Expected to be [ImageFormat.NV21].
+ * @property rotationDegree Rotation, in degrees, required to match device orientation.
  */
 class NV21AnalysingImage(
     data: ByteArray,
@@ -17,14 +20,18 @@ class NV21AnalysingImage(
     override val format: Int,
     override val rotationDegree: Int,
 ) : AnalysingImage {
+    /** Raw NV21 image bytes. Updated when [crop] is called. */
     override var data: ByteArray = data
         private set
 
+    /** Current image size. Updated when [crop] is called. */
     override var size: Size = size
         private set
 
+    /** Converts the current NV21 image data to a bitmap for diagnostics. */
     override fun toBitmap(): Bitmap? = bitmapFromBytes()
 
+    /** Crops the current NV21 image to the requested pixel rectangle. */
     override fun crop(left: Int, top: Int, right: Int, bottom: Int) {
         val cropRect = normalizeCropBounds(left, top, right, bottom)
         if (cropRect.isEmpty || cropRect.isFullImage()) return

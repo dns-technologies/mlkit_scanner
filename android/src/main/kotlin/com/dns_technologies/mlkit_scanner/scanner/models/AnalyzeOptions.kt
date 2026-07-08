@@ -1,6 +1,10 @@
 package com.dns_technologies.mlkit_scanner.scanner.models
 
-/** Describes image recognition configuration received from Dart. */
+/**
+ * Describes image recognition configuration received from Dart.
+ *
+ * @property periodMs Minimum delay between analysis attempts, in milliseconds.
+ */
 class AnalyzeOptions(
     val periodMs: Int
 ) {

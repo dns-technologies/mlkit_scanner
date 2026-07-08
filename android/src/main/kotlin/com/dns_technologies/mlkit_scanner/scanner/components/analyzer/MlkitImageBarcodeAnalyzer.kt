@@ -18,6 +18,7 @@ class MlkitImageBarcodeAnalyzer(
 ) : ImageBarcodeAnalyzer() {
     private val barcodeScanner = BarcodeScanning.getClient()
 
+    /** Closes the underlying ML Kit barcode scanner. */
     override fun disposeAnalyzer() {
         barcodeScanner.close()
     }

@@ -1,7 +1,6 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera
 
 import android.content.Context
-import android.graphics.ImageFormat
 import android.util.Size
 import android.view.View
 import android.view.ViewGroup
@@ -9,7 +8,6 @@ import androidx.camera.core.Camera as AndroidXCamera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.TorchState
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -20,7 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.exceptions.HasNoFlashUnitException
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.exceptions.ZoomNotSupportedException
-import com.dns_technologies.mlkit_scanner.scanner.models.images.NV21AnalysingImage
+import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 
@@ -30,6 +28,7 @@ import java.util.concurrent.TimeUnit
 class XCamera(
     private val context: Context,
 ) : Camera {
+    /** CameraX preview view rendered inside the scanner platform view. */
     override val previewView: View = PreviewView(context).apply {
         layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -54,6 +53,7 @@ class XCamera(
     /** Token of the active asynchronous CameraX start operation. */
     private var startToken: Any? = null
 
+    /** Starts CameraX preview and analysis use cases for the provided lifecycle. */
     override fun start(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
@@ -82,8 +82,10 @@ class XCamera(
         }, ContextCompat.getMainExecutor(context))
     }
 
+    /** Returns true when a CameraX camera is currently bound. */
     override fun isActive(): Boolean = camera != null
 
+    /** Toggles torch state for the active CameraX camera. */
     override fun toggleFlashLight() {
         val activeCamera = camera ?: return
         if (!activeCamera.cameraInfo.hasFlashUnit()) throw HasNoFlashUnitException()
@@ -92,6 +94,7 @@ class XCamera(
         activeCamera.cameraControl.enableTorch(!isTorchEnabled)
     }
 
+    /** Starts CameraX focus and metering around the provided preview offsets. */
     override fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
         val activeCamera = camera ?: return
         val preview = previewView as PreviewView
@@ -112,6 +115,7 @@ class XCamera(
         activeCamera.cameraControl.startFocusAndMetering(focusActionBuilder.build())
     }
 
+    /** Applies normalized linear zoom to the active CameraX camera. */
     override fun setZoom(value: Float) {
         val activeCamera = camera ?: return
         if (activeCamera.cameraInfo.zoomState.value == null) {
@@ -120,7 +124,8 @@ class XCamera(
         activeCamera.cameraControl.setLinearZoom(value.coerceIn(0.0F, 1.0F))
     }
 
-    override fun release() {
+    /** Releases CameraX bindings owned by this adapter. */
+    override fun dispose() {
         startToken = null
         unbindViews()
         cameraProvider = null
@@ -170,14 +175,7 @@ class XCamera(
         .also { imageAnalysis ->
             imageAnalysis.setAnalyzer(analysisExecutor) { image ->
                 try {
-                    onFrame.invoke(
-                        NV21AnalysingImage(
-                            image.toNv21ByteArray(),
-                            Size(image.width, image.height),
-                            ImageFormat.NV21,
-                            image.imageInfo.rotationDegrees,
-                        )
-                    )
+                    onFrame.invoke(ImageProxyNv21Converter.convert(image))
                 } finally {
                     image.close()
                 }
@@ -194,38 +192,6 @@ class XCamera(
 
         preview = null
         imageAnalysis = null
-    }
-
-    /** Converts the CameraX YUV image into the NV21 format expected by the analyzer. */
-    private fun ImageProxy.toNv21ByteArray(): ByteArray {
-        val yPlane = planes[0]
-        val uPlane = planes[1]
-        val vPlane = planes[2]
-
-        val ySize = width * height
-        val uvSize = width * height / 2
-        val nv21 = ByteArray(ySize + uvSize)
-
-        var outputOffset = 0
-        for (row in 0 until height) {
-            val inputOffset = row * yPlane.rowStride
-            for (col in 0 until width) {
-                nv21[outputOffset++] = yPlane.buffer.get(inputOffset + col * yPlane.pixelStride)
-            }
-        }
-
-        val chromaHeight = height / 2
-        val chromaWidth = width / 2
-        for (row in 0 until chromaHeight) {
-            val uRowOffset = row * uPlane.rowStride
-            val vRowOffset = row * vPlane.rowStride
-            for (col in 0 until chromaWidth) {
-                nv21[outputOffset++] = vPlane.buffer.get(vRowOffset + col * vPlane.pixelStride)
-                nv21[outputOffset++] = uPlane.buffer.get(uRowOffset + col * uPlane.pixelStride)
-            }
-        }
-
-        return nv21
     }
 
     private companion object {

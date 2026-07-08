@@ -15,6 +15,7 @@ class VisorView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
     private var cropArea = RecognizeVisorCropRect()
 
+    /** Creates a visor view with an initial recognition rectangle. */
     constructor(cropArea: RecognizeVisorCropRect, context: Context) : this(context) {
         this.cropArea = cropArea
     }
@@ -48,6 +49,7 @@ class VisorView @JvmOverloads constructor(
             invalidate()
         }
 
+    /** Rebuilds visor paths after the view size changes. */
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         createBorderPath(w, h)
@@ -121,6 +123,7 @@ class VisorView @JvmOverloads constructor(
         }
     }
 
+    /** Draws the dimmed background and scanner recognition border. */
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.apply {

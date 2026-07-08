@@ -1,6 +1,5 @@
 package com.dns_technologies.mlkit_scanner.scanner
 
-import android.graphics.Rect
 import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
@@ -9,13 +8,18 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
+import com.dns_technologies.mlkit_scanner.scanner.utils.ScanAreaCropper
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /** Listener that receives decoded scanner results. */
 typealias OnScanResultListener = (result: Barcode) -> Unit
 
-/** Owns scanner behavior independent from Flutter platform view plumbing. */
+/**
+ * Owns scanner behavior independent from Flutter platform view plumbing.
+ *
+ * @property camera Camera adapter used for preview, focus, flash and zoom.
+ */
 class Scanner(
     val camera: Camera,
     private val analyzer: ImageBarcodeAnalyzer,
@@ -96,8 +100,8 @@ class Scanner(
     }
 
     /** Releases scanner components and stops pending analysis work. */
-    fun releaseCamera() {
-        camera.release()
+    fun dispose() {
+        camera.dispose()
         analysisExecutor?.shutdownNow()
         analysisExecutor = null
         analyzer.dispose()
@@ -114,44 +118,8 @@ class Scanner(
     /** Crops the frame when a scanner area has been configured. */
     private fun cropToScanArea(image: AnalysingImage) {
         val activeScanArea = scanArea ?: return
-
-        val (widthScale, heightScale) = scale
-        val resultScaleX = widthScale * activeScanArea.scaleWidth
-        val resultScaleY = heightScale * activeScanArea.scaleHeight * HEIGHT_COMPENSATION
-        val (widthCrop, heightCrop) = when (image.rotationDegree) {
-            90, 270 -> Pair(resultScaleY, resultScaleX)
-            else -> Pair(resultScaleX, resultScaleY)
-        }
-        val cropRect = Rect(0, 0, image.width, image.height).apply {
-            inset(
-                (image.width * (1 - widthCrop) / 2).toInt(),
-                (image.height * (1 - heightCrop) / 2).toInt(),
-            )
-            offset(
-                (calculateScanAreaOffsetX(image, activeScanArea) * heightScale).toInt(),
-                (calculateScanAreaOffsetY(image, activeScanArea) * widthScale).toInt(),
-            )
-        }
-        image.crop(cropRect.left, cropRect.top, cropRect.right, cropRect.bottom)
+        ScanAreaCropper.crop(image, activeScanArea, scale)
     }
-
-    /** Calculates horizontal scan-area offset for the current image rotation. */
-    private fun calculateScanAreaOffsetX(image: AnalysingImage, scanArea: RecognizeVisorCropRect): Int =
-        when (image.rotationDegree) {
-            0 -> ((image.width / 2) * scanArea.centerOffsetX).toInt()
-            90 -> ((image.width / 2) * scanArea.centerOffsetY).toInt()
-            180 -> -((image.width / 2) * scanArea.centerOffsetX).toInt()
-            else -> -((image.width / 2) * scanArea.centerOffsetY).toInt()
-        }
-
-    /** Calculates vertical scan-area offset for the current image rotation. */
-    private fun calculateScanAreaOffsetY(image: AnalysingImage, scanArea: RecognizeVisorCropRect): Int =
-        when (image.rotationDegree) {
-            0 -> (image.height / 2 * scanArea.centerOffsetY).toInt()
-            90 -> -((image.height / 2) * scanArea.centerOffsetX).toInt()
-            180 -> -((image.height / 2) * scanArea.centerOffsetY).toInt()
-            else -> (image.height / 2 * scanArea.centerOffsetX).toInt()
-        }
 
     /** Notifies all active listeners about a recognized scanner result. */
     private fun emitScanResult(result: Barcode) {
@@ -163,8 +131,5 @@ class Scanner(
     companion object {
         /** Default scale when scanner widget size matches the display size. */
         private val DEFAULT_SCALE = Pair(1.0, 1.0)
-
-        /** Keeps parity with the existing visor-to-camera height mapping. */
-        const val HEIGHT_COMPENSATION = 1.2
     }
 }

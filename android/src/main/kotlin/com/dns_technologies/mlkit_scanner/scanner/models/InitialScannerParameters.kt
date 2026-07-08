@@ -1,6 +1,11 @@
 package com.dns_technologies.mlkit_scanner.scanner.models
 
-/** Describes initial parameters used during scanner initialization. */
+/**
+ * Describes initial parameters used during scanner initialization.
+ *
+ * @property zoom Optional normalized camera zoom value.
+ * @property cropRect Optional initial scanner recognition area.
+ */
 data class InitialScannerParameters(
     val zoom: Double? = null,
     val cropRect: RecognizeVisorCropRect? = null,
