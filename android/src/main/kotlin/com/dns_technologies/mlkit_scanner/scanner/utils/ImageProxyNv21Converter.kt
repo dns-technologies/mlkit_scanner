@@ -3,15 +3,14 @@ package com.dns_technologies.mlkit_scanner.scanner.utils
 import androidx.camera.core.ImageProxy
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 
-/** Copies only the requested CameraX YUV region into reusable NV21 storage. */
+/** Copies only the requested CameraX image region into reusable NV21 storage. */
 internal class ImageProxyNv21Converter(
     private val bufferPool: ReusableByteArrayPool = ReusableByteArrayPool(),
 ) {
-    /** Converts a bounded, even crop region without materializing the full frame. */
-    fun convert(image: ImageProxy, cropRect: Rect?): ByteArrayLease {
+    /** Converts an already normalized crop region without materializing the full frame. */
+    fun convert(image: ImageProxy, crop: Rect): ByteArrayLease {
         val planes = image.planes
-        require(planes.size >= PLANE_COUNT) { "YUV image must contain three planes" }
-        val crop = normalizeCropRect(cropRect, image.width, image.height)
+        require(planes.size >= PLANE_COUNT) { "Camera image must contain three planes" }
         val yPlaneSize = crop.width * crop.height
         val bufferLease = bufferPool.acquire(yPlaneSize + yPlaneSize / 2)
 
@@ -34,6 +33,30 @@ internal class ImageProxyNv21Converter(
     /** Releases retained conversion buffers. Active leases remain independently valid. */
     fun dispose() {
         bufferPool.dispose()
+    }
+
+    fun normalizeCropRect(
+        cropRect: Rect?,
+        width: Int,
+        height: Int,
+    ): Rect {
+        val imageWidth = width.roundDownToEven()
+        val imageHeight = height.roundDownToEven()
+        require(imageWidth >= MIN_CROP_SIZE && imageHeight >= MIN_CROP_SIZE)
+        val requested = cropRect ?: Rect(0, 0, imageWidth, imageHeight)
+        val left = minOf(requested.left, requested.right).roundDownToEven().coerceIn(0, imageWidth)
+        val top = minOf(requested.top, requested.bottom).roundDownToEven().coerceIn(0, imageHeight)
+        val right = maxOf(requested.left, requested.right).roundDownToEven().coerceIn(0, imageWidth)
+        val bottom = maxOf(requested.top, requested.bottom).roundDownToEven().coerceIn(0, imageHeight)
+        val cropLeft = left.coerceAtMost(imageWidth - MIN_CROP_SIZE)
+        val cropTop = top.coerceAtMost(imageHeight - MIN_CROP_SIZE)
+
+        return Rect(
+            cropLeft,
+            cropTop,
+            right.coerceAtLeast(cropLeft + MIN_CROP_SIZE).coerceAtMost(imageWidth),
+            bottom.coerceAtLeast(cropTop + MIN_CROP_SIZE).coerceAtMost(imageHeight),
+        )
     }
 
     private fun copyYPlane(
@@ -88,30 +111,6 @@ internal class ImageProxyNv21Converter(
                 )
             }
         }
-    }
-
-    fun normalizeCropRect(
-        cropRect: Rect?,
-        width: Int,
-        height: Int,
-    ): Rect {
-        val imageWidth = width.roundDownToEven()
-        val imageHeight = height.roundDownToEven()
-        require(imageWidth >= MIN_CROP_SIZE && imageHeight >= MIN_CROP_SIZE)
-        val requested = cropRect ?: Rect(0, 0, imageWidth, imageHeight)
-        val left = minOf(requested.left, requested.right).roundDownToEven().coerceIn(0, imageWidth)
-        val top = minOf(requested.top, requested.bottom).roundDownToEven().coerceIn(0, imageHeight)
-        val right = maxOf(requested.left, requested.right).roundDownToEven().coerceIn(0, imageWidth)
-        val bottom = maxOf(requested.top, requested.bottom).roundDownToEven().coerceIn(0, imageHeight)
-        val cropLeft = left.coerceAtMost(imageWidth - MIN_CROP_SIZE)
-        val cropTop = top.coerceAtMost(imageHeight - MIN_CROP_SIZE)
-
-        return Rect(
-            cropLeft,
-            cropTop,
-            right.coerceAtLeast(cropLeft + MIN_CROP_SIZE).coerceAtMost(imageWidth),
-            bottom.coerceAtLeast(cropTop + MIN_CROP_SIZE).coerceAtMost(imageHeight),
-        )
     }
 
     private fun Int.roundDownToEven(): Int = this - (this % 2)

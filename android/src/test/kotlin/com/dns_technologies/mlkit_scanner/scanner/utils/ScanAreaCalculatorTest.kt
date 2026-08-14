@@ -3,7 +3,6 @@ package com.dns_technologies.mlkit_scanner.scanner.utils
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
-import com.google.mlkit.vision.common.InputImage
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -77,8 +76,10 @@ internal class ScanAreaCalculatorTest {
         override val height = height
         override val rotationDegree = rotationDegree
 
-        override fun toInputImage(cropRect: Rect?): InputImage =
-            error("Frame materialization is not expected")
+        override fun <T> useNv21(
+            cropRect: Rect?,
+            block: (ByteArray, Int, Int, Int) -> T,
+        ): T = error("Frame access is not expected")
 
         override fun close() = Unit
     }

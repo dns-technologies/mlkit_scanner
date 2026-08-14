@@ -1,15 +1,17 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.optimization.AnalyzeDelayTimer
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
-import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /**
- * Abstract class of a barcode image analyzer.
+ * Base class for barcode analyzers independent of a concrete image-analysis library.
  *
- * The class provides common timing and concurrency behavior for analyzer implementations.
+ * Provides throttling, exclusive frame processing and thread-safe resource disposal to every
+ * implementation.
  */
 abstract class ImageBarcodeAnalyzer protected constructor(
     currentTimeMs: () -> Long = android.os.SystemClock::elapsedRealtime,
@@ -18,18 +20,16 @@ abstract class ImageBarcodeAnalyzer protected constructor(
     private val stateLock = ReentrantLock()
     private var isDisposed = false
 
-    /** Lazily creates and analyzes an ML Kit image when the current frame is accepted. */
-    fun analyze(createImage: () -> InputImage): Barcode? {
-        if (!stateLock.tryLock()) {
-            return null
-        }
+    /** Attempts to recognize a barcode when the analyzer is ready to accept another frame. */
+    fun analyze(frame: CameraFrame, cropRect: Rect?): Barcode? {
+        if (!stateLock.tryLock()) return null
 
         return try {
             if (isDisposed || analyzeDelayTimer.isRunning) {
                 null
             } else {
                 try {
-                    analyzeImage(createImage())
+                    analyzeFrame(frame, cropRect)
                 } finally {
                     analyzeDelayTimer.restart()
                 }
@@ -39,19 +39,14 @@ abstract class ImageBarcodeAnalyzer protected constructor(
         }
     }
 
-    /** Initializes common analyzer timing. */
-    fun init(period: Int) {
-        updatePeriod(period)
-    }
-
-    /** Updates common analyzer timing. */
+    /** Updates the minimum delay between accepted analysis attempts. */
     fun updatePeriod(periodMs: Int) {
         stateLock.withLock {
             analyzeDelayTimer.updatePeriod(periodMs)
         }
     }
 
-    /** Releases analyzer resources. */
+    /** Waits for active analysis and releases implementation resources exactly once. */
     fun dispose() {
         stateLock.withLock {
             if (isDisposed) return
@@ -62,9 +57,9 @@ abstract class ImageBarcodeAnalyzer protected constructor(
         }
     }
 
-    /** Attempts to recognize a barcode from the provided image. */
-    protected abstract fun analyzeImage(image: InputImage): Barcode?
+    /** Analyzes a frame accepted by the common execution policy. */
+    protected abstract fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode?
 
-    /** Releases implementation-specific analyzer resources. */
+    /** Releases resources owned by the concrete analyzer implementation. */
     protected abstract fun disposeAnalyzer()
 }

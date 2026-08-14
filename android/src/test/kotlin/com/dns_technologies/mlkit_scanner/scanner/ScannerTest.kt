@@ -11,7 +11,6 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
-import com.google.mlkit.vision.common.InputImage
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.mockito.Mockito.mock
@@ -19,7 +18,7 @@ import java.util.concurrent.ExecutorService
 
 internal class ScannerTest {
     @Test
-    fun `paused scanner does not materialize camera frame`() {
+    fun `paused scanner does not send camera frame to analyzer`() {
         val fixture = Fixture()
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
         fixture.scanner.startScan(periodMs = 100)
@@ -28,12 +27,12 @@ internal class ScannerTest {
         fixture.emitFrame()
 
         assertEquals(0, fixture.materializedFrames)
-        assertEquals(0, fixture.analyzer.analysisCalls)
+        assertEquals(0, fixture.analyzer.acceptedAnalysisCalls)
         assertEquals(1, fixture.closedFrames)
     }
 
     @Test
-    fun `scanner creates frame only when analyzer accepts it`() {
+    fun `analyzer controls lazy frame materialization`() {
         val fixture = Fixture()
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
         fixture.scanner.startScan(periodMs = 100)
@@ -43,11 +42,11 @@ internal class ScannerTest {
 
         assertEquals(1, fixture.materializedFrames)
         assertEquals(2, fixture.closedFrames)
-        assertEquals(1, fixture.analyzer.analysisCalls)
+        assertEquals(1, fixture.analyzer.acceptedAnalysisCalls)
     }
 
     @Test
-    fun `scanner calculates crop before creating accepted frame`() {
+    fun `scanner passes calculated crop to analyzer`() {
         val fixture = Fixture()
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
         fixture.scanner.setCropArea(
@@ -60,16 +59,39 @@ internal class ScannerTest {
         assertEquals(Rect(180, 256, 540, 1024), fixture.lastCropRect)
     }
 
+    @Test
+    fun `start scan updates analyzer period`() {
+        val fixture = Fixture()
+        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+
+        fixture.scanner.startScan(periodMs = 250)
+        fixture.emitFrame()
+        fixture.setCurrentTimeMs(249)
+        fixture.emitFrame()
+
+        assertEquals(1, fixture.analyzer.acceptedAnalysisCalls)
+
+        fixture.setCurrentTimeMs(250)
+        fixture.emitFrame()
+
+        assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
+    }
+
     private class Fixture {
+        private var currentTimeMs = 0L
         val camera = FakeCamera()
-        val analyzer = FakeAnalyzer()
+        val analyzer = FakeAnalyzer { currentTimeMs }
         val scanner = Scanner(camera, analyzer)
         var materializedFrames = 0
             private set
         var closedFrames = 0
             private set
-        var lastCropRect: Rect? = null
-            private set
+        val lastCropRect: Rect?
+            get() = analyzer.lastCropRect
+
+        fun setCurrentTimeMs(value: Long) {
+            currentTimeMs = value
+        }
 
         fun emitFrame() {
             camera.emitFrame(
@@ -78,10 +100,12 @@ internal class ScannerTest {
                     override val height = 1280
                     override val rotationDegree = 0
 
-                    override fun toInputImage(cropRect: Rect?): InputImage {
+                    override fun <T> useNv21(
+                        cropRect: Rect?,
+                        block: (ByteArray, Int, Int, Int) -> T,
+                    ): T {
                         materializedFrames += 1
-                        lastCropRect = cropRect
-                        return mock(InputImage::class.java)
+                        return block(ByteArray(1), width, height, rotationDegree)
                     }
 
                     override fun close() {
@@ -92,12 +116,20 @@ internal class ScannerTest {
         }
     }
 
-    private class FakeAnalyzer : ImageBarcodeAnalyzer(currentTimeMs = { 0L }) {
-        var analysisCalls = 0
+    private class FakeAnalyzer(
+        currentTimeMs: () -> Long,
+    ) : ImageBarcodeAnalyzer(currentTimeMs) {
+        var acceptedAnalysisCalls = 0
+            private set
+        var lastCropRect: Rect? = null
             private set
 
-        override fun analyzeImage(image: InputImage): Barcode? {
-            analysisCalls += 1
+        override fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode? {
+            lastCropRect = cropRect
+            frame.useNv21(
+                cropRect = cropRect,
+                block = { _, _, _, _ -> acceptedAnalysisCalls += 1 },
+            )
             return null
         }
 

@@ -36,7 +36,6 @@ class Scanner(
     @Volatile
     var isScanActive = false
         private set
-    private var isAnalyzerInitialized = false
 
     /** Native preview view supplied by the camera adapter. */
     val previewView: View
@@ -72,12 +71,7 @@ class Scanner(
 
     /** Starts analysis with the configured analyzer component. */
     fun startScan(periodMs: Int) {
-        if (!isAnalyzerInitialized) {
-            analyzer.init(periodMs)
-            isAnalyzerInitialized = true
-        } else {
-            analyzer.updatePeriod(periodMs)
-        }
+        analyzer.updatePeriod(periodMs)
         isScanActive = true
     }
 
@@ -127,13 +121,11 @@ class Scanner(
     private fun analyzeFrame(frame: CameraFrame) {
         if (!isScanActive) return
 
-        analyzer.analyze {
-            val configuration = cropConfiguration
-            val cropRect = configuration.scanArea?.let { scanArea ->
-                ScanAreaCalculator.calculate(frame, scanArea, configuration.scale)
-            }
-            frame.toInputImage(cropRect)
-        }?.let(::emitScanResult)
+        val configuration = cropConfiguration
+        val cropRect = configuration.scanArea?.let { scanArea ->
+            ScanAreaCalculator.calculate(frame, scanArea, configuration.scale)
+        }
+        analyzer.analyze(frame, cropRect)?.let(::emitScanResult)
     }
 
     /** Notifies all active listeners about a recognized scanner result. */

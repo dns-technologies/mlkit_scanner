@@ -1,7 +1,8 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
-import com.google.mlkit.vision.common.InputImage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -15,42 +16,44 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class ImageBarcodeAnalyzerTest {
     @Test
     fun `concurrent frame is skipped while analysis is running`() {
-        val analyzer = BlockingAnalyzer()
+        val analysisStarted = CountDownLatch(1)
+        val allowAnalysisToFinish = CountDownLatch(1)
+        val analyzer = TestAnalyzer {
+            analysisStarted.countDown()
+            allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            null
+        }
         val executor = Executors.newSingleThreadExecutor()
 
         try {
-            val createdFrames = AtomicInteger()
-            val firstAnalysis = executor.submit<Barcode?> {
-                analyzer.analyze {
-                    createdFrames.incrementAndGet()
-                    createImage()
-                }
-            }
-            assertTrue(analyzer.analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+            val firstAnalysis = executor.submit<Barcode?> { analyzer.analyze(TEST_FRAME, null) }
+            assertTrue(analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
 
-            assertNull(analyzer.analyze {
-                createdFrames.incrementAndGet()
-                createImage()
-            })
-            assertEquals(1, analyzer.analysisCalls)
-            assertEquals(1, createdFrames.get())
+            assertNull(analyzer.analyze(TEST_FRAME, null))
+            assertEquals(1, analyzer.analysisCalls.get())
 
-            analyzer.allowAnalysisToFinish.countDown()
+            allowAnalysisToFinish.countDown()
             firstAnalysis.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         } finally {
-            analyzer.allowAnalysisToFinish.countDown()
+            allowAnalysisToFinish.countDown()
             executor.shutdownNow()
         }
     }
 
     @Test
     fun `dispose waits for running analysis before releasing resources`() {
-        val analyzer = BlockingAnalyzer()
+        val analysisStarted = CountDownLatch(1)
+        val allowAnalysisToFinish = CountDownLatch(1)
+        val analyzer = TestAnalyzer {
+            analysisStarted.countDown()
+            allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            null
+        }
         val executor = Executors.newFixedThreadPool(2)
 
         try {
-            val analysis = executor.submit<Barcode?> { analyzer.analyze(::createImage) }
-            assertTrue(analyzer.analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+            val analysis = executor.submit<Barcode?> { analyzer.analyze(TEST_FRAME, null) }
+            assertTrue(analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
 
             val disposalStarted = CountDownLatch(1)
             val disposal = executor.submit {
@@ -60,77 +63,78 @@ internal class ImageBarcodeAnalyzerTest {
             assertTrue(disposalStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
             assertFalse(analyzer.resourcesDisposed.await(SHORT_WAIT_MS, TimeUnit.MILLISECONDS))
 
-            analyzer.allowAnalysisToFinish.countDown()
+            allowAnalysisToFinish.countDown()
             analysis.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             disposal.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
             assertTrue(analyzer.resourcesDisposed.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
-            assertEquals(1, analyzer.disposeCalls)
         } finally {
-            analyzer.allowAnalysisToFinish.countDown()
+            allowAnalysisToFinish.countDown()
             executor.shutdownNow()
         }
     }
 
     @Test
     fun `analysis is ignored after dispose and resources are released once`() {
-        val analyzer = BlockingAnalyzer(blockAnalysis = false)
+        val analyzer = TestAnalyzer()
 
         analyzer.dispose()
         analyzer.dispose()
 
-        var frameCreated = false
-        assertNull(analyzer.analyze {
-            frameCreated = true
-            createImage()
-        })
-        assertEquals(0, analyzer.analysisCalls)
-        assertFalse(frameCreated)
-        assertEquals(1, analyzer.disposeCalls)
+        assertNull(analyzer.analyze(TEST_FRAME, null))
+        assertEquals(0, analyzer.analysisCalls.get())
+        assertEquals(1, analyzer.disposeCalls.get())
     }
 
     @Test
-    fun `frame is not created while analysis delay is active`() {
-        val analyzer = BlockingAnalyzer(blockAnalysis = false)
-        val createdFrames = AtomicInteger()
+    fun `analysis is skipped while configured delay is active`() {
+        var currentTimeMs = 0L
+        val analyzer = TestAnalyzer(currentTimeMs = { currentTimeMs })
+        analyzer.updatePeriod(100)
 
-        analyzer.analyze {
-            createdFrames.incrementAndGet()
-            createImage()
-        }
-        assertNull(analyzer.analyze {
-            createdFrames.incrementAndGet()
-            createImage()
-        })
+        analyzer.analyze(TEST_FRAME, null)
+        currentTimeMs = 99
+        assertNull(analyzer.analyze(TEST_FRAME, null))
+        currentTimeMs = 100
+        analyzer.analyze(TEST_FRAME, null)
 
-        assertEquals(1, createdFrames.get())
-        assertEquals(1, analyzer.analysisCalls)
+        assertEquals(2, analyzer.analysisCalls.get())
     }
 
-    private class BlockingAnalyzer(
-        private val blockAnalysis: Boolean = true,
-    ) : ImageBarcodeAnalyzer(currentTimeMs = { 0L }) {
-        val analysisStarted = CountDownLatch(1)
-        val allowAnalysisToFinish = CountDownLatch(if (blockAnalysis) 1 else 0)
+    @Test
+    fun `failed analysis starts delay and releases execution lock`() {
+        var currentTimeMs = 0L
+        val blockCalls = AtomicInteger()
+        val analyzer = TestAnalyzer(currentTimeMs = { currentTimeMs }) {
+            if (blockCalls.incrementAndGet() == 1) error("analysis failed")
+            null
+        }
+
+        val error = runCatching { analyzer.analyze(TEST_FRAME, null) }.exceptionOrNull()
+        currentTimeMs = 15
+        assertNull(analyzer.analyze(TEST_FRAME, null))
+        currentTimeMs = 16
+        analyzer.analyze(TEST_FRAME, null)
+
+        assertTrue(error is IllegalStateException)
+        assertEquals(2, analyzer.analysisCalls.get())
+    }
+
+    private class TestAnalyzer(
+        currentTimeMs: () -> Long = { 0L },
+        private val analysis: () -> Barcode? = { null },
+    ) : ImageBarcodeAnalyzer(currentTimeMs) {
+        val analysisCalls = AtomicInteger()
+        val disposeCalls = AtomicInteger()
         val resourcesDisposed = CountDownLatch(1)
 
-        @Volatile
-        var analysisCalls = 0
-            private set
-
-        @Volatile
-        var disposeCalls = 0
-            private set
-
-        override fun analyzeImage(image: InputImage): Barcode? {
-            analysisCalls += 1
-            analysisStarted.countDown()
-            allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            return null
+        override fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode? {
+            analysisCalls.incrementAndGet()
+            return analysis()
         }
 
         override fun disposeAnalyzer() {
-            disposeCalls += 1
+            disposeCalls.incrementAndGet()
             resourcesDisposed.countDown()
         }
     }
@@ -138,6 +142,18 @@ internal class ImageBarcodeAnalyzerTest {
     private companion object {
         const val TEST_TIMEOUT_MS = 1_000L
         const val SHORT_WAIT_MS = 100L
-        fun createImage(): InputImage = org.mockito.Mockito.mock(InputImage::class.java)
+
+        val TEST_FRAME = object : CameraFrame {
+            override val width = 2
+            override val height = 2
+            override val rotationDegree = 0
+
+            override fun <T> useNv21(
+                cropRect: Rect?,
+                block: (ByteArray, Int, Int, Int) -> T,
+            ): T = block(ByteArray(6), width, height, rotationDegree)
+
+            override fun close() = Unit
+        }
     }
 }
