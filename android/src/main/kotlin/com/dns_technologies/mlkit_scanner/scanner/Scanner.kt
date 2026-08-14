@@ -4,10 +4,12 @@ import android.view.View
 import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CreateCameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
 import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
 import com.dns_technologies.mlkit_scanner.scanner.utils.ScanAreaCropper
 import java.util.concurrent.ExecutorService
@@ -31,6 +33,7 @@ class Scanner(
     private val scanResultListeners = mutableSetOf<OnScanResultListener>()
 
     /** Indicates whether incoming frames should be sent to the analyzer. */
+    @Volatile
     var isScanActive = false
         private set
     private var isAnalyzerInitialized = false
@@ -72,7 +75,7 @@ class Scanner(
         if (!isAnalyzerInitialized) {
             analyzer.init(periodMs)
             isAnalyzerInitialized = true
-        } else if (analyzer.analyzePeriodMs != periodMs) {
+        } else {
             analyzer.updatePeriod(periodMs)
         }
         isScanActive = true
@@ -88,10 +91,10 @@ class Scanner(
         analyzer.updatePeriod(periodMs)
     }
 
-    /** Subscribes to decoded scanner results and returns an unsubscribe callback. */
-    fun subscribeToScanResults(listener: OnScanResultListener): () -> Unit {
+    /** Subscribes to decoded scanner results and returns a cancellable subscription. */
+    fun subscribeToScanResults(listener: OnScanResultListener): ScanResultSubscription {
         scanResultListeners += listener
-        return { scanResultListeners -= listener }
+        return ScanResultSubscription { scanResultListeners -= listener }
     }
 
     /** Updates scanner crop settings used for frame preparation. */
@@ -118,11 +121,12 @@ class Scanner(
     }
 
     /** Processes a camera frame when scanning is active. */
-    private fun analyzeFrame(image: AnalysingImage) {
+    private fun analyzeFrame(createFrame: CreateCameraFrame) {
         if (!isScanActive) return
 
-        cropToScanArea(image)
-        analyzer.analyze(image)?.let(::emitScanResult)
+        analyzer.analyze {
+            createFrame().also(::cropToScanArea)
+        }?.let(::emitScanResult)
     }
 
     /** Crops the frame when a scanner area has been configured. */

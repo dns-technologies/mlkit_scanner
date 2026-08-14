@@ -52,7 +52,7 @@ internal class PermissionGateway {
         val permissionRequest = pendingPermissionRequests.getOrPut(requestKey) {
             PermissionRequest(requestedPermissions)
         }
-        val permissionResult = permissionRequest.await()
+        val permissionResult = permissionRequest.registerAwaiter()
 
         processNextPermissionRequest()
         return permissionResult.await()
@@ -150,8 +150,8 @@ internal class PermissionGateway {
     ) {
         private val deferredResults = mutableSetOf<CompletableDeferred<Boolean>>()
 
-        /** Adds a caller callback to this permission request. */
-        fun await(): CompletableDeferred<Boolean> {
+        /** Registers a result holder for a caller waiting on this permission request. */
+        fun registerAwaiter(): CompletableDeferred<Boolean> {
             val deferred = CompletableDeferred<Boolean>()
             deferredResults += deferred
             return deferred

@@ -13,6 +13,7 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.OverlayController
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
 import io.flutter.plugin.platform.PlatformView
 
 /** Android platform view that renders scanner preview and scanner overlays. */
@@ -106,7 +107,8 @@ class ScannerView(
     }
 
     /** Subscribes to decoded scanner results through the underlying scanner. */
-    fun subscribeToScanResults(listener: (Barcode) -> Unit): () -> Unit = scanner.subscribeToScanResults(listener)
+    fun subscribeToScanResults(listener: (Barcode) -> Unit): ScanResultSubscription =
+        scanner.subscribeToScanResults(listener)
 
     /** Updates scanner crop settings and matching focus and visor UI. */
     fun setCropArea(cropRect: RecognizeVisorCropRect) {

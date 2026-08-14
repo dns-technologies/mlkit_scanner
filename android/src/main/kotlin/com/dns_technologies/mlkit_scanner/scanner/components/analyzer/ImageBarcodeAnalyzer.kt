@@ -3,53 +3,63 @@ package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.optimization.AnalyzeDelayTimer
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * Abstract class of a barcode image analyzer.
  *
  * The class provides common timing and concurrency behavior for analyzer implementations.
  */
-abstract class ImageBarcodeAnalyzer {
-    /** Minimum delay between image analysis attempts. */
-    var analyzePeriodMs: Int = 0
-        protected set
+abstract class ImageBarcodeAnalyzer protected constructor(
+    currentTimeMs: () -> Long = android.os.SystemClock::elapsedRealtime,
+) {
+    private val analyzeDelayTimer = AnalyzeDelayTimer(0, currentTimeMs)
+    private val stateLock = ReentrantLock()
+    private var isDisposed = false
 
-    private val analyzeDelayTimer = AnalyzeDelayTimer(analyzePeriodMs)
-
-    /** Controls concurrent recognition; only one frame is analyzed at a time. */
-    private var isAnalysisInProgress = false
-
-    /** Attempts to recognize a barcode from the provided image. */
-    fun analyze(image: AnalysingImage): Barcode? {
-        if (!shouldAnalyzeCurrentFrame()) {
+    /** Lazily creates and analyzes an image when the current frame is accepted. */
+    fun analyze(createImage: () -> AnalysingImage): Barcode? {
+        if (!stateLock.tryLock()) {
             return null
         }
 
-        isAnalysisInProgress = true
         return try {
-            analyzeImage(image)
+            if (isDisposed || analyzeDelayTimer.isRunning) {
+                null
+            } else {
+                try {
+                    analyzeImage(createImage())
+                } finally {
+                    analyzeDelayTimer.restart()
+                }
+            }
         } finally {
-            analyzeDelayTimer.restart()
-            isAnalysisInProgress = false
+            stateLock.unlock()
         }
     }
 
     /** Initializes common analyzer timing. */
     fun init(period: Int) {
-        analyzePeriodMs = period
-        analyzeDelayTimer.updatePeriod(analyzePeriodMs)
+        updatePeriod(period)
     }
 
     /** Updates common analyzer timing. */
     fun updatePeriod(periodMs: Int) {
-        analyzePeriodMs = periodMs
-        analyzeDelayTimer.updatePeriod(analyzePeriodMs)
+        stateLock.withLock {
+            analyzeDelayTimer.updatePeriod(periodMs)
+        }
     }
 
     /** Releases analyzer resources. */
     fun dispose() {
-        analyzeDelayTimer.stop()
-        disposeAnalyzer()
+        stateLock.withLock {
+            if (isDisposed) return
+
+            isDisposed = true
+            analyzeDelayTimer.stop()
+            disposeAnalyzer()
+        }
     }
 
     /** Attempts to recognize a barcode from the provided image. */
@@ -57,9 +67,4 @@ abstract class ImageBarcodeAnalyzer {
 
     /** Releases implementation-specific analyzer resources. */
     protected abstract fun disposeAnalyzer()
-
-    /** Returns true when the current frame can be sent to a concrete analyzer. */
-    private fun shouldAnalyzeCurrentFrame(): Boolean =
-        !isAnalysisInProgress &&
-            !analyzeDelayTimer.isRunning
 }

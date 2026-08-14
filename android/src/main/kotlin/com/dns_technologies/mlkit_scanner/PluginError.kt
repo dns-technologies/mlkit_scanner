@@ -27,4 +27,7 @@ internal sealed class PluginError(
 
     /** Unexpected internal error while handling scanner operations. */
     object UnknownError : PluginError("7", "Unknown scanner error")
+
+    /** The scanner session was released before the requested operation completed. */
+    object CameraSessionDisposed : PluginError("8", "Camera session has been disposed")
 }

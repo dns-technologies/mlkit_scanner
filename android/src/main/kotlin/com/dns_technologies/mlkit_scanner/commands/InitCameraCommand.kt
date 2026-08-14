@@ -2,7 +2,7 @@ package com.dns_technologies.mlkit_scanner.commands
 
 import android.Manifest
 import com.dns_technologies.mlkit_scanner.PluginError
-import com.dns_technologies.mlkit_scanner.commands.base.SuspendScannerCommand
+import com.dns_technologies.mlkit_scanner.commands.base.AsyncScannerCommand
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.models.InitialScannerParameters
@@ -15,7 +15,7 @@ internal class InitCameraCommand(
     scannerSessionProvider: () -> ScannerSession?,
     private val permissionGateway: PermissionGateway,
     commandScope: CoroutineScope,
-) : SuspendScannerCommand(scannerSessionProvider, commandScope) {
+) : AsyncScannerCommand(scannerSessionProvider, commandScope) {
     override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
         if (!permissionGateway.requestPermissions(arrayOf(Manifest.permission.CAMERA))) {
             reportError(result, PluginError.AuthorizationCameraError)

@@ -4,13 +4,16 @@ import android.os.SystemClock
 
 /** Throttles analyzer attempts by keeping a delay window after recognition attempts. */
 internal class AnalyzeDelayTimer(
-    private var periodMs: Int,
+    periodMs: Int,
+    private val currentTimeMs: () -> Long = SystemClock::elapsedRealtime,
 ) {
+    private var periodMs: Int = periodMs
+
     private var nextAcceptedAnalysisTimeMs = 0L
 
     /** Indicates whether a delay window is currently active. */
     val isRunning: Boolean
-        get() = SystemClock.elapsedRealtime() < nextAcceptedAnalysisTimeMs
+        get() = currentTimeMs() < nextAcceptedAnalysisTimeMs
 
     /** Updates delay period used by the next timer restart. */
     fun updatePeriod(periodMs: Int) {
@@ -20,7 +23,7 @@ internal class AnalyzeDelayTimer(
     /** Restarts the delay timer using the configured period. */
     fun restart() {
         val acceptedPeriodMs = maxOf(periodMs, MIN_ANALYZE_DELAY_MS)
-        nextAcceptedAnalysisTimeMs = SystemClock.elapsedRealtime() + acceptedPeriodMs
+        nextAcceptedAnalysisTimeMs = currentTimeMs() + acceptedPeriodMs
     }
 
     /** Stops the active delay timer, if one exists. */

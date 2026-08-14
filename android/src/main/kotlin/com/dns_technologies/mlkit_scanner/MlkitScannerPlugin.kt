@@ -18,6 +18,7 @@ import com.dns_technologies.mlkit_scanner.commands.StartScanCommand
 import com.dns_technologies.mlkit_scanner.commands.ToggleFlashCommand
 import com.dns_technologies.mlkit_scanner.commands.UpdateConstraintsCommand
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
+import com.dns_technologies.mlkit_scanner.models.ScannerSessionImpl
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.ScannerViewFactory
@@ -152,7 +153,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
     /** Binds a created platform view to a new active scanner session. */
     private fun bindScannerView(scannerView: ScannerView) {
         scannerSession?.let(staleScannerSessions::add)
-        scannerSession = ScannerSession(scannerView, ::emitScanResult)
+        scannerSession = ScannerSessionImpl(scannerView, ::emitScanResult)
     }
 
     private fun disposeScanner() {

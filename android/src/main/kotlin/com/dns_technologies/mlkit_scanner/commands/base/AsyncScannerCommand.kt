@@ -8,7 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /** Base command abstraction for asynchronous Dart->native scanner commands. */
-internal abstract class SuspendScannerCommand(
+internal abstract class AsyncScannerCommand(
     scannerSessionProvider: () -> ScannerSession?,
     private val commandScope: CoroutineScope,
 ) : BaseScannerCommand(scannerSessionProvider) {

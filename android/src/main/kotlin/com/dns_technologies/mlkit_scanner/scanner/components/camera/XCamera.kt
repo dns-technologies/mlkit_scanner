@@ -176,7 +176,7 @@ class XCamera(
         .also { imageAnalysis ->
             imageAnalysis.setAnalyzer(analysisExecutor) { image ->
                 try {
-                    onFrame.invoke(ImageProxyNv21Converter.convert(image))
+                    onFrame.invoke { ImageProxyNv21Converter.convert(image) }
                 } finally {
                     image.close()
                 }

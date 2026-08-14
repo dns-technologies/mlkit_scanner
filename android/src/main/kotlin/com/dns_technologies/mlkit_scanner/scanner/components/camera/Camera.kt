@@ -11,8 +11,11 @@ typealias OnInit = () -> Unit
 /** Callback invoked when camera initialization or processing fails. */
 typealias OnError = (e: Exception) -> Unit
 
-/** Callback invoked for each camera frame prepared for scanner analysis. */
-typealias OnCameraFrame = (image: AnalysingImage) -> Unit
+/** Lazily creates a scanner image from a camera frame. */
+typealias CreateCameraFrame = () -> AnalysingImage
+
+/** Callback invoked for each camera frame available for scanner analysis. */
+typealias OnCameraFrame = (createFrame: CreateCameraFrame) -> Unit
 
 /**
  * Minimal adapter implemented by a concrete camera library integration.
