@@ -2,7 +2,7 @@ package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.optimization.AnalyzeDelayTimer
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
-import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
+import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -18,8 +18,8 @@ abstract class ImageBarcodeAnalyzer protected constructor(
     private val stateLock = ReentrantLock()
     private var isDisposed = false
 
-    /** Lazily creates and analyzes an image when the current frame is accepted. */
-    fun analyze(createImage: () -> AnalysingImage): Barcode? {
+    /** Lazily creates and analyzes an ML Kit image when the current frame is accepted. */
+    fun analyze(createImage: () -> InputImage): Barcode? {
         if (!stateLock.tryLock()) {
             return null
         }
@@ -63,7 +63,7 @@ abstract class ImageBarcodeAnalyzer protected constructor(
     }
 
     /** Attempts to recognize a barcode from the provided image. */
-    protected abstract fun analyzeImage(image: AnalysingImage): Barcode?
+    protected abstract fun analyzeImage(image: InputImage): Barcode?
 
     /** Releases implementation-specific analyzer resources. */
     protected abstract fun disposeAnalyzer()

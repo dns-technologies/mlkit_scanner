@@ -159,7 +159,7 @@ internal class PermissionGateway {
 
         /** Removes a caller callback from this permission request. */
         private fun cleanupCompleted() {
-            deferredResults.removeIf { it.isCompleted || it.isCancelled }
+            deferredResults.removeAll { it.isCompleted || it.isCancelled }
         }
 
         /** Returns true when no callers are waiting for this request. */

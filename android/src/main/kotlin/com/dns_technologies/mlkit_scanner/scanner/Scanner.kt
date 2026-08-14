@@ -4,14 +4,14 @@ import android.view.View
 import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CreateCameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
-import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
-import com.dns_technologies.mlkit_scanner.scanner.utils.ScanAreaCropper
+import com.dns_technologies.mlkit_scanner.scanner.utils.ScanAreaCalculator
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -28,9 +28,9 @@ class Scanner(
     private val analyzer: ImageBarcodeAnalyzer,
 ) {
     private var analysisExecutor: ExecutorService? = null
-    private var scanArea: RecognizeVisorCropRect? = null
-    private var scale: Pair<Double, Double> = DEFAULT_SCALE
-    private val scanResultListeners = mutableSetOf<OnScanResultListener>()
+    @Volatile
+    private var cropConfiguration = CropConfiguration()
+    private val scanResultListeners = CopyOnWriteArraySet<OnScanResultListener>()
 
     /** Indicates whether incoming frames should be sent to the analyzer. */
     @Volatile
@@ -99,12 +99,14 @@ class Scanner(
 
     /** Updates scanner crop settings used for frame preparation. */
     fun setCropArea(cropRect: RecognizeVisorCropRect) {
-        scanArea = cropRect
+        updateCropConfiguration { it.copy(scanArea = cropRect) }
     }
 
     /** Updates the ratio between the scanner view and the physical display. */
     fun setScale(widthScale: Double, heightScale: Double) {
-        scale = Pair(widthScale, heightScale)
+        updateCropConfiguration {
+            it.copy(scale = Pair(widthScale, heightScale))
+        }
     }
 
     /** Applies normalized zoom to the active camera. */
@@ -114,6 +116,7 @@ class Scanner(
 
     /** Releases scanner components and stops pending analysis work. */
     fun dispose() {
+        isScanActive = false
         camera.dispose()
         analysisExecutor?.shutdownNow()
         analysisExecutor = null
@@ -121,29 +124,38 @@ class Scanner(
     }
 
     /** Processes a camera frame when scanning is active. */
-    private fun analyzeFrame(createFrame: CreateCameraFrame) {
+    private fun analyzeFrame(frame: CameraFrame) {
         if (!isScanActive) return
 
         analyzer.analyze {
-            createFrame().also(::cropToScanArea)
+            val configuration = cropConfiguration
+            val cropRect = configuration.scanArea?.let { scanArea ->
+                ScanAreaCalculator.calculate(frame, scanArea, configuration.scale)
+            }
+            frame.toInputImage(cropRect)
         }?.let(::emitScanResult)
-    }
-
-    /** Crops the frame when a scanner area has been configured. */
-    private fun cropToScanArea(image: AnalysingImage) {
-        val activeScanArea = scanArea ?: return
-        ScanAreaCropper.crop(image, activeScanArea, scale)
     }
 
     /** Notifies all active listeners about a recognized scanner result. */
     private fun emitScanResult(result: Barcode) {
-        scanResultListeners.toList().forEach { listener ->
+        scanResultListeners.forEach { listener ->
             listener.invoke(result)
         }
+    }
+
+    private fun updateCropConfiguration(
+        transform: (CropConfiguration) -> CropConfiguration,
+    ) {
+        cropConfiguration = transform(cropConfiguration)
     }
 
     companion object {
         /** Default scale when scanner view size matches the display size. */
         private val DEFAULT_SCALE = Pair(1.0, 1.0)
     }
+
+    private data class CropConfiguration(
+        val scanArea: RecognizeVisorCropRect? = null,
+        val scale: Pair<Double, Double> = DEFAULT_SCALE,
+    )
 }

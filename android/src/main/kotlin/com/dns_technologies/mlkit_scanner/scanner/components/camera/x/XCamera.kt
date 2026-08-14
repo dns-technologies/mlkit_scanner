@@ -1,4 +1,4 @@
-package com.dns_technologies.mlkit_scanner.scanner.components.camera
+package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
 import android.content.Context
 import android.util.Size
@@ -17,6 +17,10 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.PluginError
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
@@ -27,6 +31,8 @@ import java.util.concurrent.TimeUnit
 class XCamera(
     private val context: Context,
 ) : Camera {
+    private val nv21Converter = ImageProxyNv21Converter()
+
     /** CameraX preview view rendered inside the scanner platform view. */
     override val previewView: View = PreviewView(context).apply {
         layoutParams = ViewGroup.LayoutParams(
@@ -129,6 +135,7 @@ class XCamera(
     override fun dispose() {
         startToken = null
         unbindViews()
+        nv21Converter.dispose()
         cameraProvider = null
         camera = null
     }
@@ -175,10 +182,8 @@ class XCamera(
         .build()
         .also { imageAnalysis ->
             imageAnalysis.setAnalyzer(analysisExecutor) { image ->
-                try {
-                    onFrame.invoke { ImageProxyNv21Converter.convert(image) }
-                } finally {
-                    image.close()
+                XCameraFrame(image, nv21Converter).use { frame ->
+                    onFrame.invoke(frame)
                 }
             }
         }

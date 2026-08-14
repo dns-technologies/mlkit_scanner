@@ -17,14 +17,14 @@ typealias OnDisposeScannerViewListener = (scannerView: ScannerView) -> Unit
 typealias CreateCamera = (context: Context) -> Camera
 
 /** Factory callback that creates a concrete barcode analyzer component. */
-typealias CreateImageAnalyzer = () -> ImageBarcodeAnalyzer
+typealias CreateImageBarcodeAnalyzer = () -> ImageBarcodeAnalyzer
 
 /**
  * Creates scanner camera platform views.
  */
 class ScannerViewFactory(
     private val createCamera: CreateCamera,
-    private val createImageAnalyzer: CreateImageAnalyzer,
+    private val createImageAnalyzer: CreateImageBarcodeAnalyzer,
     private val onCreate: OnCreateScannerViewListener,
     private val onDispose: OnDisposeScannerViewListener,
 ) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {

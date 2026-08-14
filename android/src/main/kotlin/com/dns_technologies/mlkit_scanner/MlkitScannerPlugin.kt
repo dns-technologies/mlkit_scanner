@@ -23,7 +23,7 @@ import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.ScannerViewFactory
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.MlkitImageBarcodeAnalyzer
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.XCamera
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.x.XCamera
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

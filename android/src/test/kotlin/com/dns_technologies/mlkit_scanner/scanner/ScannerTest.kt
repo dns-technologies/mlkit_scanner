@@ -4,12 +4,14 @@ import android.view.View
 import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CreateCameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
-import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
+import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import com.google.mlkit.vision.common.InputImage
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.mockito.Mockito.mock
@@ -17,7 +19,7 @@ import java.util.concurrent.ExecutorService
 
 internal class ScannerTest {
     @Test
-    fun `paused scanner does not create camera frame`() {
+    fun `paused scanner does not materialize camera frame`() {
         val fixture = Fixture()
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
         fixture.scanner.startScan(periodMs = 100)
@@ -25,8 +27,9 @@ internal class ScannerTest {
 
         fixture.emitFrame()
 
-        assertEquals(0, fixture.createdFrames)
+        assertEquals(0, fixture.materializedFrames)
         assertEquals(0, fixture.analyzer.analysisCalls)
+        assertEquals(1, fixture.closedFrames)
     }
 
     @Test
@@ -38,22 +41,54 @@ internal class ScannerTest {
         fixture.emitFrame()
         fixture.emitFrame()
 
-        assertEquals(1, fixture.createdFrames)
+        assertEquals(1, fixture.materializedFrames)
+        assertEquals(2, fixture.closedFrames)
         assertEquals(1, fixture.analyzer.analysisCalls)
+    }
+
+    @Test
+    fun `scanner calculates crop before creating accepted frame`() {
+        val fixture = Fixture()
+        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.setCropArea(
+            RecognizeVisorCropRect(scaleWidth = 0.5, scaleHeight = 0.5),
+        )
+        fixture.scanner.startScan(periodMs = 100)
+
+        fixture.emitFrame()
+
+        assertEquals(Rect(180, 256, 540, 1024), fixture.lastCropRect)
     }
 
     private class Fixture {
         val camera = FakeCamera()
         val analyzer = FakeAnalyzer()
         val scanner = Scanner(camera, analyzer)
-        var createdFrames = 0
+        var materializedFrames = 0
+            private set
+        var closedFrames = 0
+            private set
+        var lastCropRect: Rect? = null
             private set
 
         fun emitFrame() {
-            camera.emitFrame {
-                createdFrames += 1
-                mock(AnalysingImage::class.java)
-            }
+            camera.emitFrame(
+                object : CameraFrame {
+                    override val width = 720
+                    override val height = 1280
+                    override val rotationDegree = 0
+
+                    override fun toInputImage(cropRect: Rect?): InputImage {
+                        materializedFrames += 1
+                        lastCropRect = cropRect
+                        return mock(InputImage::class.java)
+                    }
+
+                    override fun close() {
+                        closedFrames += 1
+                    }
+                },
+            )
         }
     }
 
@@ -61,7 +96,7 @@ internal class ScannerTest {
         var analysisCalls = 0
             private set
 
-        override fun analyzeImage(image: AnalysingImage): Barcode? {
+        override fun analyzeImage(image: InputImage): Barcode? {
             analysisCalls += 1
             return null
         }
@@ -84,8 +119,8 @@ internal class ScannerTest {
             onInit()
         }
 
-        fun emitFrame(createFrame: CreateCameraFrame) {
-            onFrame?.invoke(createFrame)
+        fun emitFrame(frame: CameraFrame) {
+            frame.use { onFrame?.invoke(it) }
         }
 
         override fun isActive(): Boolean = onFrame != null

@@ -1,13 +1,12 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
-import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
+import com.google.mlkit.vision.common.InputImage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.mockito.Mockito.mock
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -24,14 +23,14 @@ internal class ImageBarcodeAnalyzerTest {
             val firstAnalysis = executor.submit<Barcode?> {
                 analyzer.analyze {
                     createdFrames.incrementAndGet()
-                    image
+                    createImage()
                 }
             }
             assertTrue(analyzer.analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
 
             assertNull(analyzer.analyze {
                 createdFrames.incrementAndGet()
-                image
+                createImage()
             })
             assertEquals(1, analyzer.analysisCalls)
             assertEquals(1, createdFrames.get())
@@ -50,7 +49,7 @@ internal class ImageBarcodeAnalyzerTest {
         val executor = Executors.newFixedThreadPool(2)
 
         try {
-            val analysis = executor.submit<Barcode?> { analyzer.analyze { image } }
+            val analysis = executor.submit<Barcode?> { analyzer.analyze(::createImage) }
             assertTrue(analyzer.analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
 
             val disposalStarted = CountDownLatch(1)
@@ -83,7 +82,7 @@ internal class ImageBarcodeAnalyzerTest {
         var frameCreated = false
         assertNull(analyzer.analyze {
             frameCreated = true
-            image
+            createImage()
         })
         assertEquals(0, analyzer.analysisCalls)
         assertFalse(frameCreated)
@@ -97,11 +96,11 @@ internal class ImageBarcodeAnalyzerTest {
 
         analyzer.analyze {
             createdFrames.incrementAndGet()
-            image
+            createImage()
         }
         assertNull(analyzer.analyze {
             createdFrames.incrementAndGet()
-            image
+            createImage()
         })
 
         assertEquals(1, createdFrames.get())
@@ -123,7 +122,7 @@ internal class ImageBarcodeAnalyzerTest {
         var disposeCalls = 0
             private set
 
-        override fun analyzeImage(image: AnalysingImage): Barcode? {
+        override fun analyzeImage(image: InputImage): Barcode? {
             analysisCalls += 1
             analysisStarted.countDown()
             allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -139,6 +138,6 @@ internal class ImageBarcodeAnalyzerTest {
     private companion object {
         const val TEST_TIMEOUT_MS = 1_000L
         const val SHORT_WAIT_MS = 100L
-        val image: AnalysingImage = mock(AnalysingImage::class.java)
+        fun createImage(): InputImage = org.mockito.Mockito.mock(InputImage::class.java)
     }
 }

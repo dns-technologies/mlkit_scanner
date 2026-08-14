@@ -2,7 +2,6 @@ package com.dns_technologies.mlkit_scanner.scanner.components.camera
 
 import android.view.View
 import androidx.lifecycle.LifecycleOwner
-import com.dns_technologies.mlkit_scanner.scanner.models.images.AnalysingImage
 import java.util.concurrent.ExecutorService
 
 /** Callback invoked after camera initialization succeeds. */
@@ -11,11 +10,8 @@ typealias OnInit = () -> Unit
 /** Callback invoked when camera initialization or processing fails. */
 typealias OnError = (e: Exception) -> Unit
 
-/** Lazily creates a scanner image from a camera frame. */
-typealias CreateCameraFrame = () -> AnalysingImage
-
-/** Callback invoked for each camera frame available for scanner analysis. */
-typealias OnCameraFrame = (createFrame: CreateCameraFrame) -> Unit
+/** Callback invoked with a frame scoped to the duration of the callback. */
+typealias OnCameraFrame = (frame: CameraFrame) -> Unit
 
 /**
  * Minimal adapter implemented by a concrete camera library integration.
