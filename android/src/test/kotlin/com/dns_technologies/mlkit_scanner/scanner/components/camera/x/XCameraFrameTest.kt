@@ -3,12 +3,13 @@ package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 import androidx.camera.core.ImageInfo
 import androidx.camera.core.ImageProxy
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
-import com.dns_technologies.mlkit_scanner.scanner.utils.ByteArrayLease
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.mockito.ArgumentMatchers.any
+import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.times
@@ -20,35 +21,34 @@ import java.util.concurrent.atomic.AtomicInteger
 
 internal class XCameraFrameTest {
     @Test
-    fun `full frame is scoped to leased nv21 buffer`() {
+    fun `full frame is converted through scoped nv21 callback`() {
         val converter = mock(ImageProxyNv21Converter::class.java)
         val imageProxy = imageProxy()
-        val crop = Rect(0, 0, FRAME_WIDTH, FRAME_HEIGHT)
         val data = ByteArray(FRAME_WIDTH * FRAME_HEIGHT * 3 / 2)
-        val releases = AtomicInteger()
-        val lease = ByteArrayLease(data) { releases.incrementAndGet() }
         val expected = Any()
         var receivedArguments: List<Any>? = null
-        var releasesInsideCallback = -1
-        doReturn(crop).`when`(converter).normalizeCropRect(null, FRAME_WIDTH, FRAME_HEIGHT)
-        doReturn(lease).`when`(converter).convert(imageProxy, crop)
+        var receivedCrop: Rect? = Rect(0, 0, 2, 2)
+        val conversionCalls = AtomicInteger()
+        stubConversion(converter, data, FRAME_WIDTH, FRAME_HEIGHT) { receivedImage, cropRect ->
+            assertSame(imageProxy, receivedImage)
+            receivedCrop = cropRect
+            conversionCalls.incrementAndGet()
+        }
         val frame = XCameraFrame(imageProxy, converter)
 
         val result = frame.useNv21(null) { bytes, width, height, rotation ->
             receivedArguments = listOf(bytes, width, height, rotation)
-            releasesInsideCallback = releases.get()
             expected
         }
 
         assertSame(expected, result)
         assertEquals(listOf(data, FRAME_WIDTH, FRAME_HEIGHT, ROTATION_DEGREES), receivedArguments)
-        assertEquals(0, releasesInsideCallback)
-        assertEquals(1, releases.get())
+        assertEquals(null, receivedCrop)
+        assertEquals(1, conversionCalls.get())
         assertEquals(FRAME_WIDTH, frame.width)
         assertEquals(FRAME_HEIGHT, frame.height)
 
         frame.close()
-        assertEquals(1, releases.get())
         verify(imageProxy).close()
     }
 
@@ -58,10 +58,12 @@ internal class XCameraFrameTest {
         val imageProxy = imageProxy()
         val crop = Rect(2, 0, 6, 4)
         val data = ByteArray(crop.width * crop.height * 3 / 2)
-        val lease = ByteArrayLease(data) {}
         var receivedArguments: List<Any>? = null
-        doReturn(crop).`when`(converter).normalizeCropRect(crop, FRAME_WIDTH, FRAME_HEIGHT)
-        doReturn(lease).`when`(converter).convert(imageProxy, crop)
+        var receivedCrop: Rect? = null
+        stubConversion(converter, data, crop.width, crop.height) { receivedImage, cropRect ->
+            assertSame(imageProxy, receivedImage)
+            receivedCrop = cropRect
+        }
         val frame = XCameraFrame(imageProxy, converter)
 
         frame.useNv21(crop) { bytes, width, height, rotation ->
@@ -69,29 +71,32 @@ internal class XCameraFrameTest {
         }
 
         assertEquals(listOf(data, crop.width, crop.height, ROTATION_DEGREES), receivedArguments)
-        verify(converter).convert(imageProxy, crop)
+        assertEquals(crop, receivedCrop)
         frame.close()
     }
 
     @Test
-    fun `failed callback releases nv21 lease`() {
+    fun `failed callback is propagated and frame cannot be materialized again`() {
         val converter = mock(ImageProxyNv21Converter::class.java)
         val imageProxy = imageProxy()
         val crop = Rect(2, 0, 6, 4)
-        val releases = AtomicInteger()
-        val lease = ByteArrayLease(ByteArray(24)) { releases.incrementAndGet() }
-        doReturn(crop).`when`(converter).normalizeCropRect(crop, FRAME_WIDTH, FRAME_HEIGHT)
-        doReturn(lease).`when`(converter).convert(imageProxy, crop)
+        val conversionCalls = AtomicInteger()
+        stubConversion(converter, ByteArray(24), crop.width, crop.height) { _, _ ->
+            conversionCalls.incrementAndGet()
+        }
         val frame = XCameraFrame(imageProxy, converter)
 
         val error = runCatching {
             frame.useNv21(crop) { _, _, _, _ -> error("analysis failed") }
         }.exceptionOrNull()
+        val repeatedAccessError = runCatching {
+            frame.useNv21(crop) { _, _, _, _ -> Unit }
+        }.exceptionOrNull()
 
         assertTrue(error is IllegalStateException)
-        assertEquals(1, releases.get())
+        assertTrue(repeatedAccessError is IllegalStateException)
+        assertEquals(1, conversionCalls.get())
         frame.close()
-        assertEquals(1, releases.get())
     }
 
     @Test
@@ -126,13 +131,17 @@ internal class XCameraFrameTest {
     fun `concurrent callers access frame only once`() {
         val converter = mock(ImageProxyNv21Converter::class.java)
         val imageProxy = imageProxy()
-        val crop = Rect(0, 0, FRAME_WIDTH, FRAME_HEIGHT)
-        val lease = ByteArrayLease(ByteArray(FRAME_WIDTH * FRAME_HEIGHT * 3 / 2)) {}
-        doReturn(crop).`when`(converter).normalizeCropRect(null, FRAME_WIDTH, FRAME_HEIGHT)
-        doReturn(lease).`when`(converter).convert(imageProxy, crop)
         val callbackStarted = CountDownLatch(1)
         val allowCallbackToFinish = CountDownLatch(1)
         val callbackCalls = AtomicInteger()
+        val conversionCalls = AtomicInteger()
+        stubConversion(
+            converter = converter,
+            data = ByteArray(FRAME_WIDTH * FRAME_HEIGHT * 3 / 2),
+            width = FRAME_WIDTH,
+            height = FRAME_HEIGHT,
+            onConvert = { _, _ -> conversionCalls.incrementAndGet() },
+        )
         val frame = XCameraFrame(imageProxy, converter)
         val executor = Executors.newFixedThreadPool(2)
 
@@ -160,12 +169,33 @@ internal class XCameraFrameTest {
                     IllegalStateException,
             )
             assertEquals(1, callbackCalls.get())
-            verify(converter, times(1)).convert(imageProxy, crop)
+            assertEquals(1, conversionCalls.get())
         } finally {
             allowCallbackToFinish.countDown()
             executor.shutdownNow()
             frame.close()
         }
+    }
+
+    private fun stubConversion(
+        converter: ImageProxyNv21Converter,
+        data: ByteArray,
+        width: Int,
+        height: Int,
+        onConvert: (ImageProxy, Rect?) -> Unit = { _, _ -> },
+    ) {
+        doAnswer { invocation ->
+            val image = invocation.getArgument<ImageProxy>(0)
+            val cropRect = invocation.getArgument<Rect?>(1)
+            @Suppress("UNCHECKED_CAST")
+            val block = invocation.arguments[2] as (ByteArray, Int, Int) -> Any?
+            onConvert(image, cropRect)
+            block(data, width, height)
+        }.`when`(converter).convert<Any?>(
+            anyValue(),
+            anyValue(),
+            anyValue(),
+        )
     }
 
     private fun imageProxy(): ImageProxy {
@@ -183,5 +213,11 @@ internal class XCameraFrameTest {
         const val FRAME_HEIGHT = 6
         const val ROTATION_DEGREES = 90
         const val TEST_TIMEOUT_MS = 1_000L
+
+        @Suppress("UNCHECKED_CAST")
+        fun <T> anyValue(): T {
+            any<T>()
+            return null as T
+        }
     }
 }

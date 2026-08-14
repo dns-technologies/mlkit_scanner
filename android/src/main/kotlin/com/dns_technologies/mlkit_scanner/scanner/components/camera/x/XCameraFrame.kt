@@ -28,12 +28,11 @@ internal class XCameraFrame(
         check(!isMaterialized) { "Camera frame is already materialized" }
         isMaterialized = true
 
-        val crop = nv21Converter.normalizeCropRect(cropRect, width, height)
-        return nv21Converter.convert(imageProxy, crop).use { lease ->
+        return nv21Converter.convert(imageProxy, cropRect) { bytes, outputWidth, outputHeight ->
             block(
-                lease.data,
-                crop.width,
-                crop.height,
+                bytes,
+                outputWidth,
+                outputHeight,
                 rotationDegree,
             )
         }

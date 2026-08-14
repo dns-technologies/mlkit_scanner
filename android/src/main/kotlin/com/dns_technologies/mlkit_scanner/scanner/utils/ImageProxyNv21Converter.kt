@@ -7,26 +7,27 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 internal class ImageProxyNv21Converter(
     private val bufferPool: ReusableByteArrayPool = ReusableByteArrayPool(),
 ) {
-    /** Converts an already normalized crop region without materializing the full frame. */
-    fun convert(image: ImageProxy, crop: Rect): ByteArrayLease {
+    /** Converts a full or cropped frame and scopes access to the pooled NV21 buffer. */
+    fun <T> convert(
+        image: ImageProxy,
+        cropRect: Rect?,
+        block: (bytes: ByteArray, width: Int, height: Int) -> T,
+    ): T {
+        val crop = normalizeCropRect(cropRect, image.width, image.height)
         val planes = image.planes
         require(planes.size >= PLANE_COUNT) { "Camera image must contain three planes" }
         val yPlaneSize = crop.width * crop.height
-        val bufferLease = bufferPool.acquire(yPlaneSize + yPlaneSize / 2)
-
-        return try {
-            copyYPlane(planes[Y_PLANE_INDEX], crop, bufferLease.data)
+        return bufferPool.acquire(yPlaneSize + yPlaneSize / 2).use { bufferLease ->
+            val output = bufferLease.data
+            copyYPlane(planes[Y_PLANE_INDEX], crop, output)
             copyUvPlanes(
                 uPlane = planes[U_PLANE_INDEX],
                 vPlane = planes[V_PLANE_INDEX],
                 crop = crop,
-                output = bufferLease.data,
+                output = output,
                 outputOffset = yPlaneSize,
             )
-            bufferLease
-        } catch (error: Throwable) {
-            bufferLease.close()
-            throw error
+            block(output, crop.width, crop.height)
         }
     }
 
@@ -35,7 +36,7 @@ internal class ImageProxyNv21Converter(
         bufferPool.dispose()
     }
 
-    fun normalizeCropRect(
+    private fun normalizeCropRect(
         cropRect: Rect?,
         width: Int,
         height: Int,
