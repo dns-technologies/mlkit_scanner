@@ -35,7 +35,7 @@ internal class InitCameraCommand(
 
         @Suppress("UNCHECKED_CAST")
         scannerSession.startCamera(
-            InitialScannerParameters(call.arguments as Map<String, Any?>),
+            (call.arguments as? Map<String, Any?>)?.let(::InitialScannerParameters),
         )
         success(result)
     }
