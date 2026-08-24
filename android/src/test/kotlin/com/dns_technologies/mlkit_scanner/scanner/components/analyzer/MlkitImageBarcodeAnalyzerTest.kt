@@ -61,16 +61,41 @@ internal class MlkitImageBarcodeAnalyzerTest {
     }
 
     @Test
-    fun `recognized mlkit barcode is mapped to scanner barcode`() {
+    fun `recognized mlkit barcode maps every scanner barcode field`() {
         val mlkitBarcode = mock(MlkitBarcode::class.java)
         doReturn(BARCODE_VALUE).`when`(mlkitBarcode).rawValue
+        doReturn(DISPLAY_VALUE).`when`(mlkitBarcode).displayValue
+        doReturn(MlkitBarcode.FORMAT_QR_CODE).`when`(mlkitBarcode).format
+        doReturn(MlkitBarcode.TYPE_URL).`when`(mlkitBarcode).valueType
         val errors = mutableListOf<String>()
         val analyzer = analyzer(barcodeScanner(listOf(mlkitBarcode)), logError = errors::add)
 
         val result = analyzer.analyze(FakeFrame(), null)
 
         assertTrue(errors.toString(), errors.isEmpty())
-        assertEquals(BARCODE_VALUE, result?.toMap()?.get("raw_value"))
+        assertEquals(
+            mapOf(
+                "raw_value" to BARCODE_VALUE,
+                "display_value" to DISPLAY_VALUE,
+                "format" to MlkitBarcode.FORMAT_QR_CODE,
+                "value_type" to MlkitBarcode.TYPE_URL,
+            ),
+            result?.toMap(),
+        )
+    }
+
+    @Test
+    fun `unknown mlkit format maps to dart unknown format code`() {
+        val mlkitBarcode = mock(MlkitBarcode::class.java)
+        doReturn(BARCODE_VALUE).`when`(mlkitBarcode).rawValue
+        doReturn(MlkitBarcode.FORMAT_UNKNOWN).`when`(mlkitBarcode).format
+        doReturn(MlkitBarcode.TYPE_UNKNOWN).`when`(mlkitBarcode).valueType
+        val analyzer = analyzer(barcodeScanner(listOf(mlkitBarcode)))
+
+        val result = analyzer.analyze(FakeFrame(), null)
+
+        assertEquals(UNKNOWN_FORMAT_CODE, result?.toMap()?.get("format"))
+        assertEquals(null, result?.toMap()?.get("display_value"))
     }
 
     @Test
@@ -135,6 +160,8 @@ internal class MlkitImageBarcodeAnalyzerTest {
         const val FRAME_HEIGHT = 6
         const val ROTATION_DEGREES = 90
         const val BARCODE_VALUE = "barcode-value"
+        const val DISPLAY_VALUE = "Barcode value"
+        const val UNKNOWN_FORMAT_CODE = 0
 
         @Suppress("UNCHECKED_CAST")
         fun <T> anyValue(): T {

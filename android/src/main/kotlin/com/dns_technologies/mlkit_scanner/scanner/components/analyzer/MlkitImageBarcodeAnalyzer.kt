@@ -60,14 +60,13 @@ class MlkitImageBarcodeAnalyzer internal constructor(
     private fun analyzeImage(image: InputImage): Barcode? {
         return try {
             val barcode = awaitBarcodes(barcodeScanner.process(image))
-                .firstOrNull { it.rawValue != null }
+                .firstNotNullOfOrNull { it.toScannerBarcode() }
                 ?: return null
 
-            val rawValue = barcode.rawValue ?: return null
             if (BuildConfig.DEBUG) {
-                logDebug(rawValue)
+                logDebug(barcode.rawValue)
             }
-            Barcode(rawValue)
+            barcode
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             null
@@ -75,5 +74,22 @@ class MlkitImageBarcodeAnalyzer internal constructor(
             error.message?.let(logError)
             null
         }
+    }
+
+    /** Maps the ML Kit result at the adapter boundary without leaking ML Kit types downstream. */
+    private fun MlkitBarcode.toScannerBarcode(): Barcode? {
+        val rawValue = rawValue ?: return null
+        return Barcode(
+            rawValue = rawValue,
+            displayValue = displayValue,
+            format = if (format == MlkitBarcode.FORMAT_UNKNOWN) UNKNOWN_FORMAT_CODE else format,
+            valueType = valueType,
+        )
+    }
+
+    private companion object {
+        // Android ML Kit uses -1, while the iOS contract uses 0.
+        // It was decided to reduce the unknown contract to 0 everywhere
+        const val UNKNOWN_FORMAT_CODE = 0
     }
 }
