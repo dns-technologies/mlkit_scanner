@@ -192,10 +192,6 @@ internal class ScannerSessionImplTest {
     private companion object {
         const val TEST_TIMEOUT_MS = 1_000L
 
-        @Suppress("UNCHECKED_CAST")
-        fun <T> anyValue(): T {
-            any<T>()
-            return null as T
-        }
+        fun <T> anyValue(): T = any<T>()
     }
 }

@@ -163,10 +163,6 @@ internal class MlkitImageBarcodeAnalyzerTest {
         const val DISPLAY_VALUE = "Barcode value"
         const val UNKNOWN_FORMAT_CODE = 0
 
-        @Suppress("UNCHECKED_CAST")
-        fun <T> anyValue(): T {
-            any<T>()
-            return null as T
-        }
+        fun <T> anyValue(): T = any<T>()
     }
 }

@@ -13,6 +13,6 @@ data class InitialScannerParameters(
     /** Creates [InitialScannerParameters] from a method channel argument map. */
     constructor(map: Map<String, Any?>) : this(
         (map["initialZoom"] as Double?),
-        if (map["initialCropRect"] is Map<*, *>) RecognizeVisorCropRect.fromMap(map["initialCropRect"] as Map<String, Any?>) else null,
+        (map["initialCropRect"] as? Map<*, *>)?.let(RecognizeVisorCropRect::fromMap),
     )
 }

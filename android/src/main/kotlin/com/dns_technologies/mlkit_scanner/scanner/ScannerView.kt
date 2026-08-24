@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner.scanner
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.view.MotionEvent
 import android.view.View
@@ -17,6 +18,7 @@ import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
 import io.flutter.plugin.platform.PlatformView
 
 /** Android platform view that renders scanner preview and scanner overlays. */
+@SuppressLint("ViewConstructor")
 class ScannerView(
     context: Context,
     private val scanner: Scanner,

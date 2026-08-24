@@ -2,7 +2,6 @@ package com.dns_technologies.mlkit_scanner
 
 import android.os.Handler
 import android.os.Looper
-import androidx.annotation.NonNull
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -55,7 +54,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
         get() = (lifecycle as HiddenLifecycleReference).lifecycle
 
     /** Registers method channel and scanner platform view factory with the Flutter engine. */
-    override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+    override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         val methodChannel = MethodChannel(flutterPluginBinding.binaryMessenger, PluginConstants.channelName)
         channel = methodChannel
         methodChannel.setMethodCallHandler(this)
@@ -73,7 +72,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
     }
 
     /** Releases scanner state and disconnects the method channel from the Flutter engine. */
-    override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
+    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         disposeScanner()
         commandScope.cancel()
         mainHandler.removeCallbacksAndMessages(null)
@@ -102,7 +101,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
     }
 
     /** Routes Flutter method channel calls to scanner initialization and command handlers. */
-    override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
+    override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
             PluginConstants.initCameraMethod -> InitCameraCommand(
                 scannerSessionProvider = ::scannerSession,

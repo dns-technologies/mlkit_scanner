@@ -65,9 +65,5 @@ internal class InitCameraCommandTest {
         override fun owns(scannerView: ScannerView): Boolean = false
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun <T> anyValue(): T {
-        any<T>()
-        return null as T
-    }
+    private fun <T> anyValue(): T = any<T>()
 }

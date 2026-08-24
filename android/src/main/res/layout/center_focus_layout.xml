@@ -10,6 +10,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:layout_marginRight="60sp"
+            android:contentDescription="@null"
             android:visibility="invisible"
             android:src="@drawable/ic_lock">
     </ImageView>
@@ -18,6 +19,7 @@
             android:layout_width="70sp"
             android:layout_height="70sp"
             android:layout_gravity="center"
+            android:contentDescription="@null"
             android:visibility="invisible"
             android:src="@drawable/circle">
     </ImageView>

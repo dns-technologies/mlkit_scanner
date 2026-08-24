@@ -16,7 +16,7 @@ data class RecognizeVisorCropRect(
 ) {
     companion object {
         /** Creates [RecognizeVisorCropRect] from a method channel argument map. */
-        fun fromMap(map: Map<String, Any?>): RecognizeVisorCropRect {
+        fun fromMap(map: Map<*, *>): RecognizeVisorCropRect {
             return RecognizeVisorCropRect(
                 (map["scaleWidth"] as Double?) ?: 1.0,
                 (map["scaleHeight"] as Double?) ?: 1.0,
