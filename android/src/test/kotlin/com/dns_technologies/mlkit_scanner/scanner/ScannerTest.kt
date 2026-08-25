@@ -17,9 +17,13 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.Mockito.mock
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 internal class ScannerTest {
     @Test
@@ -121,6 +125,49 @@ internal class ScannerTest {
         assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
     }
 
+    @Test
+    fun `cancelled scan job cannot publish its result after restart`() {
+        val analysisStarted = CountDownLatch(1)
+        val allowAnalysisToFinish = CountDownLatch(1)
+        val analyzer = BlockingResultAnalyzer(analysisStarted, allowAnalysisToFinish)
+        val camera = FakeCamera()
+        val scanner = Scanner(camera, analyzer)
+        val received = mutableListOf<Barcode>()
+        scanner.subscribeToScanResults(received::add)
+        scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        scanner.startScan(periodMs = 0)
+        val executor = Executors.newSingleThreadExecutor()
+
+        try {
+            val analysis = executor.submit { camera.emitFrame(testFrame()) }
+            assertTrue(analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+
+            scanner.pauseScan()
+            scanner.resumeScan()
+            allowAnalysisToFinish.countDown()
+            analysis.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+
+            assertTrue(received.isEmpty())
+        } finally {
+            allowAnalysisToFinish.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `active scan job publishes analyzer result`() {
+        val camera = FakeCamera()
+        val scanner = Scanner(camera, ResultAnalyzer())
+        val received = mutableListOf<Barcode>()
+        scanner.subscribeToScanResults(received::add)
+        scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        scanner.startScan(periodMs = 0)
+
+        camera.emitFrame(testFrame())
+
+        assertEquals(listOf(BARCODE), received)
+    }
+
     private class Fixture {
         private var currentTimeMs = 0L
         val camera = FakeCamera()
@@ -180,6 +227,25 @@ internal class ScannerTest {
         override fun disposeAnalyzer() = Unit
     }
 
+    private class BlockingResultAnalyzer(
+        private val analysisStarted: CountDownLatch,
+        private val allowAnalysisToFinish: CountDownLatch,
+    ) : ImageBarcodeAnalyzer({ 0L }) {
+        override fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode {
+            analysisStarted.countDown()
+            allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            return BARCODE
+        }
+
+        override fun disposeAnalyzer() = Unit
+    }
+
+    private class ResultAnalyzer : ImageBarcodeAnalyzer({ 0L }) {
+        override fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode = BARCODE
+
+        override fun disposeAnalyzer() = Unit
+    }
+
     private class FakeCamera : Camera {
         override val previewView: View = mock(View::class.java)
         val zoomValues = mutableListOf<Float>()
@@ -216,6 +282,29 @@ internal class ScannerTest {
 
         override fun dispose() {
             onFrame = null
+        }
+    }
+
+    private companion object {
+        const val TEST_TIMEOUT_MS = 1_000L
+        val BARCODE = Barcode(
+            rawValue = "1234567890",
+            displayValue = "1234567890",
+            format = 1,
+            valueType = 1,
+        )
+
+        fun testFrame(): CameraFrame = object : CameraFrame {
+            override val width = 720
+            override val height = 1280
+            override val rotationDegree = 0
+
+            override fun <T> useNv21(
+                cropRect: Rect?,
+                block: (ByteArray, Int, Int, Int) -> T,
+            ): T = block(ByteArray(1), width, height, rotationDegree)
+
+            override fun close() = Unit
         }
     }
 }

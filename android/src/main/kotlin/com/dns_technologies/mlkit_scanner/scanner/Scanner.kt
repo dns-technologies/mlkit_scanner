@@ -14,6 +14,8 @@ import com.dns_technologies.mlkit_scanner.scanner.utils.ScanAreaCalculator
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CompletableJob
+import kotlinx.coroutines.Job
 
 /** Listener that receives decoded scanner results. */
 typealias OnScanResultListener = (result: Barcode) -> Unit
@@ -28,14 +30,15 @@ class Scanner(
     private val analyzer: ImageBarcodeAnalyzer,
 ) {
     private var analysisExecutor: ExecutorService? = null
+    private val scanJobLock = Any()
+    private var scanJob: CompletableJob? = null
     @Volatile
     private var cropConfiguration = CropConfiguration()
     private val scanResultListeners = CopyOnWriteArraySet<OnScanResultListener>()
 
     /** Indicates whether incoming frames should be sent to the analyzer. */
-    @Volatile
-    var isScanActive = false
-        private set
+    val isScanActive: Boolean
+        get() = synchronized(scanJobLock) { scanJob?.isActive == true }
 
     /** Native preview view supplied by the camera adapter. */
     val previewView: View
@@ -85,12 +88,18 @@ class Scanner(
 
     /** Resumes analysis with the period already retained by the analyzer. */
     fun resumeScan() {
-        isScanActive = true
+        synchronized(scanJobLock) {
+            if (scanJob?.isActive == true) return
+            scanJob = Job()
+        }
     }
 
     /** Pauses frame analysis without releasing analyzer resources. */
     fun pauseScan() {
-        isScanActive = false
+        synchronized(scanJobLock) {
+            scanJob?.cancel()
+            scanJob = null
+        }
     }
 
     /** Updates the delay between analyzer attempts. */
@@ -124,7 +133,7 @@ class Scanner(
 
     /** Releases scanner components and stops pending analysis work. */
     fun dispose() {
-        isScanActive = false
+        pauseScan()
         camera.dispose()
         analysisExecutor?.shutdownNow()
         analysisExecutor = null
@@ -133,13 +142,26 @@ class Scanner(
 
     /** Processes a camera frame when scanning is active. */
     private fun analyzeFrame(frame: CameraFrame) {
-        if (!isScanActive) return
+        val analysisJob = createAnalysisJob() ?: return
 
-        val configuration = cropConfiguration
-        val cropRect = configuration.scanArea?.let { scanArea ->
-            ScanAreaCalculator.calculate(frame, scanArea, configuration.scale)
+        try {
+            val configuration = cropConfiguration
+            val cropRect = configuration.scanArea?.let { scanArea ->
+                ScanAreaCalculator.calculate(frame, scanArea, configuration.scale)
+            }
+            val result = analyzer.analyze(frame, cropRect) ?: return
+            synchronized(scanJobLock) {
+                if (analysisJob.isActive) emitScanResult(result)
+            }
+        } finally {
+            analysisJob.complete()
         }
-        analyzer.analyze(frame, cropRect)?.let(::emitScanResult)
+    }
+
+    /** Creates one child job owned by the currently active scan run. */
+    private fun createAnalysisJob(): CompletableJob? = synchronized(scanJobLock) {
+        val activeScanJob = scanJob?.takeIf { it.isActive } ?: return@synchronized null
+        Job(activeScanJob)
     }
 
     /** Notifies all active listeners about a recognized scanner result. */

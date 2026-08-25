@@ -89,6 +89,7 @@ internal class ScannerSessionImpl(
         cameraRequested = true
         cameraPaused = false
         updateCameraLifecycle()
+        applyScanState()
 
         initializeCamera(initialZoom, initialCropRect).await()
     }
@@ -96,21 +97,25 @@ internal class ScannerSessionImpl(
     override fun resumeCamera() {
         cameraPaused = false
         updateCameraLifecycle()
+        applyScanState()
     }
 
     override fun pauseCamera() {
         cameraPaused = true
         updateCameraLifecycle()
+        applyScanState()
     }
 
     override fun onHostResume() {
         hostPaused = false
         updateCameraLifecycle()
+        applyScanState()
     }
 
     override fun onHostPause() {
         hostPaused = true
         updateCameraLifecycle()
+        applyScanState()
     }
 
     override fun toggleFlashLight() = scanner.toggleFlashLight()
@@ -191,7 +196,11 @@ internal class ScannerSessionImpl(
     }
 
     private fun applyScanState() {
-        val shouldScan = scanRequested && views.isNotEmpty() && !isReleased
+        val shouldScan = scanRequested &&
+            views.isNotEmpty() &&
+            !cameraPaused &&
+            !hostPaused &&
+            !isReleased
         deliverScanResults = shouldScan
         if (shouldScan) {
             scanner.resumeScan()

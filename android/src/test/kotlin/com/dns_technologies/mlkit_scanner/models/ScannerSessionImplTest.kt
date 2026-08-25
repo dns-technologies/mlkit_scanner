@@ -212,6 +212,28 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
+    fun `camera pause cancels queued result and resume restores requested scan`() {
+        val received = mutableListOf<Barcode>()
+        val fixture = Fixture { _, barcode -> received.add(barcode) }
+        fixture.session.startScan(0)
+        fixture.emitScanResult(BARCODE)
+        val delivery = fixture.postedCallbacks.single()
+        clearInvocations(fixture.scanner)
+
+        fixture.session.pauseCamera()
+        delivery.run()
+
+        verify(fixture.mainHandler).removeCallbacks(delivery)
+        verify(fixture.scanner).pauseScan()
+        assertTrue(received.isEmpty())
+
+        clearInvocations(fixture.scanner)
+        fixture.session.resumeCamera()
+
+        verify(fixture.scanner).resumeScan()
+    }
+
+    @Test
     fun `parallel starts share one camera initialization`() = runSessionTest {
         val fixture = Fixture()
 

@@ -4,8 +4,7 @@ import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.optimizati
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Base class for barcode analyzers independent of a concrete image-analysis library.
@@ -17,43 +16,58 @@ abstract class ImageBarcodeAnalyzer protected constructor(
     currentTimeMs: () -> Long = android.os.SystemClock::elapsedRealtime,
 ) {
     private val analyzeDelayTimer = AnalyzeDelayTimer(0, currentTimeMs)
-    private val stateLock = ReentrantLock()
-    private var isDisposed = false
+    private val isAnalyzing = AtomicBoolean(false)
+    private val isDisposed = AtomicBoolean(false)
+    private val isClosed = AtomicBoolean(false)
 
     /** Attempts to recognize a barcode when the analyzer is ready to accept another frame. */
     fun analyze(frame: CameraFrame, cropRect: Rect?): Barcode? {
-        if (!stateLock.tryLock()) return null
+        if (isDisposed.get() || !isAnalyzing.compareAndSet(false, true)) return null
 
+        var analysisAccepted = false
         return try {
-            if (isDisposed || analyzeDelayTimer.isRunning) {
+            if (isDisposed.get() || analyzeDelayTimer.isRunning) {
                 null
             } else {
-                try {
-                    analyzeFrame(frame, cropRect)
-                } finally {
-                    analyzeDelayTimer.restart()
-                }
+                analysisAccepted = true
+                analyzeFrame(frame, cropRect)
             }
         } finally {
-            stateLock.unlock()
+            try {
+                if (analysisAccepted && !isDisposed.get()) {
+                    analyzeDelayTimer.restart()
+                }
+            } finally {
+                isAnalyzing.set(false)
+                closeIfDisposedAndIdle()
+            }
         }
     }
 
     /** Updates the minimum delay between accepted analysis attempts. */
     fun updatePeriod(periodMs: Int) {
-        stateLock.withLock {
-            analyzeDelayTimer.updatePeriod(periodMs)
-        }
+        analyzeDelayTimer.updatePeriod(periodMs)
     }
 
-    /** Waits for active analysis and releases implementation resources exactly once. */
+    /** Marks the analyzer disposed and releases its resources once active analysis has finished. */
     fun dispose() {
-        stateLock.withLock {
-            if (isDisposed) return
-
-            isDisposed = true
+        if (isDisposed.compareAndSet(false, true)) {
             analyzeDelayTimer.stop()
-            disposeAnalyzer()
+        }
+
+        closeIfDisposedAndIdle()
+    }
+
+    private fun closeIfDisposedAndIdle() {
+        if (!isDisposed.get() || !isAnalyzing.compareAndSet(false, true)) return
+
+        try {
+            analyzeDelayTimer.stop()
+            if (isClosed.compareAndSet(false, true)) {
+                disposeAnalyzer()
+            }
+        } finally {
+            isAnalyzing.set(false)
         }
     }
 

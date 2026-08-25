@@ -41,7 +41,7 @@ internal class ImageBarcodeAnalyzerTest {
     }
 
     @Test
-    fun `dispose waits for running analysis before releasing resources`() {
+    fun `dispose returns while analysis runs and releases resources after completion`() {
         val analysisStarted = CountDownLatch(1)
         val allowAnalysisToFinish = CountDownLatch(1)
         val analyzer = TestAnalyzer {
@@ -61,13 +61,40 @@ internal class ImageBarcodeAnalyzerTest {
                 analyzer.dispose()
             }
             assertTrue(disposalStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+            disposal.get(SHORT_WAIT_MS, TimeUnit.MILLISECONDS)
             assertFalse(analyzer.resourcesDisposed.await(SHORT_WAIT_MS, TimeUnit.MILLISECONDS))
 
             allowAnalysisToFinish.countDown()
             analysis.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            disposal.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
             assertTrue(analyzer.resourcesDisposed.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+            assertEquals(1, analyzer.disposeCalls.get())
+        } finally {
+            allowAnalysisToFinish.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `period update returns while analysis is running`() {
+        val analysisStarted = CountDownLatch(1)
+        val allowAnalysisToFinish = CountDownLatch(1)
+        val analyzer = TestAnalyzer {
+            analysisStarted.countDown()
+            allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            null
+        }
+        val executor = Executors.newFixedThreadPool(2)
+
+        try {
+            val analysis = executor.submit<Barcode?> { analyzer.analyze(TEST_FRAME, null) }
+            assertTrue(analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+
+            val periodUpdate = executor.submit { analyzer.updatePeriod(100) }
+            periodUpdate.get(SHORT_WAIT_MS, TimeUnit.MILLISECONDS)
+
+            allowAnalysisToFinish.countDown()
+            analysis.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         } finally {
             allowAnalysisToFinish.countDown()
             executor.shutdownNow()

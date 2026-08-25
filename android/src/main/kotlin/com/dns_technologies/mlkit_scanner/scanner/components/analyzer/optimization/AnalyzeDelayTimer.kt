@@ -1,34 +1,36 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.analyzer.optimization
 
 import android.os.SystemClock
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /** Throttles analyzer attempts by keeping a delay window after recognition attempts. */
 internal class AnalyzeDelayTimer(
     periodMs: Int,
     private val currentTimeMs: () -> Long = SystemClock::elapsedRealtime,
 ) {
-    private var periodMs: Int = periodMs
+    private val periodMs = AtomicInteger(periodMs)
 
-    private var nextAcceptedAnalysisTimeMs = 0L
+    private val nextAcceptedAnalysisTimeMs = AtomicLong(0L)
 
     /** Indicates whether a delay window is currently active. */
     val isRunning: Boolean
-        get() = currentTimeMs() < nextAcceptedAnalysisTimeMs
+        get() = currentTimeMs() < nextAcceptedAnalysisTimeMs.get()
 
     /** Updates delay period used by the next timer restart. */
     fun updatePeriod(periodMs: Int) {
-        this.periodMs = periodMs
+        this.periodMs.set(periodMs)
     }
 
     /** Restarts the delay timer using the configured period. */
     fun restart() {
-        val acceptedPeriodMs = maxOf(periodMs, MIN_ANALYZE_DELAY_MS)
-        nextAcceptedAnalysisTimeMs = currentTimeMs() + acceptedPeriodMs
+        val acceptedPeriodMs = maxOf(periodMs.get(), MIN_ANALYZE_DELAY_MS)
+        nextAcceptedAnalysisTimeMs.set(currentTimeMs() + acceptedPeriodMs)
     }
 
     /** Stops the active delay timer, if one exists. */
     fun stop() {
-        nextAcceptedAnalysisTimeMs = 0L
+        nextAcceptedAnalysisTimeMs.set(0L)
     }
 
     private companion object {
