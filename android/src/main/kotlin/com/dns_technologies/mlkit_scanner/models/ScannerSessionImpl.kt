@@ -2,6 +2,7 @@ package com.dns_technologies.mlkit_scanner.models
 
 import android.content.Context
 import android.os.Handler
+import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -31,19 +32,20 @@ internal class ScannerSessionImpl(
     private val onReleased: () -> Unit,
     private val releaseDelayMs: Long = DEFAULT_RELEASE_DELAY_MS,
     private val initializationScope: CoroutineScope = MainScope(),
-) : ScannerSession, LifecycleOwner {
+) : ScannerSession, LifecycleOwner, DefaultLifecycleObserver {
     private val lifecycleRegistry = LifecycleRegistry.createUnsafe(this)
     private val views = linkedMapOf<Int, ScannerView>()
     private val resultDeliveryLock = Any()
     private val pendingResultDeliveries = mutableSetOf<Runnable>()
     private var scanSubscription: ScanResultSubscription? =
         scanner.subscribeToScanResults(::enqueueScanResult)
+    private var hostLifecycle: Lifecycle? = null
     private var cameraInitialization: CompletableDeferred<Unit>? = null
     private var deferredRelease: Runnable? = null
     private var scanRequested = false
     private var cameraRequested = false
     private var cameraPaused = false
-    private var hostPaused = false
+    private var hostPaused = true
 
     @Volatile
     private var deliverScanResults = false
@@ -106,16 +108,31 @@ internal class ScannerSessionImpl(
         applyScanState()
     }
 
-    override fun onHostResume() {
-        hostPaused = false
-        updateCameraLifecycle()
-        applyScanState()
+    override fun attachHostLifecycle(lifecycle: Lifecycle) {
+        if (isReleased) return
+        if (hostLifecycle === lifecycle) {
+            updateHostPaused(!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+            return
+        }
+
+        hostLifecycle?.removeObserver(this)
+        hostLifecycle = lifecycle
+        updateHostPaused(!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        lifecycle.addObserver(this)
     }
 
-    override fun onHostPause() {
-        hostPaused = true
-        updateCameraLifecycle()
-        applyScanState()
+    override fun detachHostLifecycle() {
+        hostLifecycle?.removeObserver(this)
+        hostLifecycle = null
+        updateHostPaused(true)
+    }
+
+    override fun onResume(owner: LifecycleOwner) {
+        updateHostPaused(false)
+    }
+
+    override fun onPause(owner: LifecycleOwner) {
+        updateHostPaused(true)
     }
 
     override fun toggleFlashLight() = scanner.toggleFlashLight()
@@ -165,6 +182,7 @@ internal class ScannerSessionImpl(
 
     override fun release() {
         if (isReleased) return
+        detachHostLifecycle()
         isReleased = true
         cancelDeferredRelease()
         deliverScanResults = false
@@ -219,6 +237,13 @@ internal class ScannerSessionImpl(
         } else {
             Lifecycle.State.CREATED
         }
+    }
+
+    private fun updateHostPaused(isPaused: Boolean) {
+        if (hostPaused == isPaused) return
+        hostPaused = isPaused
+        updateCameraLifecycle()
+        applyScanState()
     }
 
     private fun initializeCamera(

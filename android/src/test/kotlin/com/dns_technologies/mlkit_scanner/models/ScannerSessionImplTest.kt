@@ -1,6 +1,9 @@
 package com.dns_technologies.mlkit_scanner.models
 
 import android.os.Handler
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
@@ -89,11 +92,13 @@ internal class ScannerSessionImplTest {
     @Test
     fun `session releases shared pipeline after registry remains empty`() {
         val fixture = Fixture()
+        assertEquals(1, fixture.hostLifecycleOwner.observerCount)
 
         fixture.session.disposeView(FIRST_VIEW_ID)
         fixture.delayedCallbacks.single().run()
 
         verify(fixture.scanner).dispose()
+        assertEquals(0, fixture.hostLifecycleOwner.observerCount)
         assertEquals(1, fixture.subscriptionCancelCalls)
         assertEquals(1, fixture.releaseCalls)
     }
@@ -232,6 +237,61 @@ internal class ScannerSessionImplTest {
 
         verify(fixture.scanner).resumeScan()
     }
+
+    @Test
+    fun `camera lifecycle stays created when session attaches to already paused host`() =
+        runSessionTest {
+            val fixture = Fixture(hostLifecycleState = Lifecycle.State.STARTED)
+            fixture.session.startScan(0)
+            clearInvocations(fixture.scanner)
+
+            val initialization = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.session.startCamera(FIRST_VIEW_ID, null, null)
+            }
+
+            assertEquals(Lifecycle.State.CREATED, fixture.session.lifecycle.currentState)
+            verify(fixture.scanner).pauseScan()
+
+            clearInvocations(fixture.scanner)
+            fixture.hostLifecycleOwner.moveTo(Lifecycle.State.RESUMED)
+
+            assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+            verify(fixture.scanner).resumeScan()
+
+            fixture.completeInitialization()
+            withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+        }
+
+    @Test
+    fun `host lifecycle replacement pauses during detach and ignores old host afterwards`() =
+        runSessionTest {
+            val fixture = Fixture()
+            fixture.session.startScan(0)
+            val initialization = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.session.startCamera(FIRST_VIEW_ID, null, null)
+            }
+            assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+
+            clearInvocations(fixture.scanner)
+            fixture.session.detachHostLifecycle()
+
+            assertEquals(Lifecycle.State.CREATED, fixture.session.lifecycle.currentState)
+            assertEquals(0, fixture.hostLifecycleOwner.observerCount)
+            verify(fixture.scanner).pauseScan()
+
+            val replacementHost = TestHostLifecycleOwner(Lifecycle.State.RESUMED)
+            fixture.session.attachHostLifecycle(replacementHost.lifecycle)
+            assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+
+            clearInvocations(fixture.scanner)
+            fixture.hostLifecycleOwner.moveTo(Lifecycle.State.CREATED)
+
+            assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+            verify(fixture.scanner, never()).pauseScan()
+
+            fixture.completeInitialization()
+            withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+        }
 
     @Test
     fun `parallel starts share one camera initialization`() = runSessionTest {
@@ -408,12 +468,14 @@ internal class ScannerSessionImplTest {
     }
 
     private class Fixture(
+        hostLifecycleState: Lifecycle.State = Lifecycle.State.RESUMED,
         onScanResult: (Int, Barcode) -> Unit = { _, _ -> },
     ) {
         val scanner: Scanner = mock(Scanner::class.java)
         val mainHandler: Handler = mock(Handler::class.java)
         val postedCallbacks = mutableListOf<Runnable>()
         val delayedCallbacks = mutableListOf<Runnable>()
+        val hostLifecycleOwner = TestHostLifecycleOwner(hostLifecycleState)
         val session: ScannerSessionImpl
         var startCalls = 0
             private set
@@ -470,6 +532,7 @@ internal class ScannerSessionImplTest {
                 releaseDelayMs = 300L,
                 initializationScope = CoroutineScope(Dispatchers.Unconfined),
             )
+            session.attachHostLifecycle(hostLifecycleOwner.lifecycle)
             attach(FIRST_VIEW_ID)
         }
 
@@ -510,6 +573,24 @@ internal class ScannerSessionImplTest {
 
         fun failInitialization(error: Exception) {
             onError?.invoke(error)
+        }
+    }
+
+    private class TestHostLifecycleOwner(
+        initialState: Lifecycle.State,
+    ) : LifecycleOwner {
+        private val registry = LifecycleRegistry.createUnsafe(this).apply {
+            currentState = initialState
+        }
+
+        override val lifecycle: Lifecycle
+            get() = registry
+
+        val observerCount: Int
+            get() = registry.observerCount
+
+        fun moveTo(state: Lifecycle.State) {
+            registry.currentState = state
         }
     }
 

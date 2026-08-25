@@ -2,9 +2,7 @@ package com.dns_technologies.mlkit_scanner
 
 import android.os.Handler
 import android.os.Looper
-import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.commands.CancelScanCommand
 import com.dns_technologies.mlkit_scanner.commands.DisposeCameraCommand
 import com.dns_technologies.mlkit_scanner.commands.InitCameraCommand
@@ -41,7 +39,7 @@ import io.flutter.plugin.common.MethodChannel.Result
 /** Android plugin entry point for the ML Kit scanner. */
 class MlkitScannerPlugin internal constructor(
     private val mainHandler: Handler,
-) : FlutterPlugin, ActivityAware, MethodCallHandler, DefaultLifecycleObserver {
+) : FlutterPlugin, ActivityAware, MethodCallHandler {
     /** Constructor used by the Flutter embedding. */
     constructor() : this(Handler(Looper.getMainLooper()))
 
@@ -122,28 +120,18 @@ class MlkitScannerPlugin internal constructor(
         }
     }
 
-    /** Handles host lifecycle resume events for the active scanner session. */
-    override fun onResume(owner: LifecycleOwner) {
-        scannerSession?.onHostResume()
-    }
-
-    /** Handles host lifecycle pause events for the active scanner session. */
-    override fun onPause(owner: LifecycleOwner) {
-        scannerSession?.onHostPause()
-    }
-
     /** Attaches Activity-scoped permissions and lifecycle delegates. */
     private fun attachActivity(binding: ActivityPluginBinding) {
         activityBinding = binding
         permissionGateway.attach(binding)
-        binding.activityLifecycle.addObserver(this)
+        scannerSession?.attachHostLifecycle(binding.activityLifecycle)
         binding.addRequestPermissionsResultListener(permissionGateway::onPermissionResult)
     }
 
     /** Detaches Activity-scoped permissions and lifecycle delegates. */
     private fun detachActivity() {
         val binding = activityBinding ?: return
-        binding.activityLifecycle.removeObserver(this)
+        scannerSession?.detachHostLifecycle()
         binding.removeRequestPermissionsResultListener(permissionGateway::onPermissionResult)
         activityBinding = null
         permissionGateway.detach()
@@ -159,7 +147,10 @@ class MlkitScannerPlugin internal constructor(
             mainHandler = mainHandler,
             onScanResult = ::emitScanResult,
             onReleased = { scannerSession = null },
-        ).also { scannerSession = it }
+        ).also { newSession ->
+            scannerSession = newSession
+            activityBinding?.activityLifecycle?.let(newSession::attachHostLifecycle)
+        }
         return session.createView(context, viewId)
     }
 

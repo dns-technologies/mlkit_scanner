@@ -1,6 +1,7 @@
 package com.dns_technologies.mlkit_scanner.commands
 
 import android.content.Context
+import androidx.lifecycle.Lifecycle
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
@@ -116,8 +117,8 @@ internal class InitCameraCommandTest {
 
         override fun resumeCamera() = Unit
         override fun pauseCamera() = Unit
-        override fun onHostResume() = Unit
-        override fun onHostPause() = Unit
+        override fun attachHostLifecycle(lifecycle: Lifecycle) = Unit
+        override fun detachHostLifecycle() = Unit
         override fun toggleFlashLight() = Unit
         override fun startScan(periodMs: Int) = Unit
         override fun pauseScan() = Unit
