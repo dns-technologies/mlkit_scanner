@@ -31,7 +31,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         case PluginConstants.initCameraMethod:
             initCamera(arguments: call.arguments, result: result)
         case PluginConstants.disposeMethod:
-            dispose(result: result)
+            dispose(arguments: call.arguments, result: result)
         case PluginConstants.toggleFlashMethod:
             toggleFlash(result: result)
         case PluginConstants.startScanMethod:
@@ -60,38 +60,77 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     }
 
     private func initCamera(arguments: Any?, result: @escaping FlutterResult) {
-        // When rebuilding a widget, dispose() is not called,
-        // which causes situations where initCamera() can be called multiple times.
-        if (isAlreadyInitialized) {
-            return
-        }
-
-        guard let params = arguments as? Dictionary<String, Any?>? else {
+        guard
+            let params = arguments as? Dictionary<String, Any?>,
+            let viewId = viewId(from: params)
+        else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
-        var initialScannerParams: ScannerParameters?
-        if let params = params {
-            initialScannerParams = ScannerParameters(arguments: params)
-        }
-
-        if let initialCropRect = initialScannerParams?.cropRect {
-            setCropArea(rect: initialCropRect)
-        }
-
-        guard let cameraPreview = cameraPreview else {
-            self.handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
+        guard let cameraPreview = cameraPreview, cameraPreview.viewId == viewId else {
+            handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
             return
         }
-        cameraPreview.initCamera(initialZoom: initialScannerParams?.zoom, initialCamera: initialScannerParams?.camera) { [weak self] error in
-            if let error = error {
-                self?.handleError(error: error, result: result)
-            } else {
-                self?.cameraPreview?.cameraPreviewDelegate = self
+
+        // When rebuilding a widget, dispose() is not called,
+        // which causes situations where initCamera() can be called multiple times.
+        if (isAlreadyInitialized) {
+            result(nil)
+            return
+        }
+
+        var initialZoom: Double?
+        if let zoomArgument = params[PluginConstants.initialZoomArgument] {
+            guard let zoom = zoomArgument as? Double else {
+                handleError(error: MlKitPluginError.invalidArguments, result: result)
+                return
+            }
+            initialZoom = zoom
+        }
+
+        if let cropRectArguments = params[PluginConstants.initialCropRectArgument] {
+            guard
+                let cropRectMap = cropRectArguments as? Dictionary<String, CGFloat>,
+                let cropRect = CropRect(arguments: cropRectMap)
+            else {
+                handleError(error: MlKitPluginError.invalidArguments, result: result)
+                return
+            }
+            setCropArea(rect: cropRect)
+        }
+
+        var initialCamera: CameraData?
+        if let cameraArguments = params[PluginConstants.initialCameraArgument] {
+            guard let cameraMap = cameraArguments as? Dictionary<String, Any?> else {
+                handleError(error: MlKitPluginError.invalidArguments, result: result)
+                return
+            }
+            initialCamera = CameraData(arguments: cameraMap)
+        }
+
+        isAlreadyInitialized = true
+        cameraPreview.initCamera(initialZoom: initialZoom, initialCamera: initialCamera) { [weak self, weak cameraPreview] error in
+            DispatchQueue.main.async { [weak self, weak cameraPreview] in
+                guard let self = self else {
+                    result(FlutterError(
+                        code: MlKitPluginError.cameraIsNotInitialized.rawValue,
+                        message: MlKitPluginError.cameraIsNotInitialized.localizedDescription,
+                        details: nil
+                    ))
+                    return
+                }
+                guard self.cameraPreview === cameraPreview else {
+                    self.handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
+                    return
+                }
+                if let error = error {
+                    self.handleError(error: error, result: result)
+                    return
+                }
+                cameraPreview?.cameraPreviewDelegate = self
                 result(nil)
             }
         }
-        isAlreadyInitialized = true;
     }
 
     private func toggleFlash(result: @escaping FlutterResult) {
@@ -103,9 +142,20 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         }
     }
 
-    private func dispose(result: @escaping FlutterResult) {
+    private func dispose(arguments: Any?, result: @escaping FlutterResult) {
+        guard
+            let params = arguments as? Dictionary<String, Any?>,
+            let viewId = viewId(from: params)
+        else {
+            handleError(error: MlKitPluginError.invalidArguments, result: result)
+            return
+        }
+        guard cameraPreview?.viewId == viewId else {
+            result(nil)
+            return
+        }
+
         cameraPreview?.dispose()
-        
         cameraPreview = nil
         scannerOverlay = nil
         recognitionHandler = nil
@@ -128,7 +178,11 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
             return
         }
-        guard let args = arguments as? Dictionary<String, Any>, let type = args["type"] as? Int, let delay = args["delay"] as? Int else {
+        guard
+            let args = arguments as? Dictionary<String, Any?>,
+            let type = args["type"] as? Int,
+            let delay = args["delay"] as? Int
+        else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
@@ -137,8 +191,12 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             return
         }
         if recognitionType != recognitionHandler?.type {
-            recognitionHandler = recognitionType.createRecognitionHandler(delay: delay, cropRect: scannerOverlay?.cropRect)
-            recognitionHandler!.delegate = self
+            recognitionHandler = recognitionType.createRecognitionHandler(
+                delay: delay,
+                cropRect: scannerOverlay?.cropRect,
+                viewId: cameraPreview.viewId
+            )
+            recognitionHandler?.delegate = self
             cameraPreview.recognitionHandler = recognitionHandler
             scannerOverlay?.isActive = true
         }
@@ -257,6 +315,14 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             result(FlutterError(code: "0", message: error.localizedDescription, details: nil))
         }
     }
+
+    private func viewId(from arguments: Dictionary<String, Any?>) -> Int64? {
+        guard let value = arguments[PluginConstants.viewIdArgument] as? NSNumber else {
+            return nil
+        }
+        let viewId = value.int64Value
+        return viewId >= 0 ? viewId : nil
+    }
 }
 
 extension SwiftMlkitScannerPlugin: FlutterPlatformViewFactory {
@@ -266,11 +332,16 @@ extension SwiftMlkitScannerPlugin: FlutterPlatformViewFactory {
     }
     
     public func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+        cameraPreview?.dispose()
+        recognitionHandler = nil
+        scannerOverlay = nil
+        isAlreadyInitialized = false
+
         if let arguments = args as? Dictionary<String, CGFloat>, let width = arguments["width"], let height = arguments["height"] {
             let frame = CGRect(origin: CGPoint.zero, size: CGSize(width: width, height: height))
-            cameraPreview = CameraPreview(frame: frame)
+            cameraPreview = CameraPreview(frame: frame, viewId: viewId)
         } else {
-            cameraPreview = CameraPreview(frame: frame)
+            cameraPreview = CameraPreview(frame: frame, viewId: viewId)
         }
         return cameraPreview!
     }
@@ -279,8 +350,17 @@ extension SwiftMlkitScannerPlugin: FlutterPlatformViewFactory {
 
 extension SwiftMlkitScannerPlugin: RecognitionResultDelegate {
     
-    func onRecognition(result: Barcode) {
-        channel.invokeMethod(PluginConstants.scanResultMethod, arguments: result.toJson())
+    func onRecognition(result: Barcode, viewId: Int64) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.channel.invokeMethod(
+                PluginConstants.scanResultMethod,
+                arguments: [
+                    PluginConstants.viewIdArgument: viewId,
+                    PluginConstants.barcodeArgument: result.toJson(),
+                ]
+            )
+        }
     }
     
     func onError(error: Error) {
@@ -289,7 +369,16 @@ extension SwiftMlkitScannerPlugin: RecognitionResultDelegate {
 }
 
 extension SwiftMlkitScannerPlugin: CameraPreviewDelegate {
-    func onToggleTorch(value: Bool) {
-        channel.invokeMethod(PluginConstants.changeTorchStateMethod, arguments: value)
+    func onToggleTorch(value: Bool, viewId: Int64) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.channel.invokeMethod(
+                PluginConstants.changeTorchStateMethod,
+                arguments: [
+                    PluginConstants.viewIdArgument: viewId,
+                    PluginConstants.valueArgument: value,
+                ]
+            )
+        }
     }
 }

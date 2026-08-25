@@ -170,8 +170,14 @@ class MlkitScannerPlugin internal constructor(
     }
 
     /** Sends a recognized barcode result to Dart on the main thread. */
-    private fun emitScanResult(result: Barcode) {
-        channel?.invokeMethod(PluginConstants.scanResultMethod, result.toMap())
+    private fun emitScanResult(viewId: Int, result: Barcode) {
+        channel?.invokeMethod(
+            PluginConstants.scanResultMethod,
+            mapOf(
+                PluginConstants.viewIdArgument to viewId,
+                PluginConstants.barcodeArgument to result.toMap(),
+            ),
+        )
     }
 
     private companion object {

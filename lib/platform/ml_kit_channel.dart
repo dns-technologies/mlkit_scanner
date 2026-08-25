@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 import 'package:mlkit_scanner/models/recognition_type.dart';
@@ -25,15 +24,10 @@ class MlKitChannel {
 
   static MlKitChannel? _instance;
   final MethodChannel _channel = const MethodChannel('mlkit_channel');
-  final StreamController<Barcode> _scanResultStreamController =
-      StreamController<Barcode>.broadcast();
-  final StreamController<bool> _torchToggleStreamController =
-      StreamController<bool>.broadcast();
-
-  /// Stream inform when torch change state.
-  ///
-  /// Work only on IOS
-  Stream<bool> get torchToggleStream => _torchToggleStreamController.stream;
+  final StreamController<_ClientEvent<Barcode>> _scanResultStreamController =
+      StreamController<_ClientEvent<Barcode>>.broadcast();
+  final StreamController<_ClientEvent<bool>> _torchToggleStreamController =
+      StreamController<_ClientEvent<bool>>.broadcast();
 
   factory MlKitChannel() {
     _instance ??= MlKitChannel._();
@@ -42,31 +36,66 @@ class MlKitChannel {
 
   MlKitChannel._() {
     _channel.setMethodCallHandler((call) async {
-      if (call.method == _scanResultMethod && call.arguments is Map) {
-        _scanResultStreamController
-            .add(Barcode.fromJson(call.arguments.cast<String, dynamic>()));
-      } else if (call.method == _changeTorchStateMethod &&
-          call.arguments is bool) {
-        _torchToggleStreamController.add(call.arguments);
+      if (call.method == _scanResultMethod) {
+        final event = _decodeClientEvent(
+          call.arguments,
+          'barcode',
+          (value) => Barcode.fromJson(Map<String, dynamic>.from(value as Map)),
+        );
+        if (event != null) _scanResultStreamController.add(event);
+      } else if (call.method == _changeTorchStateMethod) {
+        final event = _decodeClientEvent(
+          call.arguments,
+          'value',
+          (value) => value as bool,
+        );
+        if (event != null) _torchToggleStreamController.add(event);
       }
     });
+  }
+
+  _ClientEvent<T>? _decodeClientEvent<T>(
+    Object? arguments,
+    String valueKey,
+    T Function(Object? value) decodeValue,
+  ) {
+    if (arguments is! Map) return null;
+    final viewId = arguments['viewId'];
+    if (viewId is! int || !arguments.containsKey(valueKey)) return null;
+
+    try {
+      return _ClientEvent(viewId, decodeValue(arguments[valueKey]));
+    } on Object {
+      return null;
+    }
   }
 
   /// Initialize camera preview.
   ///
   /// Can throw a [PlatformException] if device has problem with camera, or doesn't have one.
   /// Plugin ask permission to use camera, if user doesn't grant permission also throw a [PlatformException].
-  Future<void> initCameraPreview({ScannerParameters? initialArguments}) {
-    return _channel.invokeMethod(_initCameraMethod, initialArguments?.toJson());
+  Future<void> initCameraPreview({
+    required int viewId,
+    double? initialZoom,
+    CropRect? initialCropRect,
+    IosCamera? initialCamera,
+  }) {
+    final arguments = <String, Object?>{
+      'viewId': viewId,
+      if (initialZoom != null) 'initialZoom': initialZoom,
+      if (initialCropRect != null) 'initialCropRect': initialCropRect.toJson(),
+      if (initialCamera != null)
+        'initialCamera': {
+          'position': initialCamera.position.code,
+          'type': initialCamera.type.code,
+        },
+    };
+    return _channel.invokeMethod(_initCameraMethod, arguments);
   }
 
   /// Removes one platform view from the shared native scanner session.
-  Future<void> dispose({int? viewId}) {
-    final arguments =
-        defaultTargetPlatform == TargetPlatform.android && viewId != null
-            ? <String, Object?>{'viewId': viewId}
-            : null;
-    return _channel.invokeMethod(_disposeMethod, arguments);
+  Future<void> dispose({required int viewId}) {
+    return _channel.invokeMethod(_disposeMethod, {'viewId': viewId});
   }
 
   /// Toggle flash of the device.
@@ -82,13 +111,26 @@ class MlKitChannel {
   /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
   /// Detection happens every [delay] milliseconds, skipping frames during delay
   /// Can throw [PlatformException] if camera is not initialized.
-  Future<Stream<Barcode>> startScan(RecognitionType type, int delay) async {
+  Future<void> startScan(RecognitionType type, int delay) {
     final args = {
       'type': type.rawValue,
       'delay': delay,
     };
-    await _channel.invokeMethod(_startScanMethod, args);
-    return _scanResultStreamController.stream;
+    return _channel.invokeMethod(_startScanMethod, args);
+  }
+
+  /// Reports recognized barcodes for one platform view.
+  Stream<Barcode> scanResults(int viewId) {
+    return _scanResultStreamController.stream
+        .where((event) => event.viewId == viewId)
+        .map((event) => event.value);
+  }
+
+  /// Reports iOS torch changes for one platform view.
+  Stream<bool> torchToggleStream(int viewId) {
+    return _torchToggleStreamController.stream
+        .where((event) => event.viewId == viewId)
+        .map((event) => event.value);
   }
 
   /// Stop recognition of the objects.
@@ -160,4 +202,11 @@ class MlKitChannel {
       'type': type.code,
     });
   }
+}
+
+class _ClientEvent<T> {
+  final int viewId;
+  final T value;
+
+  const _ClientEvent(this.viewId, this.value);
 }

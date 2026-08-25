@@ -13,7 +13,7 @@ void main() {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
     Widget _buildApp({
-      required Function() onCameraInitialized,
+      required Function(int) onCameraInitialized,
       Function(PlatformException)? onCameraInitializeError,
     }) {
       return MaterialApp(
@@ -47,6 +47,7 @@ void main() {
       testWidgets('Android', (tester) async {
         debugDefaultTargetPlatformOverride = TargetPlatform.android;
         var cameraInitialized = false;
+        int? initializedViewId;
         MethodCall? initCall;
         MethodCall? disposeCall;
         PlatformException? error;
@@ -57,7 +58,10 @@ void main() {
         });
 
         await tester.pumpWidget(_buildApp(
-          onCameraInitialized: () => cameraInitialized = true,
+          onCameraInitialized: (viewId) {
+            cameraInitialized = true;
+            initializedViewId = viewId;
+          },
           onCameraInitializeError: (e) => error = e,
         ));
 
@@ -69,20 +73,31 @@ void main() {
             reason: 'Не вызвался колбек при успешной инициализации камеры');
         expect(error, isNull,
             reason: "Не должно быть ошибки инициализации камеры");
-        expect(initCall?.arguments, isNull);
+        expect(initCall?.arguments, {'viewId': initializedViewId});
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
-        expect(disposeCall?.arguments, {'viewId': isA<int>()});
+        expect(disposeCall?.arguments, {'viewId': initializedViewId});
         debugDefaultTargetPlatformOverride = null;
       });
 
       testWidgets('IOS', (tester) async {
         debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
         var cameraInitialized = false;
+        int? initializedViewId;
+        MethodCall? initCall;
+        MethodCall? disposeCall;
         PlatformException? error;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'initCameraPreview') initCall = call;
+          if (call.method == 'dispose') disposeCall = call;
+          return null;
+        });
 
         await tester.pumpWidget(_buildApp(
-          onCameraInitialized: () => cameraInitialized = true,
+          onCameraInitialized: (viewId) {
+            cameraInitialized = true;
+            initializedViewId = viewId;
+          },
           onCameraInitializeError: (e) => error = e,
         ));
 
@@ -97,6 +112,11 @@ void main() {
             reason: 'Не вызвался колбек при успешной инициализации камеры');
         expect(error, isNull,
             reason: "Не должно быть ошибки инициализации камеры");
+        expect(initializedViewId, 1);
+        expect(initCall?.arguments, {'viewId': 1});
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+        expect(disposeCall?.arguments, {'viewId': 1});
         debugDefaultTargetPlatformOverride = null;
       });
     });
@@ -113,7 +133,7 @@ void main() {
       late PlatformException error;
 
       await tester.pumpWidget(_buildApp(
-        onCameraInitialized: () => cameraInitialized = true,
+        onCameraInitialized: (_) => cameraInitialized = true,
         onCameraInitializeError: (e) => error = e,
       ));
 

@@ -11,7 +11,8 @@ internal class DisposeCameraCommand(
     scannerSessionProvider: () -> ScannerSession?,
 ) : ScannerCommand(scannerSessionProvider) {
     override fun executeCommand(call: MethodCall, result: Result) {
-        scannerSessionProvider()?.disposeView(ScannerViewArguments.viewId(call))
+        val viewId = ScannerViewArguments.requireViewId(call)
+        scannerSessionProvider()?.disposeView(viewId)
         success(result)
     }
 }

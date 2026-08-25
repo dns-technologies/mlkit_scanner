@@ -11,10 +11,11 @@ import AVFoundation
 /// Deleage of camera preview
 protocol CameraPreviewDelegate: NSObject {
     /// Call delegate on change torch state
-    func onToggleTorch(value: Bool)
+    func onToggleTorch(value: Bool, viewId: Int64)
 }
 
 class CameraPreview: NSObject, FlutterPlatformView {
+    let viewId: Int64
     private let preview: UIContainer
     private var scaleX, scaleY: CGFloat
     private var offsetX, offsetY: CGFloat
@@ -30,7 +31,8 @@ class CameraPreview: NSObject, FlutterPlatformView {
     weak var recognitionHandler: RecognitionHandler?
     weak var cameraPreviewDelegate: CameraPreviewDelegate?
     
-    init(frame: CGRect, offsetX: CGFloat = 0, offsetY: CGFloat = 0) {
+    init(frame: CGRect, viewId: Int64, offsetX: CGFloat = 0, offsetY: CGFloat = 0) {
+        self.viewId = viewId
         preview = UIContainer(frame: frame)
         (scaleX, scaleY) = (frame.width / UIScreen.main.bounds.width, frame.height / UIScreen.main.bounds.height)
         (self.offsetX, self.offsetY) = (offsetX, offsetY)
@@ -281,7 +283,8 @@ class CameraPreview: NSObject, FlutterPlatformView {
     private func observeTorchToggle() {
         torchObserver = camera?.observe(\.isTorchActive, options: .new) { [weak self] _, observable in
             guard let isActive = observable.newValue else { return }
-            self?.cameraPreviewDelegate?.onToggleTorch(value: isActive)
+            guard let self = self else { return }
+            self.cameraPreviewDelegate?.onToggleTorch(value: isActive, viewId: self.viewId)
         }
     }
 }

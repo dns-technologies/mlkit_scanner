@@ -2,7 +2,6 @@ package com.dns_technologies.mlkit_scanner.models
 
 import android.content.Context
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
-import com.dns_technologies.mlkit_scanner.scanner.models.InitialScannerParameters
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 
 /** Operations available for the single scanner session shared by platform views. */
@@ -10,8 +9,12 @@ internal interface ScannerSession {
     /** Creates and registers a platform view. */
     fun createView(context: Context, viewId: Int): ScannerView
 
-    /** Starts the shared camera and applies optional initial settings. */
-    suspend fun startCamera(parameters: InitialScannerParameters?)
+    /** Starts the shared camera and applies optional initial zoom and recognition area. */
+    suspend fun startCamera(
+        viewId: Int,
+        initialZoom: Double?,
+        initialCropRect: RecognizeVisorCropRect?,
+    )
 
     /** Resumes the shared camera after an explicit pause. */
     fun resumeCamera()
@@ -44,7 +47,7 @@ internal interface ScannerSession {
     fun setCropArea(cropRect: RecognizeVisorCropRect)
 
     /** Removes one platform view registration. */
-    fun disposeView(viewId: Int?)
+    fun disposeView(viewId: Int)
 
     /** Cancels subscriptions and releases all shared scanner resources. */
     fun release()

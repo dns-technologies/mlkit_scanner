@@ -37,7 +37,7 @@ void main() {
 
       final preview =
           tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
-      preview.onCameraInitialized();
+      preview.onCameraInitialized(17);
       await tester.pumpAndSettle();
 
       expect(controller, isNotNull);
@@ -54,9 +54,17 @@ void main() {
       ));
       final preview =
           tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
-      preview.onCameraInitialized();
+      preview.onCameraInitialized(17);
       await tester.pump();
       await controller!.startScan(0);
+
+      expect(
+        calls.firstWhere((call) => call.method == 'startScan').arguments,
+        {
+          'type': 0,
+          'delay': 0,
+        },
+      );
 
       await tester.pumpWidget(const TestApp(child: SizedBox.shrink()));
       await tester.pump();

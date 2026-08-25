@@ -2,8 +2,17 @@ package com.dns_technologies.mlkit_scanner
 
 /** Contains method channel names used by the Dart and Android plugin sides. */
 internal object PluginConstants {
-    /** Argument key identifying the platform view being disposed. */
+    /** Argument key identifying the platform view that owns a command or event. */
     const val viewIdArgument = "viewId"
+
+    /** Event key containing the recognized barcode payload. */
+    const val barcodeArgument = "barcode"
+
+    /** Optional camera-initialization argument containing normalized zoom. */
+    const val initialZoomArgument = "initialZoom"
+
+    /** Optional camera-initialization argument containing the recognition area. */
+    const val initialCropRectArgument = "initialCropRect"
 
     /** Method channel name used for scanner commands and events. */
     const val channelName = "mlkit_channel"

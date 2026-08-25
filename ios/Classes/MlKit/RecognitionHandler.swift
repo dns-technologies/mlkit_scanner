@@ -12,7 +12,7 @@ import MLKitBarcodeScanning
 /// Delegate of the recognition results.
 protocol RecognitionResultDelegate: AnyObject {
     /// Call delegate on success recognition.
-    func onRecognition(result: Barcode)
+    func onRecognition(result: Barcode, viewId: Int64)
     
     /// Call delegate on recognition error.
     func onError(error: Error)
@@ -29,7 +29,7 @@ protocol RecognitionHandler: AnyObject {
     /// Initialization of RecognitionHandler.
     /// `delay` - delay between detections
     /// `cropRect` optional `CropRect`, area of the detection.
-    init(delay: Int, cropRect: CropRect?)
+    init(delay: Int, cropRect: CropRect?, viewId: Int64)
 
     /// Set delay when detection is active.
     /// `delay` - delay between detections

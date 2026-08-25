@@ -4,29 +4,41 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:mlkit_scanner/models/scanner_parameters.dart';
+import 'package:mlkit_scanner/models/crop_rect.dart';
+import 'package:mlkit_scanner/models/ios_camera.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 
 /// Signature for the CameraPreview error function.
 typedef CameraInitilizeError = void Function(PlatformException);
+
+/// Signature for a successful camera initialization callback.
+typedef CameraInitialized = void Function(int viewId);
 
 /// Camera Preview of the device camera.
 ///
 /// Widget automatically will dispose camera when called [dispose] in state.
 class CameraPreview extends StatefulWidget {
   /// Callback when device camera initialize.
-  final VoidCallback onCameraInitialized;
+  final CameraInitialized onCameraInitialized;
 
   /// Callback if camera cannot be initialized.
   final CameraInitilizeError? onCameraInitializeError;
 
-  /// Parameters for initializing the scanner.
-  final ScannerParameters? initialArguments;
+  /// Optional normalized zoom applied before the preview becomes visible.
+  final double? initialZoom;
+
+  /// Optional recognition area applied during camera initialization.
+  final CropRect? initialCropRect;
+
+  /// Optional camera used during initialization on iOS.
+  final IosCamera? initialCamera;
 
   const CameraPreview({
     Key? key,
     required this.onCameraInitialized,
-    this.initialArguments,
+    this.initialZoom,
+    this.initialCropRect,
+    this.initialCamera,
     this.onCameraInitializeError,
   }) : super(key: key);
 
@@ -93,7 +105,8 @@ class _CameraPreviewState extends State<CameraPreview> {
 
   @override
   void dispose() {
-    _channel.dispose(viewId: _viewId);
+    final viewId = _viewId;
+    if (viewId != null) _channel.dispose(viewId: viewId);
     super.dispose();
   }
 
@@ -101,9 +114,12 @@ class _CameraPreviewState extends State<CameraPreview> {
     _viewId = id;
     try {
       await _channel.initCameraPreview(
-        initialArguments: widget.initialArguments,
+        viewId: id,
+        initialZoom: widget.initialZoom,
+        initialCropRect: widget.initialCropRect,
+        initialCamera: widget.initialCamera,
       );
-      widget.onCameraInitialized();
+      widget.onCameraInitialized(id);
     } on PlatformException catch (e) {
       widget.onCameraInitializeError?.call(e);
     }

@@ -17,6 +17,7 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
     private var isDelayed = false
     private var cropRect: CropRect?
     private var isRecognitionInProgress = false
+    private let viewId: Int64
     
     var type: RecognitionType = RecognitionType.barcodeRecognition
     weak var delegate: RecognitionResultDelegate?
@@ -28,10 +29,11 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
         !isDelayed && !isRecognitionInProgress
     }
     
-    required init(delay: Int, cropRect: CropRect?) {
+    required init(delay: Int, cropRect: CropRect?, viewId: Int64) {
         scanner = BarcodeScanner.barcodeScanner()
         self.delay = delay
         self.cropRect = cropRect
+        self.viewId = viewId
         super.init()
         startDelay()
     }
@@ -65,8 +67,9 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
                 return
             }
             guard let barcode = features.first, let _ = barcode.rawValue else { return }
-            self?.delegate?.onRecognition(result: barcode)
-            self?.startDelay()
+            guard let self = self else { return }
+            self.delegate?.onRecognition(result: barcode, viewId: self.viewId)
+            self.startDelay()
         }
     }
 

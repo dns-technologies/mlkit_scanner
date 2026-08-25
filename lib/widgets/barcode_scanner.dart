@@ -26,13 +26,21 @@ class BarcodeScanner extends StatefulWidget {
   /// Work only on IOS
   final ValueChanged<bool>? onChangeFlashState;
 
-  /// Parameters for initializing the scanner.
-  final ScannerParameters? initialArguments;
+  /// Optional normalized zoom applied before the preview becomes visible.
+  final double? initialZoom;
+
+  /// Optional recognition area applied during camera initialization.
+  final CropRect? initialCropRect;
+
+  /// Optional camera used during initialization on iOS.
+  final IosCamera? initialCamera;
 
   const BarcodeScanner({
     required this.onScan,
     required this.onScannerInitialized,
-    this.initialArguments,
+    this.initialZoom,
+    this.initialCropRect,
+    this.initialCamera,
     this.onCameraInitializeError,
     this.onChangeFlashState,
     Key? key,
@@ -47,31 +55,31 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   late BarcodeScannerController _barcodeScannerController;
   StreamSubscription<Barcode>? _scanStreamSubscription;
   StreamSubscription<bool>? _toggleFlashStreamSubscription;
+  int? _viewId;
 
   @override
   void initState() {
     super.initState();
     _channel = MlKitChannel();
     _barcodeScannerController = BarcodeScannerController._();
-    _toggleFlashStreamSubscription = _channel.torchToggleStream
-        .listen((event) => widget.onChangeFlashState?.call(event));
     _barcodeScannerController._attach(this);
   }
 
   @override
   void didUpdateWidget(covariant BarcodeScanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialArguments?.cropRect !=
-            widget.initialArguments?.cropRect &&
-        widget.initialArguments?.cropRect != null) {
-      _channel.setCropArea(widget.initialArguments!.cropRect!);
+    if (oldWidget.initialCropRect != widget.initialCropRect &&
+        widget.initialCropRect != null) {
+      _channel.setCropArea(widget.initialCropRect!);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return CameraPreview(
-      initialArguments: widget.initialArguments,
+      initialZoom: widget.initialZoom,
+      initialCropRect: widget.initialCropRect,
+      initialCamera: widget.initialCamera,
       onCameraInitializeError: widget.onCameraInitializeError,
       onCameraInitialized: _onCameraInitialized,
     );
@@ -97,7 +105,19 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     super.dispose();
   }
 
-  Future<void> _onCameraInitialized() async {
+  Future<void> _onCameraInitialized(int viewId) async {
+    if (!mounted) return;
+    _viewId = viewId;
+    await _scanStreamSubscription?.cancel();
+    if (!mounted) return;
+    _scanStreamSubscription = _channel
+        .scanResults(viewId)
+        .listen((barcode) => widget.onScan(barcode));
+    await _toggleFlashStreamSubscription?.cancel();
+    if (!mounted) return;
+    _toggleFlashStreamSubscription = _channel
+        .torchToggleStream(viewId)
+        .listen((event) => widget.onChangeFlashState?.call(event));
     widget.onScannerInitialized(_barcodeScannerController);
   }
 
@@ -106,16 +126,12 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   Future<void> _startScan(int delay) async {
-    final scanStream =
-        await _channel.startScan(RecognitionType.barcodeRecognition, delay);
-    _scanStreamSubscription?.cancel();
-    _scanStreamSubscription = scanStream.listen(widget.onScan);
+    _requireViewId();
+    await _channel.startScan(RecognitionType.barcodeRecognition, delay);
   }
 
   Future<void> _cancelScan() async {
     await _channel.cancelScan();
-    _scanStreamSubscription?.cancel();
-    _scanStreamSubscription = null;
   }
 
   Future<void> _setDelay(int delay) {
@@ -143,6 +159,14 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     required IosCameraType type,
   }) {
     return _channel.setIosCamera(position: position, type: type);
+  }
+
+  int _requireViewId() {
+    final viewId = _viewId;
+    if (viewId == null) {
+      throw StateError('Camera preview is not initialized');
+    }
+    return viewId;
   }
 }
 

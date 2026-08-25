@@ -7,6 +7,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.junit.Test
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 
 internal class MlkitScannerPluginTest {
@@ -45,17 +46,38 @@ internal class MlkitScannerPluginTest {
     }
 
     @Test
-    fun `scan result event contains shared barcode payload`() {
+    fun `dispose command rejects legacy payload without view identity`() {
+        val fixture = Fixture()
+
+        fixture.plugin.onMethodCall(
+            MethodCall(PluginConstants.disposeCameraMethod, null),
+            fixture.result,
+        )
+
+        verify(fixture.session, never()).disposeView(VIEW_ID)
+        verify(fixture.result).error(
+            PluginError.InvalidArguments.errorCode,
+            PluginError.InvalidArguments.message,
+            null,
+        )
+    }
+
+    @Test
+    fun `scan result event contains addressed barcode payload`() {
         val fixture = Fixture()
 
         fixture.plugin.javaClass.getDeclaredMethod(
             "emitScanResult",
+            Int::class.javaPrimitiveType,
             Barcode::class.java,
-        ).apply { isAccessible = true }.invoke(fixture.plugin, BARCODE)
+        ).apply { isAccessible = true }.invoke(fixture.plugin, VIEW_ID, BARCODE)
 
         verify(fixture.channel).invokeMethod(
             PluginConstants.scanResultMethod,
-            BARCODE.toMap(),
+            mapOf(
+                PluginConstants.viewIdArgument to VIEW_ID,
+                PluginConstants.barcodeArgument to BARCODE.toMap(),
+            ),
         )
     }
 

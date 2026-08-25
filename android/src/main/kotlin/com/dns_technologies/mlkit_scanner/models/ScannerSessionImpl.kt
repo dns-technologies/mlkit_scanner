@@ -9,7 +9,6 @@ import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
-import com.dns_technologies.mlkit_scanner.scanner.models.InitialScannerParameters
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
 import kotlinx.coroutines.CompletableDeferred
@@ -28,7 +27,7 @@ import kotlinx.coroutines.launch
 internal class ScannerSessionImpl(
     private val scanner: Scanner,
     private val mainHandler: Handler,
-    private val onScanResult: (Barcode) -> Unit,
+    private val onScanResult: (Int, Barcode) -> Unit,
     private val onReleased: () -> Unit,
     private val releaseDelayMs: Long = DEFAULT_RELEASE_DELAY_MS,
     private val initializationScope: CoroutineScope = MainScope(),
@@ -79,15 +78,19 @@ internal class ScannerSessionImpl(
         applyScanState()
     }
 
-    override suspend fun startCamera(parameters: InitialScannerParameters?) {
+    override suspend fun startCamera(
+        viewId: Int,
+        initialZoom: Double?,
+        initialCropRect: RecognizeVisorCropRect?,
+    ) {
         if (isReleased) throw PluginError.CameraSessionDisposed
-        if (views.isEmpty()) throw PluginError.CameraIsNotInitialized
+        requireView(viewId)
 
         cameraRequested = true
         cameraPaused = false
         updateCameraLifecycle()
 
-        initializeCamera(parameters).await()
+        initializeCamera(initialZoom, initialCropRect).await()
     }
 
     override fun resumeCamera() {
@@ -139,9 +142,8 @@ internal class ScannerSessionImpl(
         previewHost()?.renderCropArea(cropRect)
     }
 
-    override fun disposeView(viewId: Int?) {
-        val resolvedViewId = viewId ?: previewHostEntry()?.key ?: views.keys.lastOrNull() ?: return
-        val view = views.remove(resolvedViewId) ?: return
+    override fun disposeView(viewId: Int) {
+        val view = views.remove(viewId) ?: return
         val hostedPreview = view.hasPreview()
         view.disposeFromSession()
 
@@ -211,7 +213,8 @@ internal class ScannerSessionImpl(
     }
 
     private fun initializeCamera(
-        parameters: InitialScannerParameters?,
+        initialZoom: Double?,
+        initialCropRect: RecognizeVisorCropRect?,
     ): CompletableDeferred<Unit> {
         if (isReleased) return failedInitialization(PluginError.CameraSessionDisposed)
         cameraInitialization?.let { return it }
@@ -236,16 +239,15 @@ internal class ScannerSessionImpl(
         }
 
         try {
-            parameters?.cropRect?.let(::setCropArea)
+            initialCropRect?.let(::setCropArea)
             scanner.startCamera(
                 lifecycleOwner = this,
                 onInit = {
                     if (isReleased) return@startCamera
                     initializationScope.launch {
                         try {
-                            val initialZoom = parameters?.zoom?.toFloat()
                             if (initialZoom != null) {
-                                scanner.setZoom(initialZoom).await()
+                                scanner.setZoom(initialZoom.toFloat()).await()
                             }
                             complete()
                         } catch (error: Throwable) {
@@ -274,9 +276,14 @@ internal class ScannerSessionImpl(
         lateinit var delivery: Runnable
         delivery = Runnable {
             val shouldDeliver = synchronized(resultDeliveryLock) {
-                pendingResultDeliveries.remove(delivery)
+                pendingResultDeliveries.remove(delivery) &&
+                    deliverScanResults
             }
-            if (shouldDeliver) onScanResult(result)
+            if (shouldDeliver) {
+                previewHostEntry()?.key?.let { viewId ->
+                    onScanResult(viewId, result)
+                }
+            }
         }
 
         synchronized(resultDeliveryLock) {
@@ -284,6 +291,10 @@ internal class ScannerSessionImpl(
             pendingResultDeliveries += delivery
             if (!mainHandler.post(delivery)) pendingResultDeliveries -= delivery
         }
+    }
+
+    private fun requireView(viewId: Int) {
+        if (viewId !in views) throw PluginError.CameraIsNotInitialized
     }
 
     private fun cancelPendingResultDeliveries() {

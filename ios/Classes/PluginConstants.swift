@@ -9,6 +9,18 @@ import Foundation
 
 /// Constants of the Plugin.
 class PluginConstants {
+    /// Argument key identifying a Flutter platform view.
+    static let viewIdArgument = "viewId"
+    /// Event key containing a recognized barcode.
+    static let barcodeArgument = "barcode"
+    /// Optional camera-initialization argument containing normalized zoom.
+    static let initialZoomArgument = "initialZoom"
+    /// Optional camera-initialization argument containing the recognition area.
+    static let initialCropRectArgument = "initialCropRect"
+    /// Optional camera-initialization argument containing an iOS camera.
+    static let initialCameraArgument = "initialCamera"
+    /// Event key containing a scalar event value.
+    static let valueArgument = "value"
     /// Method name for camera initialization.
     static let initCameraMethod = "initCameraPreview"
     /// Method name for cleaning camera resources.

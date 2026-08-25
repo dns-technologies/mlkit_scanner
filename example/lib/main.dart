@@ -30,7 +30,9 @@ class _MyAppState extends State<MyApp> {
 
   void _setNextIosCamera() {
     _cameraIndex = (_cameraIndex + 1) % _iosCameras.length;
-    _controller!.setIosCamera(position: _iosCameras[_cameraIndex].position, type: _iosCameras[_cameraIndex].type);
+    _controller!.setIosCamera(
+        position: _iosCameras[_cameraIndex].position,
+        type: _iosCameras[_cameraIndex].type);
     _resetZoom();
     setState(() {
       _cameraType = _iosCameras[_cameraIndex].type.name;
@@ -59,13 +61,10 @@ class _MyAppState extends State<MyApp> {
                 Container(
                   height: 200,
                   child: BarcodeScanner(
-                    initialArguments: (defaultTargetPlatform == TargetPlatform.iOS)
-                        ? const IosScannerParameters(
-                            cropRect: CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
-                          )
-                        : const AndroidScannerParameters(
-                            cropRect: CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
-                          ),
+                    initialCropRect: const CropRect(
+                      scaleHeight: 0.7,
+                      scaleWidth: 0.7,
+                    ),
                     onScan: (code) {
                       setState(() {
                         _barcode = code.rawValue;
@@ -74,7 +73,8 @@ class _MyAppState extends State<MyApp> {
                     onScannerInitialized: (controller) async {
                       _controller = controller;
                       if (defaultTargetPlatform == TargetPlatform.iOS) {
-                        _iosCameras = await MLKitUtils().getIosAvailableCameras();
+                        _iosCameras =
+                            await MLKitUtils().getIosAvailableCameras();
                         _setNextIosCamera();
                       }
                     },
@@ -179,7 +179,9 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               onPressed: () {
-                _actualZoomIndex = _actualZoomIndex + 1 < _zoomValues.length ? _actualZoomIndex + 1 : 0;
+                _actualZoomIndex = _actualZoomIndex + 1 < _zoomValues.length
+                    ? _actualZoomIndex + 1
+                    : 0;
                 _controller?.setZoom(_zoomValues[_actualZoomIndex]);
               },
             ),

@@ -22,6 +22,9 @@ internal sealed class PluginError(
     /** The device does not expose a flash unit for the active camera. */
     object DeviceHasNotFlash : PluginError("4", "Device has no flash")
 
+    /** Flutter supplied a malformed or incomplete command payload. */
+    object InvalidArguments : PluginError("5", "Invalid scanner arguments")
+
     /** The active camera does not support zoom control. */
     object DeviceHasNotZoom : PluginError("6", "Zoom is not supported on this device")
 

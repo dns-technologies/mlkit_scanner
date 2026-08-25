@@ -5,7 +5,6 @@ import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
-import com.dns_technologies.mlkit_scanner.scanner.models.InitialScannerParameters
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
 import kotlinx.coroutines.CompletableDeferred
@@ -145,21 +144,21 @@ internal class ScannerSessionImplTest {
 
     @Test
     fun `shared scan result survives preview host replacement`() {
-        val received = mutableListOf<Barcode>()
-        val fixture = Fixture(received::add)
+        val received = mutableListOf<Pair<Int, Barcode>>()
+        val fixture = Fixture { viewId, barcode -> received += viewId to barcode }
         fixture.session.startScan(0)
 
         fixture.emitScanResult(BARCODE)
         fixture.attach(SECOND_VIEW_ID)
         fixture.postedCallbacks.single().run()
 
-        assertEquals(listOf(BARCODE), received)
+        assertEquals(listOf(SECOND_VIEW_ID to BARCODE), received)
     }
 
     @Test
     fun `disposing one of several views keeps queued shared result`() {
         val received = mutableListOf<Barcode>()
-        val fixture = Fixture(received::add)
+        val fixture = Fixture { _, barcode -> received.add(barcode) }
         fixture.attach(SECOND_VIEW_ID)
         fixture.session.startScan(0)
         fixture.emitScanResult(BARCODE)
@@ -200,7 +199,7 @@ internal class ScannerSessionImplTest {
     @Test
     fun `disposing last view cancels queued shared result`() {
         val received = mutableListOf<Barcode>()
-        val fixture = Fixture(received::add)
+        val fixture = Fixture { _, barcode -> received.add(barcode) }
         fixture.session.startScan(0)
         fixture.emitScanResult(BARCODE)
         val delivery = fixture.postedCallbacks.single()
@@ -217,10 +216,10 @@ internal class ScannerSessionImplTest {
         val fixture = Fixture()
 
         val first = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.session.startCamera(null)
+            fixture.session.startCamera(FIRST_VIEW_ID, null, null)
         }
         val second = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.session.startCamera(null)
+            fixture.session.startCamera(FIRST_VIEW_ID, null, null)
         }
 
         assertEquals(1, fixture.startCalls)
@@ -230,16 +229,24 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `parallel starts use only first initializer parameters`() = runSessionTest {
+    fun `parallel starts use only first initial zoom and crop`() = runSessionTest {
         val fixture = Fixture()
         val firstCrop = RecognizeVisorCropRect(scaleWidth = 0.25)
         val secondCrop = RecognizeVisorCropRect(scaleWidth = 0.75)
 
         val first = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.session.startCamera(InitialScannerParameters(zoom = 0.25, cropRect = firstCrop))
+            fixture.session.startCamera(
+                FIRST_VIEW_ID,
+                0.25,
+                firstCrop,
+            )
         }
         val second = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.session.startCamera(InitialScannerParameters(zoom = 0.75, cropRect = secondCrop))
+            fixture.session.startCamera(
+                FIRST_VIEW_ID,
+                0.75,
+                secondCrop,
+            )
         }
 
         assertEquals(1, fixture.startCalls)
@@ -260,11 +267,15 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `start on initialized camera ignores new initial parameters`() = runSessionTest {
+    fun `start on initialized camera ignores new initial zoom and crop`() = runSessionTest {
         val fixture = Fixture()
         val firstCrop = RecognizeVisorCropRect(scaleWidth = 0.25)
         val initialization = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.session.startCamera(InitialScannerParameters(zoom = 0.25, cropRect = firstCrop))
+            fixture.session.startCamera(
+                FIRST_VIEW_ID,
+                0.25,
+                firstCrop,
+            )
         }
         fixture.completeInitialization()
         fixture.completeZoom()
@@ -272,10 +283,9 @@ internal class ScannerSessionImplTest {
         clearInvocations(fixture.scanner)
 
         fixture.session.startCamera(
-            InitialScannerParameters(
-                zoom = 0.75,
-                cropRect = RecognizeVisorCropRect(scaleWidth = 0.75),
-            ),
+            FIRST_VIEW_ID,
+            0.75,
+            RecognizeVisorCropRect(scaleWidth = 0.75),
         )
 
         assertEquals(1, fixture.startCalls)
@@ -287,7 +297,7 @@ internal class ScannerSessionImplTest {
     fun `release fails pending initialization and disposes resources once`() = runSessionTest {
         val fixture = Fixture()
         val initialization = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.session.startCamera(null)
+            fixture.session.startCamera(FIRST_VIEW_ID, null, null)
         }
 
         fixture.session.release()
@@ -306,7 +316,7 @@ internal class ScannerSessionImplTest {
     fun `initialization error releases session and is propagated`() = runSessionTest {
         val fixture = Fixture()
         val initialization = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.session.startCamera(null)
+            fixture.session.startCamera(FIRST_VIEW_ID, null, null)
         }
         val expectedError = IllegalStateException("initialization failed")
 
@@ -324,7 +334,7 @@ internal class ScannerSessionImplTest {
     fun `initial zoom error keeps preview hidden and fails initialization`() = runSessionTest {
         val fixture = Fixture()
         val initialization = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.session.startCamera(InitialScannerParameters(zoom = 0.5))
+            fixture.session.startCamera(FIRST_VIEW_ID, 0.5, null)
         }
         val expectedError = IllegalStateException("zoom failed")
         fixture.completeInitialization()
@@ -343,7 +353,7 @@ internal class ScannerSessionImplTest {
     fun `release while initial zoom is pending keeps preview hidden`() = runSessionTest {
         val fixture = Fixture()
         val initialization = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.session.startCamera(InitialScannerParameters(zoom = 0.5))
+            fixture.session.startCamera(FIRST_VIEW_ID, 0.5, null)
         }
         fixture.completeInitialization()
 
@@ -363,7 +373,9 @@ internal class ScannerSessionImplTest {
         val fixture = Fixture()
         fixture.session.release()
 
-        val error = runCatching { fixture.session.startCamera(null) }.exceptionOrNull()
+        val error = runCatching {
+            fixture.session.startCamera(FIRST_VIEW_ID, null, null)
+        }.exceptionOrNull()
 
         assertSame(PluginError.CameraSessionDisposed, error)
         assertEquals(0, fixture.startCalls)
@@ -374,7 +386,7 @@ internal class ScannerSessionImplTest {
     }
 
     private class Fixture(
-        onScanResult: (Barcode) -> Unit = {},
+        onScanResult: (Int, Barcode) -> Unit = { _, _ -> },
     ) {
         val scanner: Scanner = mock(Scanner::class.java)
         val mainHandler: Handler = mock(Handler::class.java)
