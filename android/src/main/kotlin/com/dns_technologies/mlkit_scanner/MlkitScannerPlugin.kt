@@ -35,6 +35,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import io.flutter.plugin.common.PluginRegistry
 
 /** Android plugin entry point for the ML Kit scanner. */
 class MlkitScannerPlugin internal constructor(
@@ -51,6 +52,8 @@ class MlkitScannerPlugin internal constructor(
     private var scannerSession: ScannerSession? = null
 
     private val permissionGateway = PermissionGateway()
+    private val permissionResultListener =
+        PluginRegistry.RequestPermissionsResultListener(permissionGateway::onPermissionResult)
 
     /** Lifecycle attached to the current Flutter activity binding. */
     private val ActivityPluginBinding.activityLifecycle: Lifecycle
@@ -71,6 +74,7 @@ class MlkitScannerPlugin internal constructor(
 
     /** Releases scanner state and disconnects the method channel from the Flutter engine. */
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        detachActivity(isFinal = true)
         disposeScanner()
         commandScope.cancel()
         mainHandler.removeCallbacksAndMessages(null)
@@ -85,7 +89,7 @@ class MlkitScannerPlugin internal constructor(
 
     /** Detaches Android Activity dependencies when the plugin loses its Activity. */
     override fun onDetachedFromActivity() {
-        detachActivity()
+        detachActivity(isFinal = true)
     }
 
     /** Reattaches Activity dependencies after a configuration change. */
@@ -95,7 +99,7 @@ class MlkitScannerPlugin internal constructor(
 
     /** Temporarily detaches Activity dependencies before a configuration change reattach. */
     override fun onDetachedFromActivityForConfigChanges() {
-        detachActivity()
+        detachActivity(isFinal = false)
     }
 
     /** Routes Flutter method channel calls to scanner initialization and command handlers. */
@@ -125,16 +129,20 @@ class MlkitScannerPlugin internal constructor(
         activityBinding = binding
         permissionGateway.attach(binding)
         scannerSession?.attachHostLifecycle(binding.activityLifecycle)
-        binding.addRequestPermissionsResultListener(permissionGateway::onPermissionResult)
+        binding.addRequestPermissionsResultListener(permissionResultListener)
     }
 
     /** Detaches Activity-scoped permissions and lifecycle delegates. */
-    private fun detachActivity() {
-        val binding = activityBinding ?: return
+    private fun detachActivity(isFinal: Boolean) {
+        val binding = activityBinding
         scannerSession?.detachHostLifecycle()
-        binding.removeRequestPermissionsResultListener(permissionGateway::onPermissionResult)
+        binding?.removeRequestPermissionsResultListener(permissionResultListener)
         activityBinding = null
-        permissionGateway.detach()
+        if (isFinal) {
+            permissionGateway.detachFinal()
+        } else {
+            permissionGateway.detachForConfigChange()
+        }
     }
 
     /** Creates a platform view inside the one scanner session owned by this engine. */

@@ -3,9 +3,15 @@ package com.dns_technologies.mlkit_scanner
 import android.os.Handler
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.PluginRegistry
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Test
+import org.mockito.invocation.InvocationOnMock
+import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
@@ -81,6 +87,36 @@ internal class MlkitScannerPluginTest {
         )
     }
 
+    @Test
+    fun `permission listener identity survives activity recreation`() {
+        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
+        val firstBinding = mock(ActivityPluginBinding::class.java)
+        val secondBinding = mock(ActivityPluginBinding::class.java)
+        val addedListeners = mutableListOf<PluginRegistry.RequestPermissionsResultListener>()
+        val removedListeners = mutableListOf<PluginRegistry.RequestPermissionsResultListener>()
+        listOf(firstBinding, secondBinding).forEach { binding ->
+            doAnswer { invocation: InvocationOnMock ->
+                addedListeners += invocation.getArgument<PluginRegistry.RequestPermissionsResultListener>(0)
+                null
+            }.`when`(binding).addRequestPermissionsResultListener(anyValue())
+            doAnswer { invocation: InvocationOnMock ->
+                removedListeners += invocation.getArgument<PluginRegistry.RequestPermissionsResultListener>(0)
+                null
+            }.`when`(binding).removeRequestPermissionsResultListener(anyValue())
+        }
+
+        plugin.onAttachedToActivity(firstBinding)
+        plugin.onDetachedFromActivityForConfigChanges()
+        plugin.onReattachedToActivityForConfigChanges(secondBinding)
+        plugin.onDetachedFromActivity()
+
+        assertEquals(2, addedListeners.size)
+        assertEquals(2, removedListeners.size)
+        assertSame(addedListeners.first(), removedListeners.first())
+        assertSame(addedListeners.first(), addedListeners.last())
+        assertSame(addedListeners.first(), removedListeners.last())
+    }
+
     private class Fixture {
         val plugin = MlkitScannerPlugin(mock(Handler::class.java))
         val session: ScannerSession = mock(ScannerSession::class.java)
@@ -105,5 +141,7 @@ internal class MlkitScannerPluginTest {
             format = 1,
             valueType = 1,
         )
+
+        fun <T> anyValue(): T = org.mockito.ArgumentMatchers.any<T>()
     }
 }
