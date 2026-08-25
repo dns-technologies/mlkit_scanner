@@ -6,15 +6,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.LifecycleRegistry
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.OverlayController
-import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
-import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
 import io.flutter.plugin.platform.PlatformView
 
 /** Android platform view that renders scanner preview and scanner overlays. */
@@ -22,120 +15,69 @@ import io.flutter.plugin.platform.PlatformView
 class ScannerView(
     context: Context,
     private val scanner: Scanner,
-    private val onDispose: (ScannerView) -> Unit,
-) : FrameLayout(context), PlatformView, LifecycleOwner {
+    private val onDispose: () -> Unit,
+) : FrameLayout(context), PlatformView {
     private val overlayController = OverlayController(this, scanner)
-    private val lifecycleRegistry = LifecycleRegistry(this).apply {
-        currentState = Lifecycle.State.CREATED
-    }
-
     private var isDisposed = false
-
-    /** Lifecycle used by CameraX to bind camera resources to this platform view. */
-    override val lifecycle: Lifecycle
-        get() = lifecycleRegistry
 
     init {
         layoutParams = matchParentLayoutParams()
-        addView(scanner.previewView)
         addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
-            if (l != oldL || t != oldT || r != oldR || b != oldB) {
+            if (hasPreview() && (l != oldL || t != oldT || r != oldR || b != oldB)) {
                 overlayController.updateScannerScale()
             }
         }
     }
 
-    /** Starts scanner camera work and applies optional initial view settings. */
-    fun startCamera(
-        initialZoom: Float? = null,
-        initialCropRect: RecognizeVisorCropRect? = null,
-        onReady: OnInit,
-        onError: OnError,
-    ) {
-        scanner.startCamera(
-            lifecycleOwner = this,
-            onInit = {
-                overlayController.bindFocus()
-                try {
-                    initialZoom?.let(::setZoom)
-                    initialCropRect?.let(::setCropArea)
-                } catch (e: Exception) {
-                    onError.invoke(e)
-                    return@startCamera
-                }
-                onReady.invoke()
-            },
-            onError = onError,
-        )
-        resumeCamera()
+    /** Moves the shared camera preview into this platform-view container. */
+    fun attachPreview() {
+        if (isDisposed) return
+        val preview = scanner.previewView
+        (preview.parent as? ViewGroup)?.removeView(preview)
+        addView(preview, 0)
+        overlayController.updateScannerScale()
     }
 
-    /** Moves the platform view lifecycle to the resumed state. */
-    fun resumeCamera() {
-        if (lifecycleRegistry.currentState == Lifecycle.State.DESTROYED) return
-        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+    /** Removes the shared preview without disposing the shared camera pipeline. */
+    fun detachPreview() {
+        overlayController.setScanActive(false)
+        val preview = scanner.previewView
+        if (preview.parent === this) removeView(preview)
     }
 
-    /** Moves the platform view lifecycle back to the created state. */
-    fun pauseCamera() {
-        if (lifecycleRegistry.currentState != Lifecycle.State.DESTROYED) {
-            lifecycleRegistry.currentState = Lifecycle.State.CREATED
+    /** Returns whether this container currently hosts the one shared preview view. */
+    fun hasPreview(): Boolean = scanner.previewView.parent === this
+
+    /** Connects focus UI to the shared camera after CameraX is ready. */
+    fun bindFocus() = overlayController.bindFocus()
+
+    /** Updates the scan overlay state in this preview container. */
+    fun setScanActive(isActive: Boolean) = overlayController.setScanActive(isActive)
+
+    /** Applies this container's scale to shared frame-crop calculations. */
+    fun updateScannerScale() = overlayController.updateScannerScale()
+
+    /** Renders matching focus and visor UI for the scanner's current crop area. */
+    fun renderCropArea(cropRect: RecognizeVisorCropRect) {
+        overlayController.renderCropArea(cropRect)
+    }
+
+    /** Unregisters this platform view without releasing shared camera resources. */
+    override fun dispose() {
+        if (isDisposed) return
+        isDisposed = true
+        try {
+            onDispose.invoke()
+        } finally {
+            detachPreview()
         }
     }
 
-    /** Returns true when the scanner camera is active. */
-    fun isActive(): Boolean = scanner.isActive()
-
-    /** Toggles the scanner camera torch. */
-    fun toggleFlashLight() {
-        scanner.toggleFlashLight()
-    }
-
-    /** Starts frame analysis and updates the visor state. */
-    fun startScan(periodMs: Int) {
-        scanner.startScan(periodMs)
-        overlayController.setScanActive(scanner.isScanActive)
-    }
-
-    /** Pauses frame analysis and updates the visor state. */
-    fun pauseScan() {
-        scanner.pauseScan()
-        overlayController.setScanActive(false)
-    }
-
-    /** Updates the delay between analysis attempts. */
-    fun updateScanPeriod(periodMs: Int) {
-        scanner.updateScanPeriod(periodMs)
-    }
-
-    /** Subscribes to decoded scanner results through the underlying scanner. */
-    fun subscribeToScanResults(listener: (Barcode) -> Unit): ScanResultSubscription =
-        scanner.subscribeToScanResults(listener)
-
-    /** Updates scanner crop settings and matching focus and visor UI. */
-    fun setCropArea(cropRect: RecognizeVisorCropRect) {
-        overlayController.setCropArea(cropRect)
-    }
-
-    /** Applies normalized zoom to the scanner camera. */
-    fun setZoom(value: Float) {
-        scanner.setZoom(value)
-    }
-
-    /** Marks this platform view lifecycle as destroyed. */
-    private fun destroy() {
-        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
-    }
-
-    /** Releases scanner resources, destroys the platform view lifecycle, and notifies the owner. */
-    override fun dispose() {
+    /** Disposes the local view when the owning session is released. */
+    fun disposeFromSession() {
         if (isDisposed) return
-
         isDisposed = true
-        pauseCamera()
-        scanner.dispose()
-        destroy()
-        onDispose.invoke(this)
+        detachPreview()
     }
 
     /** Returns this native view to Flutter's platform view host. */
@@ -143,6 +85,7 @@ class ScannerView(
 
     /** Routes touch gestures to the focus overlay when it is attached. */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (!hasPreview()) return super.dispatchTouchEvent(ev)
         if (overlayController.dispatchTouchEvent(ev)) return true
         return super.dispatchTouchEvent(ev)
     }

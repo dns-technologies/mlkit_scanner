@@ -2,6 +2,7 @@ package com.dns_technologies.mlkit_scanner.scanner
 
 import android.view.View
 import androidx.lifecycle.LifecycleOwner
+import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
@@ -11,7 +12,11 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Test
 import org.mockito.Mockito.mock
 import java.util.concurrent.ExecutorService
@@ -48,15 +53,54 @@ internal class ScannerTest {
     @Test
     fun `scanner passes calculated crop to analyzer`() {
         val fixture = Fixture()
+        val cropArea = RecognizeVisorCropRect(scaleWidth = 0.5, scaleHeight = 0.5)
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
-        fixture.scanner.setCropArea(
-            RecognizeVisorCropRect(scaleWidth = 0.5, scaleHeight = 0.5),
-        )
+        fixture.scanner.setCropArea(cropArea)
         fixture.scanner.startScan(periodMs = 100)
 
         fixture.emitFrame()
 
+        assertEquals(cropArea, fixture.scanner.currentCropArea)
         assertEquals(Rect(180, 256, 540, 1024), fixture.lastCropRect)
+    }
+
+    @Test
+    fun `runtime zoom before initialization is rejected by camera adapter`() {
+        val fixture = Fixture()
+
+        val error = runCatching { fixture.scanner.setZoom(0.75F) }.exceptionOrNull()
+
+        assertSame(PluginError.CameraIsNotInitialized, error)
+        assertEquals(emptyList<Float>(), fixture.camera.zoomValues)
+    }
+
+    @Test
+    fun `zoom is applied through the camera adapter`() = runBlocking {
+        val fixture = Fixture()
+
+        fixture.scanner.startCamera(
+            lifecycleOwner = mock(LifecycleOwner::class.java),
+            onInit = {},
+            onError = {},
+        )
+        fixture.scanner.setZoom(0.75F).await()
+
+        assertEquals(listOf(0.75F), fixture.camera.zoomValues)
+    }
+
+    @Test
+    fun `resume scan uses period retained by analyzer`() {
+        val fixture = Fixture()
+        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.startScan(periodMs = 250)
+        fixture.emitFrame()
+        fixture.scanner.pauseScan()
+        fixture.setCurrentTimeMs(250)
+
+        fixture.scanner.resumeScan()
+        fixture.emitFrame()
+
+        assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
     }
 
     @Test
@@ -138,6 +182,7 @@ internal class ScannerTest {
 
     private class FakeCamera : Camera {
         override val previewView: View = mock(View::class.java)
+        val zoomValues = mutableListOf<Float>()
         private var onFrame: OnCameraFrame? = null
 
         override fun start(
@@ -161,7 +206,13 @@ internal class ScannerTest {
 
         override fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) = Unit
 
-        override fun setZoom(value: Float) = Unit
+        override fun setZoom(value: Float): Deferred<Unit> {
+            if (!isActive()) throw PluginError.CameraIsNotInitialized
+            zoomValues += value
+            return CompletableDeferred(Unit)
+        }
+
+        override fun showPreview() = Unit
 
         override fun dispose() {
             onFrame = null

@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner.commands
 
+import android.content.Context
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
@@ -43,8 +44,8 @@ internal class InitCameraCommandTest {
             private set
         var startParameters: InitialScannerParameters? = null
             private set
-
-        override fun isActive(): Boolean = false
+        override fun createView(context: Context, viewId: Int): ScannerView =
+            mock(ScannerView::class.java)
 
         override suspend fun startCamera(parameters: InitialScannerParameters?) {
             startCalls += 1
@@ -61,8 +62,8 @@ internal class InitCameraCommandTest {
         override fun updateScanPeriod(periodMs: Int) = Unit
         override fun setZoom(value: Float) = Unit
         override fun setCropArea(cropRect: RecognizeVisorCropRect) = Unit
+        override fun disposeView(viewId: Int?) = Unit
         override fun release() = Unit
-        override fun owns(scannerView: ScannerView): Boolean = false
     }
 
     private fun <T> anyValue(): T = any<T>()

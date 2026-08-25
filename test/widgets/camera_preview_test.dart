@@ -5,8 +5,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('$CameraPreview', () {
     const channel = MethodChannel('mlkit_channel');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
     Widget _buildApp({
       required Function() onCameraInitialized,
@@ -21,28 +25,36 @@ void main() {
     }
 
     setUp(() {
-      channel.setMockMethodCallHandler((call) async => null);
+      messenger.setMockMethodCallHandler(channel, (call) async => null);
 
-      SystemChannels.platform_views.setMockMethodCallHandler(
+      messenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
         (call) async {
           switch (call.method) {
             default:
-              null;
+              return null;
           }
         },
       );
     });
 
     tearDown(() {
-      channel.setMockMethodCallHandler(null);
-      SystemChannels.platform_views.setMockMethodCallHandler(null);
+      messenger.setMockMethodCallHandler(channel, null);
+      messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
     });
 
     group('Инициализация виджета при успешной инициализации камеры', () {
       testWidgets('Android', (tester) async {
         debugDefaultTargetPlatformOverride = TargetPlatform.android;
         var cameraInitialized = false;
+        MethodCall? initCall;
+        MethodCall? disposeCall;
         PlatformException? error;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'initCameraPreview') initCall = call;
+          if (call.method == 'dispose') disposeCall = call;
+          return null;
+        });
 
         await tester.pumpWidget(_buildApp(
           onCameraInitialized: () => cameraInitialized = true,
@@ -51,9 +63,16 @@ void main() {
 
         final platformView = find.byType(PlatformViewLink);
         await tester.pumpAndSettle();
-        expect(platformView, findsOneWidget, reason: "Не отображается нативный виджет");
-        expect(cameraInitialized, true, reason: 'Не вызвался колбек при успешной инициализации камеры');
-        expect(error, isNull, reason: "Не должно быть ошибки инициализации камеры");
+        expect(platformView, findsOneWidget,
+            reason: "Не отображается нативный виджет");
+        expect(cameraInitialized, true,
+            reason: 'Не вызвался колбек при успешной инициализации камеры');
+        expect(error, isNull,
+            reason: "Не должно быть ошибки инициализации камеры");
+        expect(initCall?.arguments, isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+        expect(disposeCall?.arguments, {'viewId': isA<int>()});
         debugDefaultTargetPlatformOverride = null;
       });
 
@@ -72,18 +91,23 @@ void main() {
 
         widget.onPlatformViewCreated!(1);
         await tester.pumpAndSettle();
-        expect(platformView, findsOneWidget, reason: "Не отображается нативный виджет");
-        expect(cameraInitialized, true, reason: 'Не вызвался колбек при успешной инициализации камеры');
-        expect(error, isNull, reason: "Не должно быть ошибки инициализации камеры");
+        expect(platformView, findsOneWidget,
+            reason: "Не отображается нативный виджет");
+        expect(cameraInitialized, true,
+            reason: 'Не вызвался колбек при успешной инициализации камеры');
+        expect(error, isNull,
+            reason: "Не должно быть ошибки инициализации камеры");
         debugDefaultTargetPlatformOverride = null;
       });
     });
 
-    testWidgets('Инициализация виджета при ошибке инициализации камеры', (tester) async {
-      channel.setMockMethodCallHandler((call) async {
+    testWidgets('Инициализация виджета при ошибке инициализации камеры',
+        (tester) async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
         if (call.method == 'initCameraPreview') {
           throw PlatformException(code: "911", message: "Ошибочка");
         }
+        return null;
       });
       var cameraInitialized = false;
       late PlatformException error;
@@ -95,9 +119,12 @@ void main() {
 
       final platformView = find.byType(PlatformViewLink);
       await tester.pumpAndSettle();
-      expect(platformView, findsOneWidget, reason: "Не отображается нативный виджет");
-      expect(cameraInitialized, false, reason: 'Колбек инициализации не должен вызываться при ошибке');
-      expect(error.message, "Ошибочка", reason: "Должна вернуться ошибка инициализации камеры");
+      expect(platformView, findsOneWidget,
+          reason: "Не отображается нативный виджет");
+      expect(cameraInitialized, false,
+          reason: 'Колбек инициализации не должен вызываться при ошибке');
+      expect(error.message, "Ошибочка",
+          reason: "Должна вернуться ошибка инициализации камеры");
     });
   });
 }

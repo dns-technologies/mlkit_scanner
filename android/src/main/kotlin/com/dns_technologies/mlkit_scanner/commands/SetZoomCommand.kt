@@ -10,7 +10,7 @@ internal class SetZoomCommand(
     scannerSessionProvider: () -> ScannerSession?,
 ) : ScannerCommand(scannerSessionProvider) {
     override fun executeCommand(call: MethodCall, result: Result) {
-        val value = call.arguments as Double
+        val value = call.arguments as Number
         scannerSessionProvider()?.setZoom(value.toFloat())
         success(result)
     }

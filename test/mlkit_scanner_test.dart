@@ -5,40 +5,63 @@ import 'package:mlkit_scanner/mlkit_scanner.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 void main() {
-  group('Тестирование MLKitscanner', () {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('MLKit scanner', () {
     const channel = MethodChannel('mlkit_channel');
+    final calls = <MethodCall>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
     setUpAll(() {
-      TestWidgetsFlutterBinding.ensureInitialized();
-
-      channel.setMockMethodCallHandler((call) async {
-        switch (call.method) {
-          default:
-            null;
-        }
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return null;
       });
     });
+
+    setUp(calls.clear);
 
     tearDownAll(() {
-      channel.setMockMethodCallHandler(null);
+      messenger.setMockMethodCallHandler(channel, null);
     });
 
-    group('Тестирование BarcodeScanner', () {
-      testWidgets('Инициализация виджета', (tester) async {
-        BarcodeScannerController? controller;
-        await tester.pumpWidget(TestApp(
-          child: BarcodeScanner(
-            onScannerInitialized: (c) => controller = c,
-            onScan: (value) {},
-          ),
-        ));
-        final camera = find.byType(CameraPreview);
-        expect(camera, findsOneWidget, reason: 'Нет виджета CameraPreview');
-        final widget = tester.firstWidget(camera) as CameraPreview;
-        widget.onCameraInitialized();
-        await tester.pumpAndSettle();
-        expect(controller, isNotNull, reason: 'Виджет не вернул контроллер для управлением сканированием');
-      });
+    testWidgets('initializes BarcodeScanner controller', (tester) async {
+      BarcodeScannerController? controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) => controller = value,
+          onScan: (value) {},
+        ),
+      ));
+
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized();
+      await tester.pumpAndSettle();
+
+      expect(controller, isNotNull);
+    });
+
+    testWidgets('disposing a widget does not cancel the shared scan',
+        (tester) async {
+      BarcodeScannerController? controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) => controller = value,
+          onScan: (value) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized();
+      await tester.pump();
+      await controller!.startScan(0);
+
+      await tester.pumpWidget(const TestApp(child: SizedBox.shrink()));
+      await tester.pump();
+
+      expect(calls.map((call) => call.method), isNot(contains('cancelScan')));
     });
   });
 }

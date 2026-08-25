@@ -41,8 +41,16 @@ class Scanner(
     val previewView: View
         get() = camera.previewView
 
-    /** Starts the delegated camera and wires it to common frame handling. */
-    fun startCamera(lifecycleOwner: LifecycleOwner, onInit: OnInit, onError: OnError) {
+    /** Current recognition area reapplied only to newly attached preview overlays. */
+    val currentCropArea: RecognizeVisorCropRect?
+        get() = cropConfiguration.scanArea
+
+    /** Starts the delegated camera and wires common frame handling. */
+    fun startCamera(
+        lifecycleOwner: LifecycleOwner,
+        onInit: OnInit,
+        onError: OnError,
+    ) {
         val executor = analysisExecutor
             ?.takeUnless { it.isShutdown }
             ?: Executors.newSingleThreadExecutor().also { analysisExecutor = it }
@@ -72,6 +80,11 @@ class Scanner(
     /** Starts analysis with the configured analyzer component. */
     fun startScan(periodMs: Int) {
         analyzer.updatePeriod(periodMs)
+        resumeScan()
+    }
+
+    /** Resumes analysis with the period already retained by the analyzer. */
+    fun resumeScan() {
         isScanActive = true
     }
 
@@ -92,7 +105,7 @@ class Scanner(
     }
 
     /** Updates scanner crop settings used for frame preparation. */
-    fun setCropArea(cropRect: RecognizeVisorCropRect) {
+    fun setCropArea(cropRect: RecognizeVisorCropRect?) {
         updateCropConfiguration { it.copy(scanArea = cropRect) }
     }
 
@@ -103,10 +116,11 @@ class Scanner(
         }
     }
 
-    /** Applies normalized zoom to the active camera. */
-    fun setZoom(value: Float) {
-        camera.setZoom(value)
-    }
+    /** Delegates normalized zoom to the camera adapter. */
+    fun setZoom(value: Float) = camera.setZoom(value)
+
+    /** Reveals camera preview after startup controls have been applied. */
+    fun showPreview() = camera.showPreview()
 
     /** Releases scanner components and stops pending analysis work. */
     fun dispose() {

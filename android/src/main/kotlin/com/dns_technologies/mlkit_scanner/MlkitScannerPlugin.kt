@@ -19,6 +19,7 @@ import com.dns_technologies.mlkit_scanner.commands.UpdateConstraintsCommand
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.models.ScannerSessionImpl
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
+import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.ScannerViewFactory
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.MlkitImageBarcodeAnalyzer
@@ -38,14 +39,18 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 
 /** Android plugin entry point for the ML Kit scanner. */
-class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, DefaultLifecycleObserver {
+class MlkitScannerPlugin internal constructor(
+    private val mainHandler: Handler,
+) : FlutterPlugin, ActivityAware, MethodCallHandler, DefaultLifecycleObserver {
+    /** Constructor used by the Flutter embedding. */
+    constructor() : this(Handler(Looper.getMainLooper()))
+
     private var channel: MethodChannel? = null
     private var activityBinding: ActivityPluginBinding? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
     private val commandScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    @Volatile
     private var scannerSession: ScannerSession? = null
-    private val staleScannerSessions = mutableListOf<ScannerSession>()
 
     private val permissionGateway = PermissionGateway()
 
@@ -62,12 +67,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
             .platformViewRegistry
             .registerViewFactory(
                 PluginConstants.cameraPlatformViewName,
-                ScannerViewFactory(
-                    createCamera = ::XCamera,
-                    createImageAnalyzer = { MlkitImageBarcodeAnalyzer(TAG) },
-                    onCreate = ::bindScannerView,
-                    onDispose = ::unbindScannerView,
-                ),
+                ScannerViewFactory(::createScannerView),
             )
     }
 
@@ -110,7 +110,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
             ).execute(call, result)
             PluginConstants.resumeCameraMethod -> ResumeCameraCommand(::scannerSession).execute(call, result)
             PluginConstants.pauseCameraMethod -> PauseCameraCommand(::scannerSession).execute(call, result)
-            PluginConstants.disposeCameraMethod -> DisposeCameraCommand(::disposeScanner).execute(call, result)
+            PluginConstants.disposeCameraMethod -> DisposeCameraCommand(::scannerSession).execute(call, result)
             PluginConstants.toggleFlashMethod -> ToggleFlashCommand(::scannerSession).execute(call, result)
             PluginConstants.startScanMethod -> StartScanCommand(::scannerSession).execute(call, result)
             PluginConstants.cancelScanMethod -> CancelScanCommand(::scannerSession).execute(call, result)
@@ -149,48 +149,29 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodCallHandler, Defa
         permissionGateway.detach()
     }
 
-    /** Binds a created platform view to a new active scanner session. */
-    private fun bindScannerView(scannerView: ScannerView) {
-        scannerSession?.let(staleScannerSessions::add)
-        scannerSession = ScannerSessionImpl(scannerView, ::emitScanResult)
+    /** Creates a platform view inside the one scanner session owned by this engine. */
+    private fun createScannerView(context: android.content.Context, viewId: Int): ScannerView {
+        val session = scannerSession ?: ScannerSessionImpl(
+            scanner = Scanner(
+                camera = XCamera(context),
+                analyzer = MlkitImageBarcodeAnalyzer(TAG),
+            ),
+            mainHandler = mainHandler,
+            onScanResult = ::emitScanResult,
+            onReleased = { scannerSession = null },
+        ).also { scannerSession = it }
+        return session.createView(context, viewId)
     }
 
     private fun disposeScanner() {
         val activeSession = scannerSession
-        val staleSessions = staleScannerSessions.toList()
-
         scannerSession = null
-        staleScannerSessions.clear()
-
         activeSession?.release()
-        staleSessions.forEach { it.release() }
-    }
-
-    /** Unbinds a disposed scanner platform view without disturbing a newer active session. */
-    private fun unbindScannerView(scannerView: ScannerView) {
-        val activeSession = scannerSession
-        if (activeSession?.owns(scannerView) == true) {
-            activeSession.release()
-            scannerSession = null
-            return
-        }
-
-        val staleSession = staleScannerSessions.firstOrNull { it.owns(scannerView) }
-        if (staleSession != null) {
-            staleSession.release()
-            staleScannerSessions -= staleSession
-            return
-        }
-
-        scannerView.dispose()
     }
 
     /** Sends a recognized barcode result to Dart on the main thread. */
     private fun emitScanResult(result: Barcode) {
-        val payload = result.toMap()
-        mainHandler.post {
-            channel?.invokeMethod(PluginConstants.scanResultMethod, payload)
-        }
+        channel?.invokeMethod(PluginConstants.scanResultMethod, result.toMap())
     }
 
     private companion object {

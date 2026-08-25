@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 import 'package:mlkit_scanner/models/recognition_type.dart';
@@ -59,11 +60,13 @@ class MlKitChannel {
     return _channel.invokeMethod(_initCameraMethod, initialArguments?.toJson());
   }
 
-  /// Release resources of the camera.
-  ///
-  /// Must call this method when camera is no longer needed.
-  Future<void> dispose() {
-    return _channel.invokeMethod(_disposeMethod);
+  /// Removes one platform view from the shared native scanner session.
+  Future<void> dispose({int? viewId}) {
+    final arguments =
+        defaultTargetPlatform == TargetPlatform.android && viewId != null
+            ? <String, Object?>{'viewId': viewId}
+            : null;
+    return _channel.invokeMethod(_disposeMethod, arguments);
   }
 
   /// Toggle flash of the device.

@@ -1,50 +1,51 @@
 package com.dns_technologies.mlkit_scanner.models
 
+import android.content.Context
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.models.InitialScannerParameters
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 
-/** Operations available for one scanner view lifecycle. */
+/** Operations available for the single scanner session shared by platform views. */
 internal interface ScannerSession {
-    /** Returns whether this session currently owns an active camera. */
-    fun isActive(): Boolean
+    /** Creates and registers a platform view. */
+    fun createView(context: Context, viewId: Int): ScannerView
 
-    /** Starts the camera and applies optional initial scanner parameters. */
+    /** Starts the shared camera and applies optional initial settings. */
     suspend fun startCamera(parameters: InitialScannerParameters?)
 
-    /** Resumes camera work after an explicit pause. */
+    /** Resumes the shared camera after an explicit pause. */
     fun resumeCamera()
 
-    /** Pauses camera work until explicitly resumed. */
+    /** Pauses the shared camera without releasing it. */
     fun pauseCamera()
 
-    /** Restores camera work when the host lifecycle resumes after a host pause. */
+    /** Restores shared camera work when the host lifecycle resumes. */
     fun onHostResume()
 
-    /** Pauses camera work while the host lifecycle is paused. */
+    /** Pauses shared camera work while the host lifecycle is paused. */
     fun onHostPause()
 
-    /** Toggles the active camera torch. */
+    /** Toggles the shared camera torch. */
     fun toggleFlashLight()
 
-    /** Starts barcode analysis with the requested delay between accepted frames. */
+    /** Starts barcode analysis with the requested delay. */
     fun startScan(periodMs: Int)
 
-    /** Pauses barcode analysis without releasing camera resources. */
+    /** Pauses barcode analysis without releasing the shared camera. */
     fun pauseScan()
 
-    /** Updates the delay between accepted barcode analysis attempts. */
+    /** Updates the shared delay between barcode analysis attempts. */
     fun updateScanPeriod(periodMs: Int)
 
-    /** Applies normalized zoom to the active camera. */
+    /** Applies normalized zoom to the shared camera. */
     fun setZoom(value: Float)
 
-    /** Updates the frame region used for barcode recognition. */
+    /** Updates the shared barcode recognition region. */
     fun setCropArea(cropRect: RecognizeVisorCropRect)
 
-    /** Cancels subscriptions and releases all resources owned by this session. */
-    fun release()
+    /** Removes one platform view registration. */
+    fun disposeView(viewId: Int?)
 
-    /** Returns whether this session owns the supplied scanner platform view. */
-    fun owns(scannerView: ScannerView): Boolean
+    /** Cancels subscriptions and releases all shared scanner resources. */
+    fun release()
 }

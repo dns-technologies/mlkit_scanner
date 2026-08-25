@@ -91,7 +91,8 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
 
   @override
   void dispose() {
-    _cancelScan();
+    _scanStreamSubscription?.cancel();
+    _scanStreamSubscription = null;
     _toggleFlashStreamSubscription?.cancel();
     super.dispose();
   }

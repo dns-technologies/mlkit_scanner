@@ -24,6 +24,8 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 
 /**
  * CameraX adapter that hides CameraX APIs behind [Camera].
@@ -58,7 +60,7 @@ class XCamera(
     /** Token of the active asynchronous CameraX start operation. */
     private var startToken: Any? = null
 
-    /** Starts CameraX preview and analysis use cases for the provided lifecycle. */
+    /** Starts CameraX use cases while keeping preview hidden until [showPreview] is called. */
     override fun start(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
@@ -70,6 +72,7 @@ class XCamera(
 
         val token = Any()
         startToken = token
+        previewView.alpha = 0.0F
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
             if (startToken !== token) return@addListener
@@ -80,9 +83,7 @@ class XCamera(
             } catch (e: Exception) {
                 onError.invoke(e)
             } finally {
-                if (startToken === token) {
-                    startToken = null
-                }
+                if (startToken === token) startToken = null
             }
         }, ContextCompat.getMainExecutor(context))
     }
@@ -122,18 +123,36 @@ class XCamera(
         activeCamera.cameraControl.startFocusAndMetering(focusActionBuilder.build())
     }
 
-    /** Applies normalized linear zoom to the active CameraX camera. */
-    override fun setZoom(value: Float) {
-        val activeCamera = camera ?: return
+    /** Applies normalized linear zoom and completes after CameraX accepts the value. */
+    override fun setZoom(value: Float): Deferred<Unit> {
+        val activeCamera = camera ?: throw PluginError.CameraIsNotInitialized
         if (activeCamera.cameraInfo.zoomState.value == null) {
             throw PluginError.DeviceHasNotZoom
         }
-        activeCamera.cameraControl.setLinearZoom(value.coerceIn(0.0F, 1.0F))
+
+        val completion = CompletableDeferred<Unit>()
+        val zoomFuture = activeCamera.cameraControl.setLinearZoom(value.coerceIn(0.0F, 1.0F))
+        zoomFuture.addListener({
+            try {
+                zoomFuture.get()
+                completion.complete(Unit)
+            } catch (error: Exception) {
+                completion.completeExceptionally(error.cause ?: error)
+            }
+        }, ContextCompat.getMainExecutor(context))
+        return completion
+    }
+
+    /** Reveals preview only after session-level startup configuration is complete. */
+    override fun showPreview() {
+        if (!isActive()) throw PluginError.CameraIsNotInitialized
+        previewView.alpha = 1.0F
     }
 
     /** Releases CameraX bindings owned by this adapter. */
     override fun dispose() {
         startToken = null
+        previewView.alpha = 0.0F
         unbindViews()
         nv21Converter.dispose()
         cameraProvider = null
@@ -149,17 +168,18 @@ class XCamera(
         analysisExecutor: ExecutorService,
         onFrame: OnCameraFrame,
     ) {
-        val provider = cameraProvider ?: return
+        val provider = checkNotNull(cameraProvider)
         val preview = createPreview()
         val imageAnalysis = createImageAnalysis(analysisExecutor, onFrame)
 
         unbindViews()
-        camera = provider.bindToLifecycle(
+        val activeCamera = provider.bindToLifecycle(
             lifecycleOwner,
             CameraSelector.DEFAULT_BACK_CAMERA,
             preview,
             imageAnalysis,
         )
+        camera = activeCamera
         this.preview = preview
         this.imageAnalysis = imageAnalysis
     }

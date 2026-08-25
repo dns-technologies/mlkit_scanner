@@ -8,16 +8,6 @@ import io.flutter.plugin.common.MethodChannel.Result
 internal abstract class BaseScannerCommand(
     protected val scannerSessionProvider: () -> ScannerSession?,
 ) {
-    /** Reads a session and validates it is active or returns an error. */
-    protected fun activeScannerSession(result: Result, error: PluginError = PluginError.CameraIsNotInitialized): ScannerSession? {
-        val session = scannerSessionProvider()
-        if (session == null || !session.isActive()) {
-            reportError(result, error)
-            return null
-        }
-        return session
-    }
-
     /** Sends a successful command completion. */
     protected fun success(result: Result) = result.success(true)
 

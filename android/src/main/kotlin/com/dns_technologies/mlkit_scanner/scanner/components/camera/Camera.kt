@@ -3,6 +3,7 @@ package com.dns_technologies.mlkit_scanner.scanner.components.camera
 import android.view.View
 import androidx.lifecycle.LifecycleOwner
 import java.util.concurrent.ExecutorService
+import kotlinx.coroutines.Deferred
 
 /** Callback invoked after camera initialization succeeds. */
 typealias OnInit = () -> Unit
@@ -20,7 +21,7 @@ interface Camera {
     /** Native preview view supplied by the concrete camera implementation. */
     val previewView: View
 
-    /** Starts preview and frame analysis using the provided lifecycle and executor. */
+    /** Starts frame analysis while keeping preview hidden until [showPreview] is called. */
     fun start(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
@@ -38,8 +39,11 @@ interface Camera {
     /** Starts focus and metering around the visual scanner focus point. */
     fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float)
 
-    /** Applies normalized zoom to the active camera implementation. */
-    fun setZoom(value: Float)
+    /** Applies normalized zoom and completes after the camera accepts the new value. */
+    fun setZoom(value: Float): Deferred<Unit>
+
+    /** Reveals preview after startup camera controls have been applied. */
+    fun showPreview()
 
     /** Releases resources owned by the concrete camera implementation. */
     fun dispose()

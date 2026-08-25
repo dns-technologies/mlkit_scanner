@@ -2,6 +2,9 @@ package com.dns_technologies.mlkit_scanner
 
 /** Contains method channel names used by the Dart and Android plugin sides. */
 internal object PluginConstants {
+    /** Argument key identifying the platform view being disposed. */
+    const val viewIdArgument = "viewId"
+
     /** Method channel name used for scanner commands and events. */
     const val channelName = "mlkit_channel"
 

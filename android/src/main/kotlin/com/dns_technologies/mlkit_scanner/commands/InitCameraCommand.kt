@@ -28,11 +28,6 @@ internal class InitCameraCommand(
             return
         }
 
-        if (scannerSession.isActive()) {
-            success(result)
-            return
-        }
-
         @Suppress("UNCHECKED_CAST")
         scannerSession.startCamera(
             (call.arguments as? Map<String, Any?>)?.let(::InitialScannerParameters),

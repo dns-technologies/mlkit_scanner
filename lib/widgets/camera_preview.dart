@@ -36,6 +36,7 @@ class CameraPreview extends StatefulWidget {
 
 class _CameraPreviewState extends State<CameraPreview> {
   late MlKitChannel _channel;
+  int? _viewId;
 
   @override
   void initState() {
@@ -92,14 +93,16 @@ class _CameraPreviewState extends State<CameraPreview> {
 
   @override
   void dispose() {
-    _channel.dispose();
+    _channel.dispose(viewId: _viewId);
     super.dispose();
   }
 
   Future<void> _onViewCreated(int id) async {
+    _viewId = id;
     try {
       await _channel.initCameraPreview(
-          initialArguments: widget.initialArguments);
+        initialArguments: widget.initialArguments,
+      );
       widget.onCameraInitialized();
     } on PlatformException catch (e) {
       widget.onCameraInitializeError?.call(e);

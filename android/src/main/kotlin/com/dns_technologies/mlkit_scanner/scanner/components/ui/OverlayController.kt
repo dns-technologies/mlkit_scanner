@@ -31,9 +31,8 @@ internal class OverlayController(
         )
     }
 
-    /** Updates scanner crop settings and matching focus and visor UI. */
-    fun setCropArea(cropRect: RecognizeVisorCropRect) {
-        scanner.setCropArea(cropRect)
+    /** Renders focus and visor UI for the scanner's current crop area. */
+    fun renderCropArea(cropRect: RecognizeVisorCropRect) {
         updateScannerScale()
         focusController.updateCenter(cropRect.centerOffsetX.toFloat(), cropRect.centerOffsetY.toFloat())
         visorController.setCropArea(cropRect, scanner.isScanActive)
