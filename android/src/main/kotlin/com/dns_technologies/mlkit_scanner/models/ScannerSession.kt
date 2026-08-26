@@ -10,7 +10,7 @@ internal interface ScannerSession {
     /** Creates and registers a platform view. */
     fun createView(context: Context, viewId: Int): ScannerView
 
-    /** Starts the shared camera and applies optional initial zoom and recognition area. */
+    /** Starts the shared camera once without overriding controls retained for later views. */
     suspend fun startCamera(
         viewId: Int,
         initialZoom: Double?,

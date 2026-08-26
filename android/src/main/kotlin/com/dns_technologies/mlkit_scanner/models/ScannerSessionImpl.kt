@@ -26,13 +26,14 @@ import kotlinx.coroutines.sync.withLock
  * Runtime camera and scan controls are session-wide and the last command wins. Initial camera
  * parameters belong only to the first call that starts initialization. The view registry exists
  * only to host the one Android preview and to delay resource release across short route transitions.
+ * A temporary empty registry pauses effective camera and scan work without changing the states
+ * requested by the user, so a replacement view can restore them without rebuilding the pipeline.
  */
 internal class ScannerSessionImpl(
     private val scanner: Scanner,
     private val mainHandler: Handler,
     private val onScanResult: (Int, Barcode) -> Unit,
     private val onReleased: () -> Unit,
-    private val releaseDelayMs: Long = DEFAULT_RELEASE_DELAY_MS,
     private val initializationScope: CoroutineScope = MainScope(),
     lifecycleRegistryFactory: (LifecycleOwner) -> LifecycleRegistry = ::LifecycleRegistry,
 ) : ScannerSession, LifecycleOwner, DefaultLifecycleObserver {
@@ -97,8 +98,10 @@ internal class ScannerSessionImpl(
         if (isReleased) throw PluginError.CameraSessionDisposed
         requireView(viewId)
 
-        cameraRequested = true
-        cameraPaused = false
+        if (!cameraRequested) {
+            cameraRequested = true
+            cameraPaused = false
+        }
         updateCameraLifecycle()
         applyScanState()
 
@@ -381,7 +384,7 @@ internal class ScannerSessionImpl(
             if (views.isEmpty()) release()
         }
         deferredRelease = releaseTask
-        if (!mainHandler.postDelayed(releaseTask, releaseDelayMs)) {
+        if (!mainHandler.postDelayed(releaseTask, NAVIGATION_GRACE_PERIOD_MS)) {
             deferredRelease = null
             release()
         }
@@ -392,7 +395,8 @@ internal class ScannerSessionImpl(
         deferredRelease = null
     }
 
-    private companion object {
-        const val DEFAULT_RELEASE_DELAY_MS = 300L
+    internal companion object {
+        /** Time to retain a paused scanner pipeline while Flutter replaces its platform view. */
+        const val NAVIGATION_GRACE_PERIOD_MS = 300L
     }
 }

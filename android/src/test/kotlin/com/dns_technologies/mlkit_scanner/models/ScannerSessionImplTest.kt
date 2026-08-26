@@ -28,6 +28,7 @@ import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyFloat
 import org.mockito.ArgumentMatchers.anyInt
 import org.mockito.ArgumentMatchers.anyLong
+import org.mockito.Mockito.atLeastOnce
 import org.mockito.Mockito.clearInvocations
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mock
@@ -101,6 +102,102 @@ internal class ScannerSessionImplTest {
         assertEquals(0, fixture.hostLifecycleOwner.observerCount)
         assertEquals(1, fixture.subscriptionCancelCalls)
         assertEquals(1, fixture.releaseCalls)
+    }
+
+    @Test
+    fun `navigation gap pauses camera and scan while retaining shared resources`() =
+        runSessionTest {
+            val fixture = Fixture()
+            val initialization = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.session.startCamera(FIRST_VIEW_ID, null, null)
+            }
+            fixture.completeInitialization()
+            withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+            fixture.session.startScan(100)
+            clearInvocations(fixture.scanner)
+
+            fixture.session.disposeView(FIRST_VIEW_ID)
+
+            assertEquals(Lifecycle.State.CREATED, fixture.session.lifecycle.currentState)
+            assertEquals(
+                listOf(ScannerSessionImpl.NAVIGATION_GRACE_PERIOD_MS),
+                fixture.scheduledDelays,
+            )
+            verify(fixture.scanner, atLeastOnce()).pauseScan()
+            verify(fixture.scanner, never()).dispose()
+        }
+
+    @Test
+    fun `new view during grace immediately restores requested camera and scan`() =
+        runSessionTest {
+            val fixture = Fixture()
+            val initialization = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.session.startCamera(FIRST_VIEW_ID, null, null)
+            }
+            fixture.completeInitialization()
+            withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+            fixture.session.startScan(100)
+            fixture.session.disposeView(FIRST_VIEW_ID)
+            val releaseTask = fixture.delayedCallbacks.single()
+            clearInvocations(fixture.scanner)
+
+            fixture.attach(SECOND_VIEW_ID)
+
+            assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+            verify(fixture.scanner).resumeScan()
+            verify(fixture.mainHandler).removeCallbacks(releaseTask)
+
+            fixture.session.startCamera(SECOND_VIEW_ID, 0.75, null)
+            releaseTask.run()
+
+            assertEquals(1, fixture.startCalls)
+            verify(fixture.scanner, never()).dispose()
+        }
+
+    @Test
+    fun `new view preserves manual camera pause until explicit resume`() = runSessionTest {
+        val fixture = Fixture()
+        val initialization = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.startCamera(FIRST_VIEW_ID, null, null)
+        }
+        fixture.completeInitialization()
+        withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+        fixture.session.startScan(100)
+        fixture.session.pauseCamera()
+        fixture.session.disposeView(FIRST_VIEW_ID)
+        clearInvocations(fixture.scanner)
+
+        fixture.attach(SECOND_VIEW_ID)
+        fixture.session.startCamera(SECOND_VIEW_ID, null, null)
+
+        assertEquals(Lifecycle.State.CREATED, fixture.session.lifecycle.currentState)
+        verify(fixture.scanner, never()).resumeScan()
+
+        fixture.session.resumeCamera()
+
+        assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+        verify(fixture.scanner).resumeScan()
+    }
+
+    @Test
+    fun `new view preserves cancelled scan while resuming requested camera`() = runSessionTest {
+        val fixture = Fixture()
+        val initialization = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.startCamera(FIRST_VIEW_ID, null, null)
+        }
+        fixture.completeInitialization()
+        withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+        fixture.session.startScan(100)
+        fixture.session.pauseScan()
+        fixture.session.disposeView(FIRST_VIEW_ID)
+        clearInvocations(fixture.scanner)
+
+        fixture.attach(SECOND_VIEW_ID)
+        fixture.session.startCamera(SECOND_VIEW_ID, null, null)
+
+        assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+        verify(fixture.scanner, never()).resumeScan()
+        verify(fixture.scanner, atLeastOnce()).pauseScan()
     }
 
     @Test
@@ -568,6 +665,7 @@ internal class ScannerSessionImplTest {
         val mainHandler: Handler = mock(Handler::class.java)
         val postedCallbacks = mutableListOf<Runnable>()
         val delayedCallbacks = mutableListOf<Runnable>()
+        val scheduledDelays = mutableListOf<Long>()
         val hostLifecycleOwner = TestHostLifecycleOwner(hostLifecycleState)
         val session: ScannerSessionImpl
         var startCalls = 0
@@ -595,6 +693,7 @@ internal class ScannerSessionImplTest {
             }.`when`(mainHandler).post(anyValue())
             doAnswer { invocation ->
                 delayedCallbacks += invocation.getArgument<Runnable>(0)
+                scheduledDelays += invocation.getArgument<Long>(1)
                 true
             }.`when`(mainHandler).postDelayed(anyValue(), anyLong())
             doAnswer { isCameraActive }.`when`(scanner).isActive()
@@ -629,7 +728,6 @@ internal class ScannerSessionImplTest {
                 mainHandler = mainHandler,
                 onScanResult = onScanResult,
                 onReleased = { releaseCalls += 1 },
-                releaseDelayMs = 300L,
                 initializationScope = CoroutineScope(Dispatchers.Unconfined),
                 lifecycleRegistryFactory = LifecycleRegistry::createUnsafe,
             )
