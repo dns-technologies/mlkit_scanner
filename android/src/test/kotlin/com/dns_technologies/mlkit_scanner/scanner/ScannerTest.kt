@@ -46,12 +46,11 @@ internal class ScannerTest {
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
         fixture.scanner.startScan(periodMs = 100)
 
-        fixture.emitFrame()
-        fixture.emitFrame()
+        repeat(4) { fixture.emitFrame() }
 
-        assertEquals(1, fixture.materializedFrames)
-        assertEquals(2, fixture.closedFrames)
-        assertEquals(1, fixture.analyzer.acceptedAnalysisCalls)
+        assertEquals(3, fixture.materializedFrames)
+        assertEquals(4, fixture.closedFrames)
+        assertEquals(3, fixture.analyzer.acceptedAnalysisCalls)
     }
 
     @Test
@@ -138,14 +137,14 @@ internal class ScannerTest {
         val fixture = Fixture()
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
         fixture.scanner.startScan(periodMs = 250)
-        fixture.emitFrame()
+        repeat(3) { fixture.emitFrame() }
         fixture.scanner.pauseScan()
         fixture.setCurrentTimeMs(250)
 
         fixture.scanner.resumeScan()
         fixture.emitFrame()
 
-        assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
+        assertEquals(4, fixture.analyzer.acceptedAnalysisCalls)
     }
 
     @Test
@@ -154,16 +153,16 @@ internal class ScannerTest {
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
 
         fixture.scanner.startScan(periodMs = 250)
-        fixture.emitFrame()
+        repeat(3) { fixture.emitFrame() }
         fixture.setCurrentTimeMs(249)
         fixture.emitFrame()
 
-        assertEquals(1, fixture.analyzer.acceptedAnalysisCalls)
+        assertEquals(3, fixture.analyzer.acceptedAnalysisCalls)
 
         fixture.setCurrentTimeMs(250)
         fixture.emitFrame()
 
-        assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
+        assertEquals(4, fixture.analyzer.acceptedAnalysisCalls)
     }
 
     @Test

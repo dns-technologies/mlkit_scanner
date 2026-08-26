@@ -6,7 +6,7 @@ import com.dns_technologies.mlkit_scanner.commands.base.ScannerCommand
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 
-/** Updates frame analysis delay. */
+/** Updates the cooldown between bounded frame-analysis windows. */
 internal class SetScanDelayCommand(
     scannerSessionProvider: () -> ScannerSession?,
 ) : ScannerCommand(scannerSessionProvider) {

@@ -79,22 +79,34 @@ internal class ImageBarcodeAnalyzerTest {
     fun `period update returns while analysis is running`() {
         val analysisStarted = CountDownLatch(1)
         val allowAnalysisToFinish = CountDownLatch(1)
-        val analyzer = TestAnalyzer {
-            analysisStarted.countDown()
-            allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        val analysisCalls = AtomicInteger()
+        var currentTimeMs = 0L
+        val analyzer = TestAnalyzer(currentTimeMs = { currentTimeMs }) {
+            if (analysisCalls.incrementAndGet() == 3) {
+                analysisStarted.countDown()
+                allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            }
             null
         }
         val executor = Executors.newFixedThreadPool(2)
 
         try {
+            analyzer.updatePeriod(100)
+            repeat(2) { analyzer.analyze(TEST_FRAME, null) }
             val analysis = executor.submit<Barcode?> { analyzer.analyze(TEST_FRAME, null) }
             assertTrue(analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
 
-            val periodUpdate = executor.submit { analyzer.updatePeriod(100) }
+            val periodUpdate = executor.submit { analyzer.updatePeriod(250) }
             periodUpdate.get(SHORT_WAIT_MS, TimeUnit.MILLISECONDS)
 
             allowAnalysisToFinish.countDown()
             analysis.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+
+            currentTimeMs = 249
+            assertNull(analyzer.analyze(TEST_FRAME, null))
+            currentTimeMs = 250
+            analyzer.analyze(TEST_FRAME, null)
+            assertEquals(4, analyzer.analysisCalls.get())
         } finally {
             allowAnalysisToFinish.countDown()
             executor.shutdownNow()
@@ -114,13 +126,28 @@ internal class ImageBarcodeAnalyzerTest {
     }
 
     @Test
-    fun `analysis is skipped while configured delay is active`() {
+    fun `three misses are accepted before configured cooldown`() {
         var currentTimeMs = 0L
         val analyzer = TestAnalyzer(currentTimeMs = { currentTimeMs })
         analyzer.updatePeriod(100)
 
-        analyzer.analyze(TEST_FRAME, null)
+        repeat(3) { analyzer.analyze(TEST_FRAME, null) }
         currentTimeMs = 99
+        assertNull(analyzer.analyze(TEST_FRAME, null))
+        currentTimeMs = 100
+        repeat(3) { analyzer.analyze(TEST_FRAME, null) }
+        assertNull(analyzer.analyze(TEST_FRAME, null))
+
+        assertEquals(6, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `recognized barcode closes current attempt window`() {
+        var currentTimeMs = 0L
+        val analyzer = TestAnalyzer(currentTimeMs = { currentTimeMs }) { TEST_BARCODE }
+        analyzer.updatePeriod(100)
+
+        analyzer.analyze(TEST_FRAME, null)
         assertNull(analyzer.analyze(TEST_FRAME, null))
         currentTimeMs = 100
         analyzer.analyze(TEST_FRAME, null)
@@ -129,7 +156,24 @@ internal class ImageBarcodeAnalyzerTest {
     }
 
     @Test
-    fun `failed analysis starts delay and releases execution lock`() {
+    fun `updated period is used when current attempt window closes`() {
+        var currentTimeMs = 0L
+        val analyzer = TestAnalyzer(currentTimeMs = { currentTimeMs })
+        analyzer.updatePeriod(100)
+        repeat(2) { analyzer.analyze(TEST_FRAME, null) }
+
+        analyzer.updatePeriod(250)
+        analyzer.analyze(TEST_FRAME, null)
+        currentTimeMs = 249
+        assertNull(analyzer.analyze(TEST_FRAME, null))
+        currentTimeMs = 250
+        analyzer.analyze(TEST_FRAME, null)
+
+        assertEquals(4, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `failed analysis consumes an attempt and releases execution lock`() {
         var currentTimeMs = 0L
         val blockCalls = AtomicInteger()
         val analyzer = TestAnalyzer(currentTimeMs = { currentTimeMs }) {
@@ -138,13 +182,14 @@ internal class ImageBarcodeAnalyzerTest {
         }
 
         val error = runCatching { analyzer.analyze(TEST_FRAME, null) }.exceptionOrNull()
+        repeat(2) { analyzer.analyze(TEST_FRAME, null) }
         currentTimeMs = 15
         assertNull(analyzer.analyze(TEST_FRAME, null))
         currentTimeMs = 16
         analyzer.analyze(TEST_FRAME, null)
 
         assertTrue(error is IllegalStateException)
-        assertEquals(2, analyzer.analysisCalls.get())
+        assertEquals(4, analyzer.analysisCalls.get())
     }
 
     private class TestAnalyzer(
@@ -169,6 +214,13 @@ internal class ImageBarcodeAnalyzerTest {
     private companion object {
         const val TEST_TIMEOUT_MS = 1_000L
         const val SHORT_WAIT_MS = 100L
+
+        val TEST_BARCODE = Barcode(
+            rawValue = "barcode",
+            displayValue = "barcode",
+            format = 1,
+            valueType = 1,
+        )
 
         val TEST_FRAME = object : CameraFrame {
             override val width = 2

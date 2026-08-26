@@ -100,7 +100,7 @@ class Scanner(
         }
     }
 
-    /** Updates the delay between analyzer attempts. */
+    /** Updates the cooldown between analyzer attempt windows. */
     fun updateScanPeriod(periodMs: Int) {
         analyzer.updatePeriod(periodMs)
     }

@@ -47,17 +47,14 @@ internal class MlkitImageBarcodeAnalyzerTest {
     }
 
     @Test
-    fun `frame is not accessed while analysis delay is active`() {
+    fun `only three missed frames are accessed before cooldown`() {
         val scanner = barcodeScanner()
         val analyzer = analyzer(scanner)
-        val firstFrame = FakeFrame()
-        val delayedFrame = FakeFrame()
+        val frames = List(4) { FakeFrame() }
 
-        analyzer.analyze(firstFrame, null)
-        analyzer.analyze(delayedFrame, null)
+        frames.forEach { analyzer.analyze(it, null) }
 
-        assertEquals(1, firstFrame.accessCalls)
-        assertEquals(0, delayedFrame.accessCalls)
+        assertEquals(listOf(1, 1, 1, 0), frames.map(FakeFrame::accessCalls))
     }
 
     @Test

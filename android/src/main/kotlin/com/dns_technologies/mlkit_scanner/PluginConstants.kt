@@ -44,7 +44,7 @@ internal object PluginConstants {
     /** Method name used to stop barcode analysis. */
     const val cancelScanMethod = "cancelScan"
 
-    /** Method name used to update the delay between analysis attempts. */
+    /** Method name used to update the cooldown between analysis windows. */
     const val setScanDelayMethod = "setScanDelay"
 
     /** Method name used to deliver recognized barcode values to Dart. */
