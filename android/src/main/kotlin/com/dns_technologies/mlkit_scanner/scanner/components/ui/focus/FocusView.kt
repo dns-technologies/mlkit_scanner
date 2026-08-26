@@ -16,15 +16,20 @@ import com.dns_technologies.mlkit_scanner.R
 import androidx.core.view.isVisible
 import androidx.core.view.isInvisible
 
-/** Draws focus/lock animation over camera preview and emits focus gestures. */
+/**
+ * Draws focus/lock animation over camera preview and emits focus gestures.
+ *
+ * @param context Android context used to inflate focus UI and animations.
+ */
 @SuppressLint("ViewConstructor")
 class FocusView(
     context: Context,
 ) : FrameLayout(context), Animation.AnimationListener, View.OnLayoutChangeListener {
     private var centerOffsetX = 0.0F
     private var centerOffsetY = 0.0F
-    private lateinit var lock: View
-    private lateinit var circle: View
+    private val lock: View
+    private val circle: View
+    private var isDisposed = false
     private val fadeAnimation = AnimationUtils.loadAnimation(context, R.anim.fade)
     private val fadeOutAnimation = AnimationUtils.loadAnimation(context, R.anim.fade_out)
     private val gestureDetector: GestureDetector = createGestureDetector()
@@ -47,14 +52,14 @@ class FocusView(
         fadeInAnimation.setAnimationListener(this)
         fadeOutAnimation.setAnimationListener(this)
         LayoutInflater.from(context).inflate(R.layout.center_focus_layout, this, true)
-    }
-
-    /** Initializes focus child views and layout listeners after attachment. */
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
         lock = findViewById(R.id.lockImage)
         circle = findViewById(R.id.circle)
-        lock.addOnLayoutChangeListener(this)
+    }
+
+    /** Starts observing lock layout changes while the focus overlay is attached. */
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (!isDisposed) lock.addOnLayoutChangeListener(this)
     }
 
     /** Removes focus layout listeners before the view leaves the window. */
@@ -73,12 +78,12 @@ class FocusView(
     override fun onAnimationStart(animation: Animation?) {
         when (animation) {
             fadeInAnimation -> lock.visibility = View.VISIBLE
-            fadeOutAnimation -> lock.visibility = View.INVISIBLE
         }
     }
 
     /** Handles the end of focus animations. */
     override fun onAnimationEnd(animation: Animation?) {
+        if (animation === fadeOutAnimation) lock.visibility = View.INVISIBLE
     }
 
     /** Handles repeating focus animations. */
@@ -114,6 +119,7 @@ class FocusView(
 
     /** Updates the visual focus center offset relative to the preview center. */
     fun setCenterOffset(x: Float, y: Float) {
+        if (isDisposed) return
         centerOffsetX = x
         centerOffsetY = y
         circle.apply {
@@ -122,9 +128,25 @@ class FocusView(
         }
     }
 
+    /** Cancels focus callbacks, layout listeners and animations owned by this overlay. */
+    fun dispose() {
+        if (isDisposed) return
+        isDisposed = true
+        onAutoFocusRequested = null
+        onLockFocusRequested = null
+        lock.removeOnLayoutChangeListener(this)
+        clearAnimation()
+        lock.clearAnimation()
+        circle.clearAnimation()
+        fadeInAnimation.setAnimationListener(null)
+        fadeOutAnimation.setAnimationListener(null)
+    }
+
     /** Creates the gesture detector that maps taps and long presses to focus actions. */
     private fun createGestureDetector(): GestureDetector {
         return GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+
             override fun onSingleTapUp(e: MotionEvent): Boolean {
                 autoFocus()
                 return true

@@ -33,4 +33,7 @@ internal sealed class PluginError(
 
     /** The scanner session was released before the requested operation completed. */
     object CameraSessionDisposed : PluginError("8", "Camera session has been disposed")
+
+    /** CameraX rejected an asynchronous zoom, torch or focus operation. */
+    object CameraControlError : PluginError("9", "Camera control operation failed")
 }

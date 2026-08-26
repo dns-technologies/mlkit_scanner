@@ -7,11 +7,18 @@ package com.dns_technologies.mlkit_scanner.scanner.components.camera
  * passed to [useNv21] must not escape its callback. A frame supports one access attempt.
  */
 interface CameraFrame : AutoCloseable {
+    /** Width of the unrotated camera buffer in pixels. */
     val width: Int
 
+    /** Height of the unrotated camera buffer in pixels. */
     val height: Int
 
+    /** Clockwise rotation required to display the buffer upright. */
     val rotationDegree: Int
+
+    /** Camera-library crop that corresponds to the field of view shown by preview. */
+    val cropRect: Rect
+        get() = Rect(0, 0, width, height)
 
     /** Provides a full or cropped NV21 buffer that remains valid only during [block]. */
     fun <T> useNv21(

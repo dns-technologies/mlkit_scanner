@@ -12,7 +12,7 @@ internal abstract class ScannerCommand(
     fun execute(call: MethodCall, result: Result) {
         try {
             executeCommand(call, result)
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             reportError(result, error)
         }
     }

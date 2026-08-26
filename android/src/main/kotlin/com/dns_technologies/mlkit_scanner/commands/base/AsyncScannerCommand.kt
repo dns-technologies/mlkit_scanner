@@ -19,7 +19,7 @@ internal abstract class AsyncScannerCommand(
                 executeSuspendCommand(call, result)
             } catch (error: CancellationException) {
                 throw error
-            } catch (error: Throwable) {
+            } catch (error: Exception) {
                 reportError(result, error)
             }
         }

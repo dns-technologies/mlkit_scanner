@@ -10,7 +10,12 @@ import com.dns_technologies.mlkit_scanner.scanner.components.ui.OverlayControlle
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import io.flutter.plugin.platform.PlatformView
 
-/** Android platform view that renders scanner preview and scanner overlays. */
+/**
+ * Android platform view that renders scanner preview and scanner overlays.
+ *
+ * @property scanner Shared scanner whose preview is hosted by this view.
+ * @property onDispose Callback that unregisters this view from its scanner session.
+ */
 @SuppressLint("ViewConstructor")
 class ScannerView(
     context: Context,
@@ -22,11 +27,6 @@ class ScannerView(
 
     init {
         layoutParams = matchParentLayoutParams()
-        addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
-            if (hasPreview() && (l != oldL || t != oldT || r != oldR || b != oldB)) {
-                overlayController.updateScannerScale()
-            }
-        }
     }
 
     /** Moves the shared camera preview into this platform-view container. */
@@ -35,7 +35,6 @@ class ScannerView(
         val preview = scanner.previewView
         (preview.parent as? ViewGroup)?.removeView(preview)
         addView(preview, 0)
-        overlayController.updateScannerScale()
     }
 
     /** Removes the shared preview without disposing the shared camera pipeline. */
@@ -54,9 +53,6 @@ class ScannerView(
     /** Updates the scan overlay state in this preview container. */
     fun setScanActive(isActive: Boolean) = overlayController.setScanActive(isActive)
 
-    /** Applies this container's scale to shared frame-crop calculations. */
-    fun updateScannerScale() = overlayController.updateScannerScale()
-
     /** Renders matching focus and visor UI for the scanner's current crop area. */
     fun renderCropArea(cropRect: RecognizeVisorCropRect) {
         overlayController.renderCropArea(cropRect)
@@ -69,7 +65,7 @@ class ScannerView(
         try {
             onDispose.invoke()
         } finally {
-            detachPreview()
+            disposeLocalView()
         }
     }
 
@@ -77,7 +73,12 @@ class ScannerView(
     fun disposeFromSession() {
         if (isDisposed) return
         isDisposed = true
+        disposeLocalView()
+    }
+
+    private fun disposeLocalView() {
         detachPreview()
+        overlayController.dispose()
     }
 
     /** Returns this native view to Flutter's platform view host. */

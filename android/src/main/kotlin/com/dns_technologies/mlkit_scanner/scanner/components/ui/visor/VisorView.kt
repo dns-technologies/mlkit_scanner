@@ -1,13 +1,23 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.ui.visor
 
 import android.content.Context
-import android.graphics.*
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PointF
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
-import androidx.core.graphics.toColorInt
 
-/** Draws the scanner visor overlay for the configured recognition rectangle. */
+/**
+ * Draws the scanner visor overlay for the configured recognition rectangle.
+ *
+ * @param context Android context used to create the overlay.
+ * @param attrs Optional XML attributes when inflated by Android.
+ * @param defStyleAttr Default style attribute applied by Android view inflation.
+ */
 class VisorView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -22,12 +32,12 @@ class VisorView @JvmOverloads constructor(
 
     private var borderPath = Path()
     private var backgroundPath = Path()
-    private val cornerPaint = Paint().apply {
-        strokeWidth = 6F
+    private val cornerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        strokeWidth = BORDER_WIDTH_DP * resources.displayMetrics.density
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
     }
-    private val backgroundColor = Paint().apply {
+    private val backgroundColor = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
         alpha = 120
         style = Paint.Style.FILL
@@ -36,6 +46,7 @@ class VisorView @JvmOverloads constructor(
     /** Controls whether the visor is rendered in active scan state. */
     var isActive = false
         set(value) {
+            if (field == value) return
             field = value
             invalidate()
         }
@@ -44,6 +55,7 @@ class VisorView @JvmOverloads constructor(
     var cropRect: RecognizeVisorCropRect
         get() = cropArea
         set(value) {
+            if (cropArea == value) return
             cropArea = value
             createBorderPath(width, height)
             invalidate()
@@ -66,7 +78,12 @@ class VisorView @JvmOverloads constructor(
         val radius = cornerLineLength / 2
         val topLeftArcRect = RectF(x, y, x + radius, y + radius)
         val topRightArcRect = RectF(x + width - radius, y, x + width, y + radius)
-        val bottomRightArcRect =  RectF(x + width - radius, y + height - radius, x + width, y + height)
+        val bottomRightArcRect = RectF(
+            x + width - radius,
+            y + height - radius,
+            x + width,
+            y + height,
+        )
         val bottomLeftArcRect = RectF(x, y + height - radius, x + radius, y + height)
         borderPath = Path().apply {
             // Top Left Corner
@@ -74,7 +91,7 @@ class VisorView @JvmOverloads constructor(
                 from = PointF(x, y + cornerLineLength),
                 to = PointF(x + cornerLineLength, y),
                 startAngle = -180F,
-                roundRect = topLeftArcRect
+                roundRect = topLeftArcRect,
             )
 
             // Top Right Corner
@@ -82,7 +99,7 @@ class VisorView @JvmOverloads constructor(
                 from = PointF(x + width - cornerLineLength, y),
                 to = PointF(x + width, y + cornerLineLength),
                 startAngle = -90F,
-                roundRect = topRightArcRect
+                roundRect = topRightArcRect,
             )
 
             // Bottom Right Corner
@@ -90,7 +107,7 @@ class VisorView @JvmOverloads constructor(
                 from = PointF(x + width, y + height - cornerLineLength),
                 to = PointF(x + width - cornerLineLength, y + height),
                 startAngle = 0F,
-                roundRect = bottomRightArcRect
+                roundRect = bottomRightArcRect,
             )
 
             // Bottom Left Corner
@@ -98,7 +115,7 @@ class VisorView @JvmOverloads constructor(
                 from = PointF(x + cornerLineLength, y + height),
                 to = PointF(x, y + height - cornerLineLength),
                 startAngle = 90F,
-                roundRect = bottomLeftArcRect
+                roundRect = bottomLeftArcRect,
             )
         }
         backgroundPath = Path().apply {
@@ -128,17 +145,15 @@ class VisorView @JvmOverloads constructor(
         super.onDraw(canvas)
         canvas.apply {
             drawPath(backgroundPath, backgroundColor)
-            cornerPaint.color = getBorderColor()
+            cornerPaint.color = if (isActive) ACTIVE_BORDER_COLOR else INACTIVE_BORDER_COLOR
             drawPath(borderPath, cornerPaint)
         }
     }
 
-    /** Returns the border color that matches the current scanner activity state. */
-    private fun getBorderColor(): Int {
-        return when (isActive) {
-            true -> "#43A047".toColorInt()
-            else -> "#616161".toColorInt()
-        }
+    private companion object {
+        const val BORDER_WIDTH_DP = 2F
+        val ACTIVE_BORDER_COLOR = 0xFF43A047.toInt()
+        val INACTIVE_BORDER_COLOR = 0xFF616161.toInt()
     }
 }
 

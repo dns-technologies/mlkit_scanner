@@ -1,0 +1,147 @@
+package com.dns_technologies.mlkit_scanner.commands
+
+import android.content.Context
+import androidx.lifecycle.Lifecycle
+import com.dns_technologies.mlkit_scanner.PluginError
+import com.dns_technologies.mlkit_scanner.models.ScannerSession
+import com.dns_technologies.mlkit_scanner.scanner.ScannerView
+import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import io.flutter.plugin.common.MethodCall
+import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import org.junit.Test
+import org.mockito.ArgumentMatchers.any
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
+import org.mockito.Mockito.verify
+
+internal class ScannerCommandStateTest {
+    private val commandScope = CoroutineScope(Dispatchers.Unconfined)
+
+    @Test
+    fun `commands requiring a session report camera not initialized when it is absent`() {
+        val executions = listOf<(MethodChannel.Result) -> Unit>(
+            { result ->
+                StartScanCommand { null }.execute(
+                    MethodCall("startScan", mapOf("type" to 0, "delay" to 0)),
+                    result,
+                )
+            },
+            { result -> ResumeCameraCommand { null }.execute(MethodCall("resume", null), result) },
+            { result -> SetScanDelayCommand { null }.execute(MethodCall("delay", 100), result) },
+            { result ->
+                SetCropAreaCommand { null }.execute(
+                    MethodCall("crop", emptyMap<String, Any?>()),
+                    result,
+                )
+            },
+            { result ->
+                SetZoomCommand({ null }, commandScope).execute(MethodCall("zoom", 0.5), result)
+            },
+            { result ->
+                ToggleFlashCommand({ null }, commandScope).execute(MethodCall("torch", null), result)
+            },
+        )
+
+        executions.forEach { execute ->
+            val result = mock(MethodChannel.Result::class.java)
+            execute(result)
+            verify(result).error(
+                PluginError.CameraIsNotInitialized.errorCode,
+                PluginError.CameraIsNotInitialized.message,
+                null,
+            )
+        }
+    }
+
+    @Test
+    fun `stop and dispose commands remain idempotent without a session`() {
+        val executions = listOf<(MethodChannel.Result) -> Unit>(
+            { result -> PauseCameraCommand { null }.execute(MethodCall("pause", null), result) },
+            { result -> CancelScanCommand { null }.execute(MethodCall("cancel", null), result) },
+            { result ->
+                DisposeCameraCommand { null }.execute(
+                    MethodCall("dispose", mapOf("viewId" to 42)),
+                    result,
+                )
+            },
+        )
+
+        executions.forEach { execute ->
+            val result = mock(MethodChannel.Result::class.java)
+            execute(result)
+            verify(result).success(true)
+        }
+    }
+
+    @Test
+    fun `zoom command completes only after camera control succeeds`() {
+        val session = ControlSession()
+        val result = mock(MethodChannel.Result::class.java)
+
+        SetZoomCommand({ session }, commandScope).execute(MethodCall("zoom", 0.5), result)
+
+        verify(result, never()).success(anyValue())
+        session.zoomResult.complete(Unit)
+        verify(result).success(true)
+    }
+
+    @Test
+    fun `torch command completes only after camera control succeeds`() {
+        val session = ControlSession()
+        val result = mock(MethodChannel.Result::class.java)
+
+        ToggleFlashCommand({ session }, commandScope).execute(MethodCall("torch", null), result)
+
+        verify(result, never()).success(anyValue())
+        session.torchResult.complete(Unit)
+        verify(result).success(true)
+    }
+
+    @Test
+    fun `camera control failure is returned with stable error`() {
+        val session = ControlSession()
+        val result = mock(MethodChannel.Result::class.java)
+
+        SetZoomCommand({ session }, commandScope).execute(MethodCall("zoom", 0.5), result)
+        session.zoomResult.completeExceptionally(PluginError.CameraControlError)
+
+        verify(result).error(
+            PluginError.CameraControlError.errorCode,
+            PluginError.CameraControlError.message,
+            null,
+        )
+        verify(result, never()).success(anyValue())
+    }
+
+    private class ControlSession : ScannerSession {
+        val zoomResult = CompletableDeferred<Unit>()
+        val torchResult = CompletableDeferred<Unit>()
+
+        override fun createView(context: Context, viewId: Int): ScannerView =
+            mock(ScannerView::class.java)
+
+        override suspend fun startCamera(
+            viewId: Int,
+            initialZoom: Double?,
+            initialCropRect: RecognizeVisorCropRect?,
+        ) = Unit
+
+        override fun resumeCamera() = Unit
+        override fun pauseCamera() = Unit
+        override fun attachHostLifecycle(lifecycle: Lifecycle) = Unit
+        override fun detachHostLifecycle() = Unit
+        override suspend fun toggleFlashLight() = torchResult.await()
+        override fun startScan(periodMs: Int) = Unit
+        override fun pauseScan() = Unit
+        override fun updateScanPeriod(periodMs: Int) = Unit
+        override suspend fun setZoom(value: Float) = zoomResult.await()
+        override fun setCropArea(cropRect: RecognizeVisorCropRect) = Unit
+        override fun disposeView(viewId: Int) = Unit
+        override fun release() = Unit
+    }
+
+    private fun <T> anyValue(): T = any<T>()
+}

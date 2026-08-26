@@ -70,10 +70,7 @@ internal class PermissionGateway(
             return true
         }
 
-        val activeBinding = binding
-        if (activeBinding == null) {
-            return false
-        }
+        if (binding == null) return false
 
         val requestKey = PermissionRequestKey(requestedPermissions)
         val permissionRequest = pendingPermissionRequests.getOrPut(requestKey) {
@@ -93,6 +90,11 @@ internal class PermissionGateway(
     ): Boolean {
         val activeAttempt = activePermissionAttempt ?: return false
         if (requestCode != activeAttempt.requestCode) return false
+        if (permissions.isEmpty() && grantResults.isEmpty()) {
+            completeActivePermissionAttempt(isGranted = false)
+            processNextPermissionRequest()
+            return true
+        }
         if (permissions.normalized() != activeAttempt.dispatchedPermissions) return false
 
         val isGranted = binding?.let { activeBinding ->
@@ -134,8 +136,14 @@ internal class PermissionGateway(
                 request = request,
                 dispatchedPermissions = missingPermissions.normalized(),
             )
-            permissionRequester(activeBinding, missingPermissions, REQUEST_CODE_PERMISSIONS)
-            return
+            try {
+                permissionRequester(activeBinding, missingPermissions, REQUEST_CODE_PERMISSIONS)
+                return
+            } catch (_: Exception) {
+                activePermissionAttempt = null
+                pendingPermissionRequests.remove(PermissionRequestKey(request.permissions))
+                request.complete(isGranted = false)
+            }
         }
     }
 

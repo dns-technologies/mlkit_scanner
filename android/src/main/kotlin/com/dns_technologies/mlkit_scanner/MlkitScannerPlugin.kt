@@ -26,11 +26,12 @@ import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.SupervisorJob
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
-import io.flutter.embedding.engine.plugins.lifecycle.HiddenLifecycleReference
+import io.flutter.embedding.engine.plugins.lifecycle.FlutterLifecycleAdapter
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
@@ -46,7 +47,7 @@ class MlkitScannerPlugin internal constructor(
 
     private var channel: MethodChannel? = null
     private var activityBinding: ActivityPluginBinding? = null
-    private val commandScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var commandScope = createCommandScope()
 
     @Volatile
     private var scannerSession: ScannerSession? = null
@@ -57,10 +58,11 @@ class MlkitScannerPlugin internal constructor(
 
     /** Lifecycle attached to the current Flutter activity binding. */
     private val ActivityPluginBinding.activityLifecycle: Lifecycle
-        get() = (lifecycle as HiddenLifecycleReference).lifecycle
+        get() = FlutterLifecycleAdapter.getActivityLifecycle(this)
 
     /** Registers method channel and scanner platform view factory with the Flutter engine. */
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+        if (!commandScope.isActive) commandScope = createCommandScope()
         val methodChannel = MethodChannel(flutterPluginBinding.binaryMessenger, PluginConstants.channelName)
         channel = methodChannel
         methodChannel.setMethodCallHandler(this)
@@ -90,6 +92,7 @@ class MlkitScannerPlugin internal constructor(
     /** Detaches Android Activity dependencies when the plugin loses its Activity. */
     override fun onDetachedFromActivity() {
         detachActivity(isFinal = true)
+        disposeScanner()
     }
 
     /** Reattaches Activity dependencies after a configuration change. */
@@ -113,12 +116,18 @@ class MlkitScannerPlugin internal constructor(
             PluginConstants.resumeCameraMethod -> ResumeCameraCommand(::scannerSession).execute(call, result)
             PluginConstants.pauseCameraMethod -> PauseCameraCommand(::scannerSession).execute(call, result)
             PluginConstants.disposeCameraMethod -> DisposeCameraCommand(::scannerSession).execute(call, result)
-            PluginConstants.toggleFlashMethod -> ToggleFlashCommand(::scannerSession).execute(call, result)
+            PluginConstants.toggleFlashMethod -> ToggleFlashCommand(
+                scannerSessionProvider = ::scannerSession,
+                commandScope = commandScope,
+            ).execute(call, result)
             PluginConstants.startScanMethod -> StartScanCommand(::scannerSession).execute(call, result)
             PluginConstants.cancelScanMethod -> CancelScanCommand(::scannerSession).execute(call, result)
             PluginConstants.setScanDelayMethod -> SetScanDelayCommand(::scannerSession).execute(call, result)
             PluginConstants.updateConstraintsMethod -> UpdateConstraintsCommand().execute(call, result)
-            PluginConstants.setZoomMethod -> SetZoomCommand(::scannerSession).execute(call, result)
+            PluginConstants.setZoomMethod -> SetZoomCommand(
+                scannerSessionProvider = ::scannerSession,
+                commandScope = commandScope,
+            ).execute(call, result)
             PluginConstants.setCropAreaMethod -> SetCropAreaCommand(::scannerSession).execute(call, result)
             else -> result.notImplemented()
         }
@@ -181,5 +190,8 @@ class MlkitScannerPlugin internal constructor(
 
     private companion object {
         const val TAG = "MLKIT_SCANNER_PLUGIN"
+
+        fun createCommandScope(): CoroutineScope =
+            CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     }
 }

@@ -1,7 +1,6 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 
 import android.util.Log
-import com.dns_technologies.mlkit_scanner.BuildConfig
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
@@ -21,16 +20,15 @@ class MlkitImageBarcodeAnalyzer internal constructor(
     private val barcodeScanner: BarcodeScanner,
     currentTimeMs: () -> Long,
     private val logError: (String) -> Unit,
-    private val logDebug: (String) -> Unit,
     private val awaitBarcodes: (Task<List<MlkitBarcode>>) -> List<MlkitBarcode> = Tasks::await,
     private val fromByteArray: (ByteArray, Int, Int, Int, Int) -> InputImage =
         InputImage::fromByteArray,
 ) : ImageBarcodeAnalyzer(currentTimeMs) {
+    /** Creates the production ML Kit analyzer and logs recognition failures under [logTag]. */
     constructor(logTag: String) : this(
         barcodeScanner = BarcodeScanning.getClient(),
         currentTimeMs = android.os.SystemClock::elapsedRealtime,
         logError = { message -> Log.e(logTag, message) },
-        logDebug = { message -> Log.d(logTag, message) },
     )
 
     /** Lazily creates an ML Kit NV21 image for a frame accepted by the common analyzer policy. */
@@ -63,15 +61,12 @@ class MlkitImageBarcodeAnalyzer internal constructor(
                 .firstNotNullOfOrNull { it.toScannerBarcode() }
                 ?: return null
 
-            if (BuildConfig.DEBUG) {
-                logDebug(barcode.rawValue)
-            }
             barcode
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             null
         } catch (error: Exception) {
-            error.message?.let(logError)
+            logError(error.message ?: error.javaClass.simpleName)
             null
         }
     }

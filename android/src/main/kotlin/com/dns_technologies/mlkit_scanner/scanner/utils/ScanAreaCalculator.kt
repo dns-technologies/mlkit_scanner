@@ -3,104 +3,122 @@ package com.dns_technologies.mlkit_scanner.scanner.utils
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import kotlin.math.ceil
+import kotlin.math.floor
 
 /** Calculates a valid YUV 4:2:0 crop rectangle from scanner visor geometry. */
 internal object ScanAreaCalculator {
-    /** Returns an even, bounded crop rectangle while preserving existing visor mapping. */
+    /** Returns an even bounded crop, or an empty rectangle when no pixels can be analyzed. */
     fun calculate(
         frame: CameraFrame,
-        scanArea: RecognizeVisorCropRect,
-        scale: Pair<Double, Double>,
-    ): Rect {
-        val rawCropRect = calculateRawCropRect(frame, scanArea, scale)
-        return normalizeCropBounds(rawCropRect, frame.width, frame.height)
-    }
+        scanArea: RecognizeVisorCropRect?,
+    ): Rect = normalizeCropBounds(
+        rect = scanArea?.let { calculateRawCropRect(frame, it) } ?: frame.cropRect.toRawCropRect(),
+        bounds = frame.cropRect,
+    )
 
     private fun calculateRawCropRect(
         frame: CameraFrame,
         scanArea: RecognizeVisorCropRect,
-        scale: Pair<Double, Double>,
-    ): Rect {
-        val (widthScale, heightScale) = scale
-        val (widthCrop, heightCrop) = calculateCropScale(
-            frame.rotationDegree,
-            scanArea,
-            widthScale,
-            heightScale,
-        )
-
-        val insetX = (frame.width * (1 - widthCrop) / 2).toInt()
-        val insetY = (frame.height * (1 - heightCrop) / 2).toInt()
-        val offsetX = (calculateOffsetX(frame, scanArea) * heightScale).toInt()
-        val offsetY = (calculateOffsetY(frame, scanArea) * widthScale).toInt()
-        return Rect(
-            insetX + offsetX,
-            insetY + offsetY,
-            frame.width - insetX + offsetX,
-            frame.height - insetY + offsetY,
-        )
-    }
-
-    private fun calculateCropScale(
-        rotationDegree: Int,
-        scanArea: RecognizeVisorCropRect,
-        widthScale: Double,
-        heightScale: Double,
-    ): Pair<Double, Double> {
-        val resultScaleX = widthScale * scanArea.scaleWidth
-        val resultScaleY = heightScale * scanArea.scaleHeight * HEIGHT_COMPENSATION
-        return when (rotationDegree) {
-            90, 270 -> Pair(resultScaleY, resultScaleX)
-            else -> Pair(resultScaleX, resultScaleY)
+    ): RawCropRect {
+        val bounds = frame.cropRect
+        val centerX = (bounds.left + bounds.right) / 2.0
+        val centerY = (bounds.top + bounds.bottom) / 2.0
+        val rotated = frame.rotationDegree == 90 || frame.rotationDegree == 270
+        val previewWidth = if (rotated) bounds.height else bounds.width
+        val previewHeight = if (rotated) bounds.width else bounds.height
+        val previewOffsetX = previewWidth * scanArea.centerOffsetX / 2.0
+        val previewOffsetY = previewHeight * scanArea.centerOffsetY / 2.0
+        val sourceHalfWidth = (
+            if (rotated) bounds.width * scanArea.scaleHeight else bounds.width * scanArea.scaleWidth
+        ) / 2.0
+        val sourceHalfHeight = (
+            if (rotated) bounds.height * scanArea.scaleWidth else bounds.height * scanArea.scaleHeight
+        ) / 2.0
+        val sourceCenterX = centerX + when (frame.rotationDegree) {
+            90 -> previewOffsetY
+            180 -> -previewOffsetX
+            270 -> -previewOffsetY
+            else -> previewOffsetX
         }
-    }
-
-    private fun calculateOffsetX(
-        frame: CameraFrame,
-        scanArea: RecognizeVisorCropRect,
-    ): Int = when (frame.rotationDegree) {
-        0 -> ((frame.width / 2) * scanArea.centerOffsetX).toInt()
-        90 -> ((frame.width / 2) * scanArea.centerOffsetY).toInt()
-        180 -> -((frame.width / 2) * scanArea.centerOffsetX).toInt()
-        else -> -((frame.width / 2) * scanArea.centerOffsetY).toInt()
-    }
-
-    private fun calculateOffsetY(
-        frame: CameraFrame,
-        scanArea: RecognizeVisorCropRect,
-    ): Int = when (frame.rotationDegree) {
-        0 -> (frame.height / 2 * scanArea.centerOffsetY).toInt()
-        90 -> -((frame.height / 2) * scanArea.centerOffsetX).toInt()
-        180 -> -((frame.height / 2) * scanArea.centerOffsetY).toInt()
-        else -> (frame.height / 2 * scanArea.centerOffsetX).toInt()
+        val sourceCenterY = centerY + when (frame.rotationDegree) {
+            90 -> -previewOffsetX
+            180 -> -previewOffsetY
+            270 -> previewOffsetX
+            else -> previewOffsetY
+        }
+        return RawCropRect(
+            left = sourceCenterX - sourceHalfWidth,
+            top = sourceCenterY - sourceHalfHeight,
+            right = sourceCenterX + sourceHalfWidth,
+            bottom = sourceCenterY + sourceHalfHeight,
+        )
     }
 
     private fun normalizeCropBounds(
-        rect: Rect,
-        width: Int,
-        height: Int,
+        rect: RawCropRect,
+        bounds: Rect,
     ): Rect {
-        val imageWidth = width.roundDownToEven()
-        val imageHeight = height.roundDownToEven()
-        require(imageWidth >= MIN_CROP_SIZE && imageHeight >= MIN_CROP_SIZE)
+        val rawLeft = minOf(rect.left, rect.right)
+        val rawTop = minOf(rect.top, rect.bottom)
+        val rawRight = maxOf(rect.left, rect.right)
+        val rawBottom = maxOf(rect.top, rect.bottom)
+        if (!rawLeft.isFinite() || !rawTop.isFinite() || !rawRight.isFinite() || !rawBottom.isFinite()) {
+            return EMPTY_RECT
+        }
 
-        val left = minOf(rect.left, rect.right).roundDownToEven().coerceIn(0, imageWidth)
-        val top = minOf(rect.top, rect.bottom).roundDownToEven().coerceIn(0, imageHeight)
-        val right = maxOf(rect.left, rect.right).roundDownToEven().coerceIn(0, imageWidth)
-        val bottom = maxOf(rect.top, rect.bottom).roundDownToEven().coerceIn(0, imageHeight)
-        val cropLeft = left.coerceAtMost(imageWidth - MIN_CROP_SIZE)
-        val cropTop = top.coerceAtMost(imageHeight - MIN_CROP_SIZE)
+        val boundsLeft = bounds.left.roundUpToEven()
+        val boundsTop = bounds.top.roundUpToEven()
+        val boundsRight = bounds.right.roundDownToEven()
+        val boundsBottom = bounds.bottom.roundDownToEven()
+        if (boundsRight - boundsLeft < MIN_CROP_SIZE || boundsBottom - boundsTop < MIN_CROP_SIZE) {
+            return EMPTY_RECT
+        }
+        if (
+            rawRight <= boundsLeft || rawBottom <= boundsTop ||
+            rawLeft >= boundsRight || rawTop >= boundsBottom
+        ) {
+            return EMPTY_RECT
+        }
+
+        val left = ceil(rawLeft.coerceIn(boundsLeft.toDouble(), boundsRight.toDouble()))
+            .toInt().roundUpToEven()
+        val top = ceil(rawTop.coerceIn(boundsTop.toDouble(), boundsBottom.toDouble()))
+            .toInt().roundUpToEven()
+        val right = floor(rawRight.coerceIn(boundsLeft.toDouble(), boundsRight.toDouble()))
+            .toInt().roundDownToEven()
+        val bottom = floor(rawBottom.coerceIn(boundsTop.toDouble(), boundsBottom.toDouble()))
+            .toInt().roundDownToEven()
+        if (right - left < MIN_CROP_SIZE || bottom - top < MIN_CROP_SIZE) {
+            return EMPTY_RECT
+        }
 
         return Rect(
-            cropLeft,
-            cropTop,
-            right.coerceAtLeast(cropLeft + MIN_CROP_SIZE).coerceAtMost(imageWidth),
-            bottom.coerceAtLeast(cropTop + MIN_CROP_SIZE).coerceAtMost(imageHeight),
+            left,
+            top,
+            right,
+            bottom,
         )
     }
 
-    private fun Int.roundDownToEven(): Int = this - (this % 2)
+    private fun Rect.toRawCropRect(): RawCropRect = RawCropRect(
+        left = left.toDouble(),
+        top = top.toDouble(),
+        right = right.toDouble(),
+        bottom = bottom.toDouble(),
+    )
 
-    private const val HEIGHT_COMPENSATION = 1.2
+    private fun Int.roundDownToEven(): Int = this and -2
+
+    private fun Int.roundUpToEven(): Int = (this + 1) and -2
+
+    private data class RawCropRect(
+        val left: Double,
+        val top: Double,
+        val right: Double,
+        val bottom: Double,
+    )
+
     private const val MIN_CROP_SIZE = 2
+    private val EMPTY_RECT = Rect(0, 0, 0, 0)
 }

@@ -65,7 +65,48 @@ internal class ScannerTest {
         fixture.emitFrame()
 
         assertEquals(cropArea, fixture.scanner.currentCropArea)
-        assertEquals(Rect(180, 256, 540, 1024), fixture.lastCropRect)
+        assertEquals(Rect(180, 320, 540, 960), fixture.lastCropRect)
+    }
+
+    @Test
+    fun `scanner analyzes only the CameraX preview crop when custom crop is absent`() {
+        val fixture = Fixture(frameCropRect = Rect(10, 20, 710, 1260))
+        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.startScan(periodMs = 0)
+
+        fixture.emitFrame()
+
+        assertEquals(Rect(10, 20, 710, 1260), fixture.lastCropRect)
+    }
+
+    @Test
+    fun `scanner safely aligns odd CameraX preview crop when custom crop is absent`() {
+        val fixture = Fixture(frameCropRect = Rect(11, 21, 709, 1259))
+        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.startScan(periodMs = 0)
+
+        fixture.emitFrame()
+
+        assertEquals(Rect(12, 22, 708, 1258), fixture.lastCropRect)
+    }
+
+    @Test
+    fun `scanner skips analyzer when crop is outside preview`() {
+        val fixture = Fixture()
+        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.setCropArea(
+            RecognizeVisorCropRect(
+                scaleWidth = 0.2,
+                scaleHeight = 0.2,
+                centerOffsetX = 3.0,
+            ),
+        )
+        fixture.scanner.startScan(periodMs = 0)
+
+        fixture.emitFrame()
+
+        assertEquals(0, fixture.analyzer.acceptedAnalysisCalls)
+        assertEquals(1, fixture.closedFrames)
     }
 
     @Test
@@ -168,7 +209,9 @@ internal class ScannerTest {
         assertEquals(listOf(BARCODE), received)
     }
 
-    private class Fixture {
+    private class Fixture(
+        private val frameCropRect: Rect = Rect(0, 0, 720, 1280),
+    ) {
         private var currentTimeMs = 0L
         val camera = FakeCamera()
         val analyzer = FakeAnalyzer { currentTimeMs }
@@ -190,6 +233,7 @@ internal class ScannerTest {
                     override val width = 720
                     override val height = 1280
                     override val rotationDegree = 0
+                    override val cropRect = frameCropRect
 
                     override fun <T> useNv21(
                         cropRect: Rect?,
@@ -268,9 +312,13 @@ internal class ScannerTest {
 
         override fun isActive(): Boolean = onFrame != null
 
-        override fun toggleFlashLight() = Unit
+        override fun toggleFlashLight(): Deferred<Unit> = CompletableDeferred(Unit)
 
-        override fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) = Unit
+        override fun focusOnCenter(
+            resetDelayMs: Long,
+            offsetX: Float,
+            offsetY: Float,
+        ): Deferred<Unit> = CompletableDeferred(Unit)
 
         override fun setZoom(value: Float): Deferred<Unit> {
             if (!isActive()) throw PluginError.CameraIsNotInitialized

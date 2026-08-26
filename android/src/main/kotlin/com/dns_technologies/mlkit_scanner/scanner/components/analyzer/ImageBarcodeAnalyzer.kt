@@ -11,6 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Provides throttling, exclusive frame processing and thread-safe resource disposal to every
  * implementation.
+ *
+ * @param currentTimeMs Monotonic clock used by the analysis throttle.
  */
 abstract class ImageBarcodeAnalyzer protected constructor(
     currentTimeMs: () -> Long = android.os.SystemClock::elapsedRealtime,

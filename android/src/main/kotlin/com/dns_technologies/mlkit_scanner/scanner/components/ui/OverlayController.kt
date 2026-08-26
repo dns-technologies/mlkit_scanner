@@ -1,6 +1,6 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.ui
 
-import android.graphics.Point
+import android.util.Log
 import android.view.MotionEvent
 import android.widget.FrameLayout
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
@@ -17,34 +17,38 @@ internal class OverlayController(
     private val focusView = FocusView(boundsView.context)
     private val focusController = FocusController(boundsView, focusView)
     private val visorController = VisorController(boundsView, focusView)
+    private var isDisposed = false
 
     /** Connects focus UI callbacks to the active camera component. */
     fun bindFocus() {
+        if (isDisposed) return
         addFocusView()
         focusController.bind(
             onAutoFocusRequest = { offsetX, offsetY ->
-                scanner.focusOnCenter(AUTO_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
+                requestFocus(AUTO_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
             },
             onLockedFocusRequest = { offsetX, offsetY ->
-                scanner.focusOnCenter(LOCKED_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
+                requestFocus(LOCKED_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
             },
         )
     }
 
     /** Renders focus and visor UI for the scanner's current crop area. */
     fun renderCropArea(cropRect: RecognizeVisorCropRect) {
-        updateScannerScale()
+        if (isDisposed) return
         focusController.updateCenter(cropRect.centerOffsetX.toFloat(), cropRect.centerOffsetY.toFloat())
         visorController.setCropArea(cropRect, scanner.isScanActive)
     }
 
     /** Updates the visual active state of the current visor overlay. */
     fun setScanActive(isActive: Boolean) {
+        if (isDisposed) return
         visorController.setScanActive(isActive)
     }
 
     /** Routes touch gestures to the focus overlay when it is attached. */
     fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (isDisposed) return false
         if (focusView.parent !== boundsView) return false
 
         if (event.action == MotionEvent.ACTION_UP) {
@@ -54,10 +58,14 @@ internal class OverlayController(
         return true
     }
 
-    /** Sends the current view-to-display scale to the scanner. */
-    fun updateScannerScale() {
-        val (widthScale, heightScale) = calculateScale()
-        scanner.setScale(widthScale, heightScale)
+    /** Releases every listener, callback, animation and child view owned by this overlay. */
+    fun dispose() {
+        if (isDisposed) return
+        isDisposed = true
+        focusController.dispose()
+        focusView.dispose()
+        visorController.dispose()
+        if (focusView.parent === boundsView) boundsView.removeView(focusView)
     }
 
     /** Adds the focus overlay above scanner overlays. */
@@ -66,20 +74,15 @@ internal class OverlayController(
         boundsView.addView(focusView)
     }
 
-    /** Calculates the ratio between the scanner view size and the display size. */
-    private fun calculateScale(): Pair<Double, Double> {
-        val screenSize = getDisplaySize()
-        if (screenSize.x == 0 || screenSize.y == 0) return Pair(1.0, 1.0)
-        return Pair(
-            boundsView.measuredWidth.toDouble() / screenSize.x,
-            boundsView.measuredHeight.toDouble() / screenSize.y,
-        )
-    }
-
-    /** Reads the current display size used for scale calculations. */
-    private fun getDisplaySize(): Point {
-        val displayMetrics = boundsView.resources.displayMetrics
-        return Point(displayMetrics.widthPixels, displayMetrics.heightPixels)
+    /** Focus gestures have no Dart result channel, so CameraX rejection is best-effort by contract. */
+    private fun requestFocus(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
+        try {
+            scanner.focusOnCenter(resetDelayMs, offsetX, offsetY).invokeOnCompletion { error ->
+                if (error != null) Log.w(TAG, "Camera focus request failed", error)
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "Camera focus request failed", error)
+        }
     }
 
     private companion object {
@@ -88,5 +91,7 @@ internal class OverlayController(
 
         /** Default reset delay after a regular autofocus tap. */
         const val AUTO_FOCUS_RESET_DELAY_MS = 3000L
+
+        const val TAG = "MlkitScannerOverlay"
     }
 }

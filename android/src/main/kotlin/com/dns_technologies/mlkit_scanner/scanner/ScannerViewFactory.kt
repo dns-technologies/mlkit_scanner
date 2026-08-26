@@ -10,12 +10,17 @@ typealias CreateScannerView = (context: Context, viewId: Int) -> ScannerView
 
 /**
  * Creates scanner camera platform views.
+ *
+ * @property createScannerView Session-aware factory invoked for each Flutter platform-view id.
  */
 class ScannerViewFactory(
     private val createScannerView: CreateScannerView,
 ) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
     /** Creates a platform view registered in the shared scanner session. */
     override fun create(context: Context?, viewId: Int, args: Any?): PlatformView {
-        return createScannerView(context!!, viewId)
+        return createScannerView(
+            requireNotNull(context) { "Flutter did not provide a platform-view context" },
+            viewId,
+        )
     }
 }

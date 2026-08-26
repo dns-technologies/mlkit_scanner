@@ -24,6 +24,7 @@ typealias OnScanResultListener = (result: Barcode) -> Unit
  * Owns scanner behavior independent from Flutter platform view plumbing.
  *
  * @property camera Camera adapter used for preview, focus, flash and zoom.
+ * @property analyzer Barcode analyzer used for throttled frame recognition.
  */
 class Scanner(
     private val camera: Camera,
@@ -33,7 +34,7 @@ class Scanner(
     private val scanJobLock = Any()
     private var scanJob: CompletableJob? = null
     @Volatile
-    private var cropConfiguration = CropConfiguration()
+    private var cropArea: RecognizeVisorCropRect? = null
     private val scanResultListeners = CopyOnWriteArraySet<OnScanResultListener>()
 
     /** Indicates whether incoming frames should be sent to the analyzer. */
@@ -46,7 +47,7 @@ class Scanner(
 
     /** Current recognition area reapplied only to newly attached preview overlays. */
     val currentCropArea: RecognizeVisorCropRect?
-        get() = cropConfiguration.scanArea
+        get() = cropArea
 
     /** Starts the delegated camera and wires common frame handling. */
     fun startCamera(
@@ -71,14 +72,11 @@ class Scanner(
     fun isActive(): Boolean = camera.isActive()
 
     /** Toggles torch state through the active camera component. */
-    fun toggleFlashLight() {
-        camera.toggleFlashLight()
-    }
+    fun toggleFlashLight() = camera.toggleFlashLight()
 
     /** Starts camera focus and metering around the visual scanner focus point. */
-    fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
+    fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) =
         camera.focusOnCenter(resetDelayMs, offsetX, offsetY)
-    }
 
     /** Starts analysis with the configured analyzer component. */
     fun startScan(periodMs: Int) {
@@ -115,14 +113,7 @@ class Scanner(
 
     /** Updates scanner crop settings used for frame preparation. */
     fun setCropArea(cropRect: RecognizeVisorCropRect?) {
-        updateCropConfiguration { it.copy(scanArea = cropRect) }
-    }
-
-    /** Updates the ratio between the scanner view and the physical display. */
-    fun setScale(widthScale: Double, heightScale: Double) {
-        updateCropConfiguration {
-            it.copy(scale = Pair(widthScale, heightScale))
-        }
+        cropArea = cropRect
     }
 
     /** Delegates normalized zoom to the camera adapter. */
@@ -138,6 +129,7 @@ class Scanner(
         analysisExecutor?.shutdownNow()
         analysisExecutor = null
         analyzer.dispose()
+        scanResultListeners.clear()
     }
 
     /** Processes a camera frame when scanning is active. */
@@ -145,10 +137,8 @@ class Scanner(
         val analysisJob = createAnalysisJob() ?: return
 
         try {
-            val configuration = cropConfiguration
-            val cropRect = configuration.scanArea?.let { scanArea ->
-                ScanAreaCalculator.calculate(frame, scanArea, configuration.scale)
-            }
+            val cropRect = ScanAreaCalculator.calculate(frame, cropArea)
+            if (cropRect.isEmpty) return
             val result = analyzer.analyze(frame, cropRect) ?: return
             synchronized(scanJobLock) {
                 if (analysisJob.isActive) emitScanResult(result)
@@ -170,20 +160,4 @@ class Scanner(
             listener.invoke(result)
         }
     }
-
-    private fun updateCropConfiguration(
-        transform: (CropConfiguration) -> CropConfiguration,
-    ) {
-        cropConfiguration = transform(cropConfiguration)
-    }
-
-    companion object {
-        /** Default scale when scanner view size matches the display size. */
-        private val DEFAULT_SCALE = Pair(1.0, 1.0)
-    }
-
-    private data class CropConfiguration(
-        val scanArea: RecognizeVisorCropRect? = null,
-        val scale: Pair<Double, Double> = DEFAULT_SCALE,
-    )
 }

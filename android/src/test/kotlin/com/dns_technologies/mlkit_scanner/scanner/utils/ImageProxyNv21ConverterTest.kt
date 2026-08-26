@@ -150,6 +150,30 @@ internal class ImageProxyNv21ConverterTest {
         )
     }
 
+    @Test
+    fun `converter restricts odd crop to requested YUV area`() {
+        val metadata = ImageProxyNv21Converter().convert(
+            image = emptyImage(),
+            cropRect = Rect(1, 1, 4, 4),
+            block = { bytes, width, height -> listOf(width, height, bytes.size) },
+        )
+
+        assertEquals(listOf(2, 2, 6), metadata)
+    }
+
+    @Test
+    fun `converter rejects crop outside image instead of analyzing edge`() {
+        val error = runCatching {
+            ImageProxyNv21Converter().convert(
+                image = emptyImage(),
+                cropRect = Rect(10, 10, 12, 12),
+                block = { _, _, _ -> Unit },
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+    }
+
     private fun emptyImage(): ImageProxy = imageProxy(
         y = plane(ByteArray(16), 4, 1),
         u = plane(ByteArray(4), 2, 1),

@@ -111,6 +111,24 @@ internal class PermissionGatewayTest {
     }
 
     @Test
+    fun `interrupted permission dialog completes active request as denied`() = runBlocking {
+        val fixture = Fixture()
+        val result = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.gateway.requestPermissions(arrayOf(CAMERA_PERMISSION))
+        }
+        val dispatched = fixture.dispatched.single()
+
+        assertTrue(
+            fixture.gateway.onPermissionResult(
+                dispatched.requestCode,
+                emptyArray(),
+                intArrayOf(),
+            ),
+        )
+        assertFalse(result.await())
+    }
+
+    @Test
     fun `equivalent requests aggregate while different permissions remain queued`() = runBlocking {
         val fixture = Fixture()
         val cancelledCameraResult = async(start = CoroutineStart.UNDISPATCHED) {
@@ -135,6 +153,25 @@ internal class PermissionGatewayTest {
         fixture.grantedPermissions += OTHER_PERMISSION
         assertTrue(fixture.complete(fixture.dispatched.last(), isGranted = true))
         assertTrue(otherResult.await())
+    }
+
+    @Test
+    fun `permission dispatch failure completes request and leaves gateway retryable`() = runBlocking {
+        val binding = mock(ActivityPluginBinding::class.java)
+        var dispatchCalls = 0
+        val gateway = PermissionGateway(
+            permissionChecker = { _, _ -> false },
+            permissionRequester = { _, _, _ ->
+                dispatchCalls += 1
+                throw IllegalStateException("Activity cannot request permissions")
+            },
+        )
+        gateway.attach(binding)
+
+        assertFalse(gateway.requestPermissions(arrayOf(CAMERA_PERMISSION)))
+        assertFalse(gateway.requestPermissions(arrayOf(CAMERA_PERMISSION)))
+
+        assertEquals(2, dispatchCalls)
     }
 
     private class Fixture {

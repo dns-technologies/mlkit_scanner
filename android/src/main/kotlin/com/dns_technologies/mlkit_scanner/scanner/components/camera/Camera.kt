@@ -8,7 +8,7 @@ import kotlinx.coroutines.Deferred
 /** Callback invoked after camera initialization succeeds. */
 typealias OnInit = () -> Unit
 
-/** Callback invoked when camera initialization or processing fails. */
+/** Callback invoked when camera initialization fails. */
 typealias OnError = (e: Exception) -> Unit
 
 /** Callback invoked with a frame scoped to the duration of the callback. */
@@ -33,11 +33,11 @@ interface Camera {
     /** Returns true when the camera has an active binding. */
     fun isActive(): Boolean
 
-    /** Toggles the camera torch when the active camera supports flash. */
-    fun toggleFlashLight()
+    /** Toggles the camera torch and completes after the camera accepts the change. */
+    fun toggleFlashLight(): Deferred<Unit>
 
-    /** Starts focus and metering around the visual scanner focus point. */
-    fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float)
+    /** Starts focus and metering and completes after the camera accepts the action. */
+    fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float): Deferred<Unit>
 
     /** Applies normalized zoom and completes after the camera accepts the new value. */
     fun setZoom(value: Float): Deferred<Unit>

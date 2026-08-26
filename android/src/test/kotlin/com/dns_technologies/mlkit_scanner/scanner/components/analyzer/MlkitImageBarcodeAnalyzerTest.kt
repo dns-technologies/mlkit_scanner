@@ -99,6 +99,21 @@ internal class MlkitImageBarcodeAnalyzerTest {
     }
 
     @Test
+    fun `mlkit failure without message is still logged`() {
+        val errors = mutableListOf<String>()
+        val analyzer = analyzer(
+            scanner = barcodeScanner(),
+            logError = errors::add,
+            awaitBarcodes = { throw IllegalStateException() },
+        )
+
+        val result = analyzer.analyze(FakeFrame(), null)
+
+        assertEquals(null, result)
+        assertEquals(listOf("IllegalStateException"), errors)
+    }
+
+    @Test
     fun `dispose closes barcode scanner once`() {
         val scanner = barcodeScanner()
         val analyzer = analyzer(scanner)
@@ -125,7 +140,6 @@ internal class MlkitImageBarcodeAnalyzerTest {
         barcodeScanner = scanner,
         currentTimeMs = { 0L },
         logError = logError,
-        logDebug = {},
         awaitBarcodes = awaitBarcodes,
         fromByteArray = fromByteArray,
     )

@@ -104,10 +104,11 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `camera and scan commands always update shared session`() {
+    fun `camera and scan commands always update shared session`() = runSessionTest {
         val fixture = Fixture()
         fixture.attach(SECOND_VIEW_ID)
         fixture.setCameraActive(true)
+        fixture.completeZoom()
         val cropRect = RecognizeVisorCropRect(scaleWidth = 0.5)
         clearInvocations(fixture.scanner)
 
@@ -126,7 +127,7 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `runtime zoom is rejected before camera initialization`() {
+    fun `runtime zoom is rejected before camera initialization`() = runSessionTest {
         val fixture = Fixture()
         clearInvocations(fixture.scanner)
 
@@ -137,8 +138,75 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
+    fun `runtime zoom does not report success after session release`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.setCameraActive(true)
+        val zoom = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.setZoom(0.5F)
+        }
+
+        fixture.session.release()
+        fixture.completeZoom()
+
+        val error = runCatching {
+            withTimeout(TEST_TIMEOUT_MS) { zoom.await() }
+        }.exceptionOrNull()
+        assertSame(PluginError.CameraSessionDisposed, error)
+    }
+
+    @Test
+    fun `parallel torch toggles execute sequentially`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.setCameraActive(true)
+        val firstCompletion = CompletableDeferred<Unit>()
+        fixture.enqueueTorchResult(firstCompletion)
+        clearInvocations(fixture.scanner)
+
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.toggleFlashLight()
+        }
+        val second = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.toggleFlashLight()
+        }
+
+        verify(fixture.scanner, times(1)).toggleFlashLight()
+        assertFalse(second.isCompleted)
+
+        firstCompletion.complete(Unit)
+        withTimeout(TEST_TIMEOUT_MS) { awaitAll(first, second) }
+        verify(fixture.scanner, times(2)).toggleFlashLight()
+    }
+
+    @Test
+    fun `parallel zoom updates execute sequentially`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.setCameraActive(true)
+        val firstCompletion = CompletableDeferred<Unit>()
+        fixture.enqueueZoomResult(firstCompletion)
+        clearInvocations(fixture.scanner)
+
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.setZoom(0.25F)
+        }
+        val second = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.setZoom(0.75F)
+        }
+
+        verify(fixture.scanner, times(1)).setZoom(0.25F)
+        verify(fixture.scanner, never()).setZoom(0.75F)
+        assertFalse(second.isCompleted)
+
+        firstCompletion.complete(Unit)
+        withTimeout(TEST_TIMEOUT_MS) { first.await() }
+        verify(fixture.scanner).setZoom(0.75F)
+        fixture.completeZoom()
+        withTimeout(TEST_TIMEOUT_MS) { second.await() }
+    }
+
+    @Test
     fun `new preview renders crop retained by scanner`() {
         val fixture = Fixture()
+        fixture.setCameraActive(true)
         val cropRect = RecognizeVisorCropRect(scaleWidth = 0.5)
 
         fixture.session.setCropArea(cropRect)
@@ -148,22 +216,25 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `shared scan result survives preview host replacement`() {
+    fun `preview host replacement cancels result captured by previous view`() {
         val received = mutableListOf<Pair<Int, Barcode>>()
         val fixture = Fixture { viewId, barcode -> received += viewId to barcode }
+        fixture.setCameraActive(true)
         fixture.session.startScan(0)
 
         fixture.emitScanResult(BARCODE)
         fixture.attach(SECOND_VIEW_ID)
         fixture.postedCallbacks.single().run()
 
-        assertEquals(listOf(SECOND_VIEW_ID to BARCODE), received)
+        assertTrue(received.isEmpty())
+        verify(fixture.mainHandler).removeCallbacks(fixture.postedCallbacks.single())
     }
 
     @Test
     fun `disposing one of several views keeps queued shared result`() {
         val received = mutableListOf<Barcode>()
         val fixture = Fixture { _, barcode -> received.add(barcode) }
+        fixture.setCameraActive(true)
         fixture.attach(SECOND_VIEW_ID)
         fixture.session.startScan(0)
         fixture.emitScanResult(BARCODE)
@@ -177,8 +248,29 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
+    fun `disposing preview host cancels result captured by that view`() {
+        val received = mutableListOf<Pair<Int, Barcode>>()
+        val fixture = Fixture { viewId, barcode -> received += viewId to barcode }
+        fixture.setCameraActive(true)
+        fixture.attach(SECOND_VIEW_ID)
+        fixture.session.startScan(0)
+        fixture.emitScanResult(BARCODE)
+        val delivery = fixture.postedCallbacks.single()
+        clearInvocations(fixture.scanner)
+
+        fixture.session.disposeView(SECOND_VIEW_ID)
+        delivery.run()
+
+        assertTrue(received.isEmpty())
+        verify(fixture.mainHandler).removeCallbacks(delivery)
+        verify(fixture.scanner).pauseScan()
+        verify(fixture.scanner).resumeScan()
+    }
+
+    @Test
     fun `disposing one of several views does not pause shared scan`() {
         val fixture = Fixture()
+        fixture.setCameraActive(true)
         fixture.attach(SECOND_VIEW_ID)
         fixture.session.startScan(100)
         clearInvocations(fixture.scanner)
@@ -191,6 +283,7 @@ internal class ScannerSessionImplTest {
     @Test
     fun `scan resumes after view gap without reapplying retained period`() {
         val fixture = Fixture()
+        fixture.setCameraActive(true)
         fixture.session.startScan(100)
         clearInvocations(fixture.scanner)
 
@@ -205,6 +298,7 @@ internal class ScannerSessionImplTest {
     fun `disposing last view cancels queued shared result`() {
         val received = mutableListOf<Barcode>()
         val fixture = Fixture { _, barcode -> received.add(barcode) }
+        fixture.setCameraActive(true)
         fixture.session.startScan(0)
         fixture.emitScanResult(BARCODE)
         val delivery = fixture.postedCallbacks.single()
@@ -220,6 +314,7 @@ internal class ScannerSessionImplTest {
     fun `camera pause cancels queued result and resume restores requested scan`() {
         val received = mutableListOf<Barcode>()
         val fixture = Fixture { _, barcode -> received.add(barcode) }
+        fixture.setCameraActive(true)
         fixture.session.startScan(0)
         fixture.emitScanResult(BARCODE)
         val delivery = fixture.postedCallbacks.single()
@@ -242,14 +337,15 @@ internal class ScannerSessionImplTest {
     fun `camera lifecycle stays created when session attaches to already paused host`() =
         runSessionTest {
             val fixture = Fixture(hostLifecycleState = Lifecycle.State.STARTED)
-            fixture.session.startScan(0)
-            clearInvocations(fixture.scanner)
-
             val initialization = async(start = CoroutineStart.UNDISPATCHED) {
                 fixture.session.startCamera(FIRST_VIEW_ID, null, null)
             }
 
             assertEquals(Lifecycle.State.CREATED, fixture.session.lifecycle.currentState)
+            fixture.completeInitialization()
+            withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+            clearInvocations(fixture.scanner)
+            fixture.session.startScan(0)
             verify(fixture.scanner).pauseScan()
 
             clearInvocations(fixture.scanner)
@@ -257,19 +353,18 @@ internal class ScannerSessionImplTest {
 
             assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
             verify(fixture.scanner).resumeScan()
-
-            fixture.completeInitialization()
-            withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
         }
 
     @Test
     fun `host lifecycle replacement pauses during detach and ignores old host afterwards`() =
         runSessionTest {
             val fixture = Fixture()
-            fixture.session.startScan(0)
             val initialization = async(start = CoroutineStart.UNDISPATCHED) {
                 fixture.session.startCamera(FIRST_VIEW_ID, null, null)
             }
+            fixture.completeInitialization()
+            withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+            fixture.session.startScan(0)
             assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
 
             clearInvocations(fixture.scanner)
@@ -289,8 +384,6 @@ internal class ScannerSessionImplTest {
             assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
             verify(fixture.scanner, never()).pauseScan()
 
-            fixture.completeInitialization()
-            withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
         }
 
     @Test
@@ -492,6 +585,8 @@ internal class ScannerSessionImplTest {
         private var scanResultListener: ((Barcode) -> Unit)? = null
         private var currentCropArea: RecognizeVisorCropRect? = null
         private val zoomCompletion = CompletableDeferred<Unit>()
+        private val zoomResults = ArrayDeque<CompletableDeferred<Unit>>()
+        private val torchResults = ArrayDeque<CompletableDeferred<Unit>>()
 
         init {
             doAnswer { invocation ->
@@ -518,7 +613,12 @@ internal class ScannerSessionImplTest {
                 onError = invocation.getArgument(2)
                 null
             }.`when`(scanner).startCamera(anyValue(), anyValue(), anyValue())
-            doAnswer { zoomCompletion }.`when`(scanner).setZoom(anyFloat())
+            doAnswer {
+                zoomResults.removeFirstOrNull() ?: zoomCompletion
+            }.`when`(scanner).setZoom(anyFloat())
+            doAnswer {
+                torchResults.removeFirstOrNull() ?: CompletableDeferred(Unit)
+            }.`when`(scanner).toggleFlashLight()
             doAnswer {
                 isCameraActive = false
                 null
@@ -531,6 +631,7 @@ internal class ScannerSessionImplTest {
                 onReleased = { releaseCalls += 1 },
                 releaseDelayMs = 300L,
                 initializationScope = CoroutineScope(Dispatchers.Unconfined),
+                lifecycleRegistryFactory = LifecycleRegistry::createUnsafe,
             )
             session.attachHostLifecycle(hostLifecycleOwner.lifecycle)
             attach(FIRST_VIEW_ID)
@@ -567,12 +668,20 @@ internal class ScannerSessionImplTest {
             zoomCompletion.complete(Unit)
         }
 
+        fun enqueueZoomResult(result: CompletableDeferred<Unit>) {
+            zoomResults += result
+        }
+
         fun failZoom(error: Throwable) {
             zoomCompletion.completeExceptionally(error)
         }
 
         fun failInitialization(error: Exception) {
             onError?.invoke(error)
+        }
+
+        fun enqueueTorchResult(result: CompletableDeferred<Unit>) {
+            torchResults += result
         }
     }
 

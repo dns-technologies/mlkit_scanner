@@ -13,16 +13,4 @@ data class RecognizeVisorCropRect(
     val scaleHeight: Double = 1.0,
     val centerOffsetX: Double = 0.0,
     val centerOffsetY: Double = 0.0,
-) {
-    companion object {
-        /** Creates [RecognizeVisorCropRect] from a method channel argument map. */
-        fun fromMap(map: Map<*, *>): RecognizeVisorCropRect {
-            return RecognizeVisorCropRect(
-                (map["scaleWidth"] as Double?) ?: 1.0,
-                (map["scaleHeight"] as Double?) ?: 1.0,
-                (map["offsetX"] as Double?) ?: 0.0,
-                (map["offsetY"] as Double?) ?: 0.0,
-            )
-        }
-    }
-}
+)

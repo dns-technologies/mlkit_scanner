@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
+import android.graphics.Rect as AndroidRect
 import androidx.camera.core.ImageInfo
 import androidx.camera.core.ImageProxy
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
@@ -47,7 +48,20 @@ internal class XCameraFrameTest {
         assertEquals(1, conversionCalls.get())
         assertEquals(FRAME_WIDTH, frame.width)
         assertEquals(FRAME_HEIGHT, frame.height)
+        assertEquals(Rect(0, 0, FRAME_WIDTH, FRAME_HEIGHT), frame.cropRect)
 
+        frame.close()
+        verify(imageProxy).close()
+    }
+
+    @Test
+    fun `frame preserves CameraX crop coordinates`() {
+        val crop = cameraCropRect(2, 1, 7, 5)
+        val imageProxy = imageProxy(crop)
+
+        val frame = XCameraFrame(imageProxy, mock(ImageProxyNv21Converter::class.java))
+
+        assertEquals(Rect(crop.left, crop.top, crop.right, crop.bottom), frame.cropRect)
         frame.close()
         verify(imageProxy).close()
     }
@@ -198,15 +212,26 @@ internal class XCameraFrameTest {
         )
     }
 
-    private fun imageProxy(): ImageProxy {
+    private fun imageProxy(
+        cropRect: AndroidRect = cameraCropRect(0, 0, FRAME_WIDTH, FRAME_HEIGHT),
+    ): ImageProxy {
         val imageProxy = mock(ImageProxy::class.java)
         val imageInfo = mock(ImageInfo::class.java)
         doReturn(FRAME_WIDTH).`when`(imageProxy).width
         doReturn(FRAME_HEIGHT).`when`(imageProxy).height
+        doReturn(cropRect).`when`(imageProxy).cropRect
         doReturn(imageInfo).`when`(imageProxy).imageInfo
         doReturn(ROTATION_DEGREES).`when`(imageInfo).rotationDegrees
         return imageProxy
     }
+
+    private fun cameraCropRect(left: Int, top: Int, right: Int, bottom: Int) =
+        AndroidRect().apply {
+            this.left = left
+            this.top = top
+            this.right = right
+            this.bottom = bottom
+        }
 
     private companion object {
         const val FRAME_WIDTH = 8

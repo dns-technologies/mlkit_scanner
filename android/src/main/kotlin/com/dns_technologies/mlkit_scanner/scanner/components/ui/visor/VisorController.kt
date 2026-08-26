@@ -23,6 +23,12 @@ internal class VisorController(
         visor?.isActive = isActive
     }
 
+    /** Removes the visor view owned by this controller. */
+    fun dispose() {
+        visor?.let(boundsView::removeView)
+        visor = null
+    }
+
     /** Adds the visor below the anchor overlay. */
     private fun addVisor(cropRect: RecognizeVisorCropRect): VisorView {
         return VisorView(cropRect, boundsView.context).also { newVisor ->

@@ -11,13 +11,17 @@ internal abstract class BaseScannerCommand(
     /** Sends a successful command completion. */
     protected fun success(result: Result) = result.success(true)
 
+    /** Returns the active scanner session or reports an invalid command state. */
+    protected fun requireScannerSession(): ScannerSession =
+        scannerSessionProvider() ?: throw PluginError.CameraIsNotInitialized
+
     /** Sends a typed plugin error response. */
     protected fun reportError(result: Result, error: PluginError, details: Any? = null) {
         result.error(error.errorCode, error.message, details)
     }
 
     /** Maps internal exceptions to typed plugin errors. */
-    protected fun reportError(result: Result, error: Throwable) {
+    protected fun reportError(result: Result, error: Exception) {
         if (error is PluginError) {
             reportError(result, error)
             return

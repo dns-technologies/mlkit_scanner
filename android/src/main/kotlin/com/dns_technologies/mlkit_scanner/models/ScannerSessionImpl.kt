@@ -17,6 +17,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Owns one CameraX/scanner pipeline shared by every registered platform view.
@@ -32,11 +34,14 @@ internal class ScannerSessionImpl(
     private val onReleased: () -> Unit,
     private val releaseDelayMs: Long = DEFAULT_RELEASE_DELAY_MS,
     private val initializationScope: CoroutineScope = MainScope(),
+    lifecycleRegistryFactory: (LifecycleOwner) -> LifecycleRegistry = ::LifecycleRegistry,
 ) : ScannerSession, LifecycleOwner, DefaultLifecycleObserver {
-    private val lifecycleRegistry = LifecycleRegistry.createUnsafe(this)
+    private val lifecycleRegistry = lifecycleRegistryFactory(this)
     private val views = linkedMapOf<Int, ScannerView>()
     private val resultDeliveryLock = Any()
     private val pendingResultDeliveries = mutableSetOf<Runnable>()
+    private val torchMutex = Mutex()
+    private val zoomMutex = Mutex()
     private var scanSubscription: ScanResultSubscription? =
         scanner.subscribeToScanResults(::enqueueScanResult)
     private var hostLifecycle: Lifecycle? = null
@@ -73,7 +78,11 @@ internal class ScannerSessionImpl(
         check(viewId !in views) { "Scanner view $viewId is already registered" }
 
         cancelDeferredRelease()
-        previewHost()?.detachPreview()
+        previewHost()?.let { previousHost ->
+            scanner.pauseScan()
+            cancelPendingResultDeliveries()
+            previousHost.detachPreview()
+        }
         views[viewId] = view
         attachPreview(view)
         updateCameraLifecycle()
@@ -97,6 +106,7 @@ internal class ScannerSessionImpl(
     }
 
     override fun resumeCamera() {
+        requireCameraReady()
         cameraPaused = false
         updateCameraLifecycle()
         applyScanState()
@@ -135,9 +145,16 @@ internal class ScannerSessionImpl(
         updateHostPaused(true)
     }
 
-    override fun toggleFlashLight() = scanner.toggleFlashLight()
+    override suspend fun toggleFlashLight() {
+        torchMutex.withLock {
+            requireCameraReady()
+            scanner.toggleFlashLight().await()
+            if (isReleased) throw PluginError.CameraSessionDisposed
+        }
+    }
 
     override fun startScan(periodMs: Int) {
+        requireCameraReady()
         scanner.updateScanPeriod(periodMs)
         scanRequested = true
         applyScanState()
@@ -149,17 +166,24 @@ internal class ScannerSessionImpl(
     }
 
     override fun updateScanPeriod(periodMs: Int) {
+        requireCameraReady()
         scanner.updateScanPeriod(periodMs)
     }
 
-    override fun setZoom(value: Float) {
-        if (cameraInitialization != null || !scanner.isActive()) {
-            throw PluginError.CameraIsNotInitialized
+    override suspend fun setZoom(value: Float) {
+        zoomMutex.withLock {
+            requireCameraReady()
+            scanner.setZoom(value).await()
+            if (isReleased) throw PluginError.CameraSessionDisposed
         }
-        scanner.setZoom(value)
     }
 
     override fun setCropArea(cropRect: RecognizeVisorCropRect) {
+        requireCameraReady()
+        applyCropArea(cropRect)
+    }
+
+    private fun applyCropArea(cropRect: RecognizeVisorCropRect) {
         scanner.setCropArea(cropRect)
         previewHost()?.renderCropArea(cropRect)
     }
@@ -167,15 +191,20 @@ internal class ScannerSessionImpl(
     override fun disposeView(viewId: Int) {
         val view = views.remove(viewId) ?: return
         val hostedPreview = view.hasPreview()
+        if (hostedPreview) {
+            scanner.pauseScan()
+            cancelPendingResultDeliveries()
+        }
         view.disposeFromSession()
 
         if (hostedPreview) {
             views.values.lastOrNull()?.let(::attachPreview)
+            applyScanState()
         }
 
         if (views.isEmpty()) {
             updateCameraLifecycle()
-            applyScanState()
+            if (!hostedPreview) applyScanState()
             scheduleDeferredRelease()
         }
     }
@@ -209,7 +238,7 @@ internal class ScannerSessionImpl(
     }
 
     private fun applyPreviewConfiguration(view: ScannerView) {
-        scanner.currentCropArea?.let(view::renderCropArea) ?: view.updateScannerScale()
+        scanner.currentCropArea?.let(view::renderCropArea)
         view.setScanActive(scanRequested && views.isNotEmpty())
     }
 
@@ -273,7 +302,7 @@ internal class ScannerSessionImpl(
         }
 
         try {
-            initialCropRect?.let(::setCropArea)
+            initialCropRect?.let(::applyCropArea)
             scanner.startCamera(
                 lifecycleOwner = this,
                 onInit = {
@@ -284,14 +313,14 @@ internal class ScannerSessionImpl(
                                 scanner.setZoom(initialZoom.toFloat()).await()
                             }
                             complete()
-                        } catch (error: Throwable) {
+                        } catch (error: Exception) {
                             fail(error)
                         }
                     }
                 },
                 onError = ::fail,
             )
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             fail(error)
         }
 
@@ -329,6 +358,13 @@ internal class ScannerSessionImpl(
 
     private fun requireView(viewId: Int) {
         if (viewId !in views) throw PluginError.CameraIsNotInitialized
+    }
+
+    private fun requireCameraReady() {
+        if (isReleased) throw PluginError.CameraSessionDisposed
+        if (cameraInitialization != null || !scanner.isActive()) {
+            throw PluginError.CameraIsNotInitialized
+        }
     }
 
     private fun cancelPendingResultDeliveries() {

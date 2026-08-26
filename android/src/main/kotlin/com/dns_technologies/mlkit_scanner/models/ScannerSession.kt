@@ -17,7 +17,7 @@ internal interface ScannerSession {
         initialCropRect: RecognizeVisorCropRect?,
     )
 
-    /** Resumes the shared camera after an explicit pause. */
+    /** Resumes an initialized shared camera after an explicit pause. */
     fun resumeCamera()
 
     /** Pauses the shared camera without releasing it. */
@@ -29,22 +29,22 @@ internal interface ScannerSession {
     /** Stops observing the previous Activity lifecycle and pauses shared camera work. */
     fun detachHostLifecycle()
 
-    /** Toggles the shared camera torch. */
-    fun toggleFlashLight()
+    /** Toggles the shared camera torch and waits for CameraX completion. */
+    suspend fun toggleFlashLight()
 
-    /** Starts barcode analysis with the requested delay. */
+    /** Starts barcode analysis on an initialized camera with the requested delay. */
     fun startScan(periodMs: Int)
 
     /** Pauses barcode analysis without releasing the shared camera. */
     fun pauseScan()
 
-    /** Updates the shared delay between barcode analysis attempts. */
+    /** Updates the shared delay between barcode analysis attempts on an initialized camera. */
     fun updateScanPeriod(periodMs: Int)
 
-    /** Applies normalized zoom to the shared camera. */
-    fun setZoom(value: Float)
+    /** Applies normalized zoom and waits for CameraX completion. */
+    suspend fun setZoom(value: Float)
 
-    /** Updates the shared barcode recognition region. */
+    /** Updates the initialized shared camera barcode recognition region. */
     fun setCropArea(cropRect: RecognizeVisorCropRect)
 
     /** Removes one platform view registration. */

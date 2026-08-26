@@ -45,18 +45,19 @@ internal class ImageProxyNv21Converter(
         val imageHeight = height.roundDownToEven()
         require(imageWidth >= MIN_CROP_SIZE && imageHeight >= MIN_CROP_SIZE)
         val requested = cropRect ?: Rect(0, 0, imageWidth, imageHeight)
-        val left = minOf(requested.left, requested.right).roundDownToEven().coerceIn(0, imageWidth)
-        val top = minOf(requested.top, requested.bottom).roundDownToEven().coerceIn(0, imageHeight)
+        val left = minOf(requested.left, requested.right).roundUpToEven().coerceIn(0, imageWidth)
+        val top = minOf(requested.top, requested.bottom).roundUpToEven().coerceIn(0, imageHeight)
         val right = maxOf(requested.left, requested.right).roundDownToEven().coerceIn(0, imageWidth)
         val bottom = maxOf(requested.top, requested.bottom).roundDownToEven().coerceIn(0, imageHeight)
-        val cropLeft = left.coerceAtMost(imageWidth - MIN_CROP_SIZE)
-        val cropTop = top.coerceAtMost(imageHeight - MIN_CROP_SIZE)
+        require(right - left >= MIN_CROP_SIZE && bottom - top >= MIN_CROP_SIZE) {
+            "Camera crop must contain at least one YUV chroma sample"
+        }
 
         return Rect(
-            cropLeft,
-            cropTop,
-            right.coerceAtLeast(cropLeft + MIN_CROP_SIZE).coerceAtMost(imageWidth),
-            bottom.coerceAtLeast(cropTop + MIN_CROP_SIZE).coerceAtMost(imageHeight),
+            left,
+            top,
+            right,
+            bottom,
         )
     }
 
@@ -114,7 +115,9 @@ internal class ImageProxyNv21Converter(
         }
     }
 
-    private fun Int.roundDownToEven(): Int = this - (this % 2)
+    private fun Int.roundDownToEven(): Int = this and -2
+
+    private fun Int.roundUpToEven(): Int = (this + 1) and -2
 
     private companion object {
         const val PLANE_COUNT = 3

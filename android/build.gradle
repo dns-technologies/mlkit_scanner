@@ -23,9 +23,6 @@ android {
     defaultConfig {
         minSdk 21
     }
-    buildFeatures {
-        buildConfig true
-    }
     lint {
         disable 'InvalidPackage'
     }
@@ -45,10 +42,10 @@ dependencies {
     implementation "androidx.camera:camera-lifecycle:$camerax_version"
     implementation "androidx.camera:camera-view:$camerax_version"
     implementation 'com.google.mlkit:barcode-scanning:17.3.0'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
 
     testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.mockito:mockito-core:5.2.0'
+    testImplementation 'org.mockito:mockito-core:5.8.0'
 }
 
 group 'com.dns_technologies.mlkit_scanner'

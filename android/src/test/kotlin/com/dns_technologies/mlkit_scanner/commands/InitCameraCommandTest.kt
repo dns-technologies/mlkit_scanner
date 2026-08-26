@@ -2,6 +2,7 @@ package com.dns_technologies.mlkit_scanner.commands
 
 import android.content.Context
 import androidx.lifecycle.Lifecycle
+import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
@@ -92,6 +93,60 @@ internal class InitCameraCommandTest {
         verify(result).success(true)
     }
 
+    @Test
+    fun `camera initialization failure uses stable initialization error`() = runBlocking {
+        val permissionGateway = grantedPermissionGateway()
+        val scannerSession = RecordingScannerSession().apply {
+            startError = IllegalStateException("CameraX bind failed")
+        }
+        val result = mock(MethodChannel.Result::class.java)
+
+        command(scannerSession, permissionGateway).execute(
+            MethodCall("initCameraPreview", mapOf("viewId" to VIEW_ID)),
+            result,
+        )
+
+        verify(result).error(
+            PluginError.InitCameraError.errorCode,
+            PluginError.InitCameraError.message,
+            null,
+        )
+    }
+
+    @Test
+    fun `typed camera initialization failure is preserved`() = runBlocking {
+        val permissionGateway = grantedPermissionGateway()
+        val scannerSession = RecordingScannerSession().apply {
+            startError = PluginError.CameraSessionDisposed
+        }
+        val result = mock(MethodChannel.Result::class.java)
+
+        command(scannerSession, permissionGateway).execute(
+            MethodCall("initCameraPreview", mapOf("viewId" to VIEW_ID)),
+            result,
+        )
+
+        verify(result).error(
+            PluginError.CameraSessionDisposed.errorCode,
+            PluginError.CameraSessionDisposed.message,
+            null,
+        )
+    }
+
+    private suspend fun grantedPermissionGateway(): PermissionGateway =
+        mock(PermissionGateway::class.java).also { gateway ->
+            doReturn(true).`when`(gateway).requestPermissions(anyValue())
+        }
+
+    private fun command(
+        scannerSession: ScannerSession,
+        permissionGateway: PermissionGateway,
+    ): InitCameraCommand = InitCameraCommand(
+        scannerSessionProvider = { scannerSession },
+        permissionGateway = permissionGateway,
+        commandScope = CoroutineScope(Dispatchers.Unconfined),
+    )
+
     private class RecordingScannerSession : ScannerSession {
         var startCalls = 0
             private set
@@ -101,6 +156,7 @@ internal class InitCameraCommandTest {
             private set
         var startViewId: Int? = null
             private set
+        var startError: Exception? = null
         override fun createView(context: Context, viewId: Int): ScannerView =
             mock(ScannerView::class.java)
 
@@ -109,6 +165,7 @@ internal class InitCameraCommandTest {
             initialZoom: Double?,
             initialCropRect: RecognizeVisorCropRect?,
         ) {
+            startError?.let { throw it }
             startCalls += 1
             startViewId = viewId
             startInitialZoom = initialZoom
@@ -119,11 +176,11 @@ internal class InitCameraCommandTest {
         override fun pauseCamera() = Unit
         override fun attachHostLifecycle(lifecycle: Lifecycle) = Unit
         override fun detachHostLifecycle() = Unit
-        override fun toggleFlashLight() = Unit
+        override suspend fun toggleFlashLight() = Unit
         override fun startScan(periodMs: Int) = Unit
         override fun pauseScan() = Unit
         override fun updateScanPeriod(periodMs: Int) = Unit
-        override fun setZoom(value: Float) = Unit
+        override suspend fun setZoom(value: Float) = Unit
         override fun setCropArea(cropRect: RecognizeVisorCropRect) = Unit
         override fun disposeView(viewId: Int) = Unit
         override fun release() = Unit

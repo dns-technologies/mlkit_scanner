@@ -10,6 +10,10 @@ internal class XCameraFrame(
     private val imageProxy: ImageProxy,
     private val nv21Converter: ImageProxyNv21Converter,
 ) : CameraFrame {
+    override val cropRect: Rect = imageProxy.cropRect.let { cropRect ->
+        Rect(cropRect.left, cropRect.top, cropRect.right, cropRect.bottom)
+    }
+
     override val width: Int = imageProxy.width
 
     override val height: Int = imageProxy.height
