@@ -157,10 +157,7 @@ class XCamera(
             cameraPreviewView.width / 2F + offsetX,
             cameraPreviewView.height / 2F + offsetY,
         )
-        val focusActionBuilder = FocusMeteringAction.Builder(
-            focusPoint,
-            FocusMeteringAction.FLAG_AF,
-        )
+        val focusActionBuilder = FocusMeteringAction.Builder(focusPoint)
         if (resetDelayMs > 0L) {
             focusActionBuilder.setAutoCancelDuration(resetDelayMs, TimeUnit.MILLISECONDS)
         } else {

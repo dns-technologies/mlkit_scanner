@@ -78,12 +78,12 @@ class FocusView(
     override fun onAnimationStart(animation: Animation?) {
         when (animation) {
             fadeInAnimation -> lock.visibility = View.VISIBLE
+            fadeOutAnimation -> lock.visibility = View.INVISIBLE
         }
     }
 
     /** Handles the end of focus animations. */
     override fun onAnimationEnd(animation: Animation?) {
-        if (animation === fadeOutAnimation) lock.visibility = View.INVISIBLE
     }
 
     /** Handles repeating focus animations. */

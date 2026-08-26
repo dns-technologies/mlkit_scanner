@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -67,6 +68,13 @@ void main() {
 
         final platformView = find.byType(PlatformViewLink);
         await tester.pumpAndSettle();
+        final surface = tester.widget<AndroidViewSurface>(
+          find.byType(AndroidViewSurface),
+        );
+        expect(
+          surface.gestureRecognizers.map((factory) => factory.type).toSet(),
+          {TapGestureRecognizer, LongPressGestureRecognizer},
+        );
         expect(platformView, findsOneWidget,
             reason: "Не отображается нативный виджет");
         expect(cameraInitialized, true,

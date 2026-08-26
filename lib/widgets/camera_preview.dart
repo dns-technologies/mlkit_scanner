@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -77,7 +78,11 @@ class _CameraPreviewState extends State<CameraPreview> {
           surfaceFactory: (context, controller) {
             return AndroidViewSurface(
               controller: controller as AndroidViewController,
-              gestureRecognizers: const {},
+              gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{
+                Factory<TapGestureRecognizer>(TapGestureRecognizer.new),
+                Factory<LongPressGestureRecognizer>(
+                    LongPressGestureRecognizer.new),
+              },
               hitTestBehavior: PlatformViewHitTestBehavior.opaque,
             );
           },
