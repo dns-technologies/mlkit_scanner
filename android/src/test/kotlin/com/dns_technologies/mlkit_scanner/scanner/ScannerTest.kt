@@ -48,9 +48,9 @@ internal class ScannerTest {
 
         repeat(4) { fixture.emitFrame() }
 
-        assertEquals(3, fixture.materializedFrames)
+        assertEquals(2, fixture.materializedFrames)
         assertEquals(4, fixture.closedFrames)
-        assertEquals(3, fixture.analyzer.acceptedAnalysisCalls)
+        assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
     }
 
     @Test
@@ -133,36 +133,42 @@ internal class ScannerTest {
     }
 
     @Test
-    fun `resume scan uses period retained by analyzer`() {
-        val fixture = Fixture()
+    fun `resume scan preserves successful recognition cooldown`() {
+        val fixture = Fixture(analysisResult = BARCODE)
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
         fixture.scanner.startScan(periodMs = 250)
-        repeat(3) { fixture.emitFrame() }
+        fixture.emitFrame()
         fixture.scanner.pauseScan()
-        fixture.setCurrentTimeMs(250)
+        fixture.setCurrentTimeMs(249)
 
         fixture.scanner.resumeScan()
         fixture.emitFrame()
 
-        assertEquals(4, fixture.analyzer.acceptedAnalysisCalls)
+        assertEquals(1, fixture.analyzer.acceptedAnalysisCalls)
+
+        fixture.setCurrentTimeMs(250)
+
+        fixture.emitFrame()
+
+        assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
     }
 
     @Test
     fun `start scan updates analyzer period`() {
-        val fixture = Fixture()
+        val fixture = Fixture(analysisResult = BARCODE)
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
 
         fixture.scanner.startScan(periodMs = 250)
-        repeat(3) { fixture.emitFrame() }
+        fixture.emitFrame()
         fixture.setCurrentTimeMs(249)
         fixture.emitFrame()
 
-        assertEquals(3, fixture.analyzer.acceptedAnalysisCalls)
+        assertEquals(1, fixture.analyzer.acceptedAnalysisCalls)
 
         fixture.setCurrentTimeMs(250)
         fixture.emitFrame()
 
-        assertEquals(4, fixture.analyzer.acceptedAnalysisCalls)
+        assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
     }
 
     @Test
@@ -210,10 +216,11 @@ internal class ScannerTest {
 
     private class Fixture(
         private val frameCropRect: Rect = Rect(0, 0, 720, 1280),
+        analysisResult: Barcode? = null,
     ) {
         private var currentTimeMs = 0L
         val camera = FakeCamera()
-        val analyzer = FakeAnalyzer { currentTimeMs }
+        val analyzer = FakeAnalyzer({ currentTimeMs }, analysisResult)
         val scanner = Scanner(camera, analyzer)
         var materializedFrames = 0
             private set
@@ -252,6 +259,7 @@ internal class ScannerTest {
 
     private class FakeAnalyzer(
         currentTimeMs: () -> Long,
+        private val analysisResult: Barcode?,
     ) : ImageBarcodeAnalyzer(currentTimeMs) {
         var acceptedAnalysisCalls = 0
             private set
@@ -264,7 +272,7 @@ internal class ScannerTest {
                 cropRect = cropRect,
                 block = { _, _, _, _ -> acceptedAnalysisCalls += 1 },
             )
-            return null
+            return analysisResult
         }
 
         override fun disposeAnalyzer() = Unit

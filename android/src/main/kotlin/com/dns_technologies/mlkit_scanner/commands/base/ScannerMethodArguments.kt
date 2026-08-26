@@ -51,7 +51,7 @@ internal object ScannerMethodArguments {
         .requireInRange(MIN_ZOOM, MAX_ZOOM)
         .toFloat()
 
-    /** Parses a non-negative cooldown between recognition windows. */
+    /** Parses a non-negative cooldown after successful recognition. */
     fun scanDelay(arguments: Any?): Int = arguments.requireInt(minimum = 0)
 
     /** Parses a finite crop rectangle with positive width and height scales. */

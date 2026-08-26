@@ -101,7 +101,7 @@ class Scanner(
         }
     }
 
-    /** Updates the cooldown between analyzer attempt windows. */
+    /** Updates the analyzer cooldown applied after successful recognition. */
     fun updateScanPeriod(periodMs: Int) {
         analyzer.updatePeriod(periodMs)
     }

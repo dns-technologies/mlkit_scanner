@@ -192,8 +192,9 @@ class BarcodeScannerController {
 
   /// Start recognition objects of type [RecognitionType]
   ///
-  /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
-  /// Detection happens every [delay] milliseconds, skipping frames during delay
+  /// `delay` - minimum delay in milliseconds after successful recognition.
+  /// Failed recognition does not start this timer. On Android, failed attempts
+  /// sample every third available camera frame.
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> startScan(int delay) async {
     return _barcodeScannerState?._startScan(delay);
@@ -204,10 +205,9 @@ class BarcodeScannerController {
     return _barcodeScannerState?._cancelScan();
   }
 
-  /// Set delay between detections when scanning is active.
+  /// Sets the delay applied after successful recognition.
   ///
-  /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
-  /// Detection happens every [delay] milliseconds, skipping frames during delay
+  /// Failed recognition does not start this timer.
   Future<void> setDelay(int delay) async {
     return _barcodeScannerState?._setDelay(delay);
   }

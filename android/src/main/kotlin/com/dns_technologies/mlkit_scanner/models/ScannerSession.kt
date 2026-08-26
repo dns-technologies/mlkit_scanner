@@ -32,13 +32,13 @@ internal interface ScannerSession {
     /** Toggles the shared camera torch and waits for CameraX completion. */
     suspend fun toggleFlashLight()
 
-    /** Starts barcode analysis requested by one view with the supplied attempt-window cooldown. */
+    /** Starts sampled barcode analysis with a cooldown between successful results. */
     fun startScan(viewId: Int, periodMs: Int)
 
     /** Pauses barcode analysis requested by one platform view. */
     fun pauseScan(viewId: Int)
 
-    /** Updates the shared cooldown between barcode analysis windows. */
+    /** Updates the shared cooldown applied after successful barcode recognition. */
     fun updateScanPeriod(periodMs: Int)
 
     /** Applies normalized zoom and waits for CameraX completion. */

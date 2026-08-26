@@ -108,8 +108,9 @@ class MlKitChannel {
   /// Starts recognition requested by the platform view identified by [viewId].
   ///
   /// `type` - [RecognitionType], plugin will use MlKit API for this type.
-  /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
-  /// Detection happens every [delay] milliseconds, skipping frames during delay.
+  /// `delay` - minimum delay in milliseconds after successful recognition.
+  /// Failed recognition does not start this timer. On Android, failed attempts
+  /// sample every third available camera frame.
   /// Only the current scanner view receives native scan events.
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> startScan(
@@ -144,10 +145,9 @@ class MlKitChannel {
     return _channel.invokeMethod(_cancelScanMethod, {'viewId': viewId});
   }
 
-  /// Set delay between detections when scanning is active.
+  /// Sets the delay applied after successful recognition.
   ///
-  /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
-  /// Detection happens every [delay] milliseconds, skipping frames during delay
+  /// Failed recognition does not start this timer.
   Future<void> setScanDelay(int delay) {
     return _channel.invokeMethod(_setScanDelayMethod, delay);
   }

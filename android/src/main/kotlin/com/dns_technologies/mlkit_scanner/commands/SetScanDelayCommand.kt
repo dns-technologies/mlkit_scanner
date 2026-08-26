@@ -6,7 +6,7 @@ import com.dns_technologies.mlkit_scanner.commands.base.ScannerCommand
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 
-/** Updates the cooldown between bounded frame-analysis windows. */
+/** Updates the cooldown applied after successful recognition. */
 internal class SetScanDelayCommand(
     scannerSessionProvider: () -> ScannerSession?,
 ) : ScannerCommand(scannerSessionProvider) {

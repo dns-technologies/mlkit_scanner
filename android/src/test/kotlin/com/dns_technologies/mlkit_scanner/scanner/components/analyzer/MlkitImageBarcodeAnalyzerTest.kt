@@ -47,14 +47,14 @@ internal class MlkitImageBarcodeAnalyzerTest {
     }
 
     @Test
-    fun `only three missed frames are accessed before cooldown`() {
+    fun `only every third frame is accessed after missed recognition`() {
         val scanner = barcodeScanner()
         val analyzer = analyzer(scanner)
         val frames = List(4) { FakeFrame() }
 
         frames.forEach { analyzer.analyze(it, null) }
 
-        assertEquals(listOf(1, 1, 1, 0), frames.map(FakeFrame::accessCalls))
+        assertEquals(listOf(1, 0, 0, 1), frames.map(FakeFrame::accessCalls))
     }
 
     @Test
