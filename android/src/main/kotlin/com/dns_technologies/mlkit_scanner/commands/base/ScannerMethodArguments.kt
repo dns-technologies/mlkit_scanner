@@ -15,6 +15,7 @@ internal object ScannerMethodArguments {
 
     /** Typed arguments required to start barcode recognition. */
     data class ScanOptions(
+        val viewId: Int,
         val periodMs: Int,
     )
 
@@ -40,6 +41,7 @@ internal object ScannerMethodArguments {
         val recognitionType = map.requireInt(RECOGNITION_TYPE_ARGUMENT, minimum = 0)
         if (recognitionType != BARCODE_RECOGNITION_TYPE) throw PluginError.InvalidArguments
         return ScanOptions(
+            viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
             periodMs = map.requireInt(SCAN_DELAY_ARGUMENT, minimum = 0),
         )
     }

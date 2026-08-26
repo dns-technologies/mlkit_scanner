@@ -1,8 +1,8 @@
 package com.dns_technologies.mlkit_scanner.commands
 
-import com.dns_technologies.mlkit_scanner.models.ScannerSession
-import com.dns_technologies.mlkit_scanner.commands.base.ScannerMethodArguments
 import com.dns_technologies.mlkit_scanner.commands.base.ScannerCommand
+import com.dns_technologies.mlkit_scanner.commands.base.ScannerMethodArguments
+import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 
@@ -12,7 +12,7 @@ internal class StartScanCommand(
 ) : ScannerCommand(scannerSessionProvider) {
     override fun executeCommand(call: MethodCall, result: Result) {
         val options = ScannerMethodArguments.scanOptions(call.arguments)
-        requireScannerSession().startScan(options.periodMs)
+        requireScannerSession().startScan(options.viewId, options.periodMs)
         success(result)
     }
 }

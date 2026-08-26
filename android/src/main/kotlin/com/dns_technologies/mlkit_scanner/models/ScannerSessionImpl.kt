@@ -23,11 +23,11 @@ import kotlinx.coroutines.sync.withLock
 /**
  * Owns one CameraX/scanner pipeline shared by every registered platform view.
  *
- * Runtime camera and scan controls are session-wide and the last command wins. Initial camera
- * parameters belong only to the first call that starts initialization. The view registry exists
- * only to host the one Android preview and to delay resource release across short route transitions.
- * A temporary empty registry pauses effective camera and scan work without changing the states
- * requested by the user, so a replacement view can restore them without rebuilding the pipeline.
+ * Runtime camera and scan intent belongs to each platform view, while camera controls and initial
+ * parameters belong to the shared pipeline. Only the newest registered view can drive that pipeline
+ * or receive scan results. Removing it restores the remembered intent of the preceding view. A
+ * temporary empty registry pauses camera and scan work while retaining native resources across a
+ * short route transition.
  */
 internal class ScannerSessionImpl(
     private val scanner: Scanner,
@@ -38,7 +38,7 @@ internal class ScannerSessionImpl(
     lifecycleRegistryFactory: (LifecycleOwner) -> LifecycleRegistry = ::LifecycleRegistry,
 ) : ScannerSession, LifecycleOwner, DefaultLifecycleObserver {
     private val lifecycleRegistry = lifecycleRegistryFactory(this)
-    private val views = linkedMapOf<Int, ScannerView>()
+    private val views = linkedMapOf<Int, ScannerViewState>()
     private val resultDeliveryLock = Any()
     private val pendingResultDeliveries = mutableSetOf<Runnable>()
     private val torchMutex = Mutex()
@@ -48,9 +48,6 @@ internal class ScannerSessionImpl(
     private var hostLifecycle: Lifecycle? = null
     private var cameraInitialization: CompletableDeferred<Unit>? = null
     private var deferredRelease: Runnable? = null
-    private var scanRequested = false
-    private var cameraRequested = false
-    private var cameraPaused = false
     private var hostPaused = true
 
     @Volatile
@@ -79,15 +76,12 @@ internal class ScannerSessionImpl(
         check(viewId !in views) { "Scanner view $viewId is already registered" }
 
         cancelDeferredRelease()
-        activeView()
-            ?.takeUnless(ScannerView::hasPreview)
-            ?.cancelPendingPreviewAttachment()
-        actualPreviewHost()?.let { previousHost ->
+        previewHost()?.view?.let { previousHost ->
             scanner.pauseScan()
             cancelPendingResultDeliveries()
-            previousHost.setScanActive(false)
+            previousHost.detachPreview()
         }
-        views[viewId] = view
+        views[viewId] = ScannerViewState(view)
         attachPreview(view)
         updateCameraLifecycle()
         applyScanState()
@@ -99,29 +93,26 @@ internal class ScannerSessionImpl(
         initialCropRect: RecognizeVisorCropRect?,
     ) {
         if (isReleased) throw PluginError.CameraSessionDisposed
-        requireView(viewId)
+        val viewState = requireView(viewId)
 
-        if (!cameraRequested) {
-            cameraRequested = true
-            cameraPaused = false
+        if (!viewState.cameraStarted) {
+            viewState.cameraStarted = true
         }
-        updateCameraLifecycle()
-        applyScanState()
+        applyViewStateIfActive(viewState)
 
         initializeCamera(initialZoom, initialCropRect).await()
     }
 
-    override fun resumeCamera() {
-        requireCameraReady()
-        cameraPaused = false
-        updateCameraLifecycle()
-        applyScanState()
+    override fun resumeCamera(viewId: Int) {
+        val viewState = requireViewCameraReady(viewId)
+        viewState.cameraRequested = true
+        applyViewStateIfActive(viewState)
     }
 
-    override fun pauseCamera() {
-        cameraPaused = true
-        updateCameraLifecycle()
-        applyScanState()
+    override fun pauseCamera(viewId: Int) {
+        val viewState = views[viewId] ?: return
+        viewState.cameraRequested = false
+        applyViewStateIfActive(viewState)
     }
 
     override fun attachHostLifecycle(lifecycle: Lifecycle) {
@@ -159,16 +150,17 @@ internal class ScannerSessionImpl(
         }
     }
 
-    override fun startScan(periodMs: Int) {
-        requireCameraReady()
+    override fun startScan(viewId: Int, periodMs: Int) {
+        val viewState = requireViewCameraReady(viewId)
         scanner.updateScanPeriod(periodMs)
-        scanRequested = true
-        applyScanState()
+        viewState.scanRequested = true
+        applyViewStateIfActive(viewState)
     }
 
-    override fun pauseScan() {
-        scanRequested = false
-        applyScanState()
+    override fun pauseScan(viewId: Int) {
+        val viewState = views[viewId] ?: return
+        viewState.scanRequested = false
+        applyViewStateIfActive(viewState)
     }
 
     override fun updateScanPeriod(periodMs: Int) {
@@ -195,24 +187,20 @@ internal class ScannerSessionImpl(
     }
 
     override fun disposeView(viewId: Int) {
-        val view = views[viewId] ?: return
-        val wasActive = activeView() === view
-        val hostedPreview = view.hasPreview()
-        views.remove(viewId)
+        val viewState = views.remove(viewId) ?: return
+        val hostedPreview = viewState.view.hasPreview()
         if (hostedPreview) {
             scanner.pauseScan()
             cancelPendingResultDeliveries()
         }
-        view.disposeFromSession()
+        viewState.view.disposeFromSession()
 
-        if (hostedPreview || wasActive) {
-            activeView()
-                ?.takeUnless(ScannerView::hasPreview)
-                ?.let(::attachPreview)
+        if (hostedPreview) {
+            activeView()?.let(::attachPreview)
         }
 
+        updateCameraLifecycle()
         if (views.isEmpty()) {
-            updateCameraLifecycle()
             scheduleDeferredRelease()
         }
         applyScanState()
@@ -232,7 +220,7 @@ internal class ScannerSessionImpl(
         scanSubscription?.cancel()
         scanSubscription = null
 
-        views.values.forEach(ScannerView::disposeFromSession)
+        views.values.forEach { it.view.disposeFromSession() }
         views.clear()
 
         scanner.dispose()
@@ -241,8 +229,9 @@ internal class ScannerSessionImpl(
     }
 
     private fun attachPreview(view: ScannerView) {
-        view.attachPreview(::onPreviewReady)
+        view.attachPreview(::applyScanState)
         applyPreviewConfiguration(view)
+        if (scanner.isActive()) view.bindFocus()
     }
 
     private fun applyPreviewConfiguration(view: ScannerView) {
@@ -250,17 +239,14 @@ internal class ScannerSessionImpl(
         view.setScanActive(false)
     }
 
-    private fun onPreviewReady() {
-        if (scanner.isActive()) previewHost()?.bindFocus()
-        applyScanState()
-    }
-
     private fun applyScanState() {
-        val shouldScan = scanRequested &&
-            previewHost()?.isPreviewReady() == true &&
-            !cameraPaused &&
-            !hostPaused &&
-            !isReleased
+        val shouldScan = previewHost()?.let { viewState ->
+            viewState.scanRequested &&
+                viewState.cameraRequested &&
+                viewState.view.isPreviewReady() &&
+                !hostPaused &&
+                !isReleased
+        } == true
         deliverScanResults = shouldScan
         if (shouldScan) {
             scanner.resumeScan()
@@ -273,7 +259,7 @@ internal class ScannerSessionImpl(
 
     private fun updateCameraLifecycle() {
         if (isReleased) return
-        val shouldRun = views.isNotEmpty() && cameraRequested && !cameraPaused && !hostPaused
+        val shouldRun = activeViewState()?.cameraRequested == true && !hostPaused
         lifecycleRegistry.currentState = if (shouldRun) {
             Lifecycle.State.RESUMED
         } else {
@@ -284,6 +270,12 @@ internal class ScannerSessionImpl(
     private fun updateHostPaused(isPaused: Boolean) {
         if (hostPaused == isPaused) return
         hostPaused = isPaused
+        updateCameraLifecycle()
+        applyScanState()
+    }
+
+    private fun applyViewStateIfActive(viewState: ScannerViewState) {
+        if (viewState !== activeViewState()) return
         updateCameraLifecycle()
         applyScanState()
     }
@@ -308,7 +300,7 @@ internal class ScannerSessionImpl(
 
         fun complete() {
             if (isReleased || initialization.isCompleted) return
-            previewHost()?.bindFocus()
+            previewHost()?.view?.bindFocus()
             applyScanState()
             scanner.showPreview()
             initialization.complete(Unit)
@@ -343,16 +335,15 @@ internal class ScannerSessionImpl(
     private fun failedInitialization(error: Throwable): CompletableDeferred<Unit> =
         CompletableDeferred<Unit>().also { it.completeExceptionally(error) }
 
-    private fun activeView(): ScannerView? = views.values.lastOrNull()
+    private fun activeViewState(): ScannerViewState? = views.values.lastOrNull()
 
-    private fun actualPreviewHost(): ScannerView? =
-        views.values.firstOrNull(ScannerView::hasPreview)
+    private fun activeView(): ScannerView? = activeViewState()?.view
 
-    private fun previewHost(): ScannerView? =
-        activeView()?.takeIf(ScannerView::hasPreview)
+    private fun previewHost(): ScannerViewState? =
+        activeViewState()?.takeIf { it.view.hasPreview() }
 
-    private fun previewHostEntry(): Map.Entry<Int, ScannerView>? =
-        views.entries.lastOrNull()?.takeIf { (_, view) -> view.hasPreview() }
+    private fun previewHostEntry(): Map.Entry<Int, ScannerViewState>? =
+        views.entries.lastOrNull()?.takeIf { (_, state) -> state.view.hasPreview() }
 
     private fun enqueueScanResult(result: Barcode) {
         lateinit var delivery: Runnable
@@ -375,9 +366,14 @@ internal class ScannerSessionImpl(
         }
     }
 
-    private fun requireView(viewId: Int) {
-        if (viewId !in views) throw PluginError.CameraIsNotInitialized
-    }
+    private fun requireView(viewId: Int): ScannerViewState =
+        views[viewId] ?: throw PluginError.CameraIsNotInitialized
+
+    private fun requireViewCameraReady(viewId: Int): ScannerViewState =
+        requireView(viewId).also { viewState ->
+            requireCameraReady()
+            if (!viewState.cameraStarted) throw PluginError.CameraIsNotInitialized
+        }
 
     private fun requireCameraReady() {
         if (isReleased) throw PluginError.CameraSessionDisposed
@@ -415,4 +411,11 @@ internal class ScannerSessionImpl(
         /** Time to retain a paused scanner pipeline while Flutter replaces its platform view. */
         const val NAVIGATION_GRACE_PERIOD_MS = 300L
     }
+
+    private data class ScannerViewState(
+        val view: ScannerView,
+        var cameraStarted: Boolean = false,
+        var cameraRequested: Boolean = true,
+        var scanRequested: Boolean = false,
+    )
 }

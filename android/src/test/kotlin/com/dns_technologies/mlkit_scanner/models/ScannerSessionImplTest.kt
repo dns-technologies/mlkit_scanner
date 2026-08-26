@@ -43,75 +43,12 @@ internal class ScannerSessionImplTest {
         val first = fixture.view(FIRST_VIEW_ID)
         val second = fixture.attach(SECOND_VIEW_ID)
 
-        verify(first, never()).detachPreview()
-        verify(first, atLeastOnce()).setScanActive(false)
+        verify(first).detachPreview()
         verify(second).attachPreview(anyValue())
         assertFalse(fixture.hasPreview(FIRST_VIEW_ID))
         assertTrue(fixture.hasPreview(SECOND_VIEW_ID))
         verify(first, never()).disposeFromSession()
         verify(fixture.scanner, never()).dispose()
-    }
-
-    @Test
-    fun `attached scanner keeps camera hot until new preview host is ready`() = runSessionTest {
-        val fixture = Fixture()
-        val first = fixture.view(FIRST_VIEW_ID)
-        fixture.setCameraActive(true)
-        fixture.session.startCamera(FIRST_VIEW_ID, null, null)
-        fixture.session.startScan(100)
-        clearInvocations(fixture.scanner, first)
-
-        val second = fixture.attach(SECOND_VIEW_ID, previewReady = false)
-
-        assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
-        assertTrue(fixture.hasPreview(FIRST_VIEW_ID))
-        assertFalse(fixture.hasPreview(SECOND_VIEW_ID))
-        verify(first, never()).detachPreview()
-        verify(fixture.scanner, atLeastOnce()).pauseScan()
-        verify(fixture.scanner, never()).resumeScan()
-        verify(second, never()).bindFocus()
-
-        fixture.markPreviewReady(SECOND_VIEW_ID)
-
-        assertFalse(fixture.hasPreview(FIRST_VIEW_ID))
-        assertTrue(fixture.hasPreview(SECOND_VIEW_ID))
-        verify(second).bindFocus()
-        verify(fixture.scanner).resumeScan()
-    }
-
-    @Test
-    fun `disposing pending preview host resumes scan on the still attached preview`() =
-        runSessionTest {
-            val fixture = Fixture()
-            val first = fixture.view(FIRST_VIEW_ID)
-            fixture.setCameraActive(true)
-            fixture.session.startCamera(FIRST_VIEW_ID, null, null)
-            fixture.session.startScan(100)
-            val second = fixture.attach(SECOND_VIEW_ID, previewReady = false)
-            clearInvocations(fixture.scanner, first)
-
-            fixture.session.disposeView(SECOND_VIEW_ID)
-
-            assertTrue(fixture.hasPreview(FIRST_VIEW_ID))
-            verify(second).disposeFromSession()
-            verify(first, never()).attachPreview(anyValue())
-            verify(fixture.scanner).resumeScan()
-        }
-
-    @Test
-    fun `newest pending preview cancels an older pending transfer`() {
-        val fixture = Fixture()
-        val second = fixture.attach(SECOND_VIEW_ID, previewReady = false)
-
-        fixture.attach(THIRD_VIEW_ID, previewReady = false)
-
-        verify(second).cancelPendingPreviewAttachment()
-        fixture.markPreviewReady(SECOND_VIEW_ID)
-        assertTrue(fixture.hasPreview(FIRST_VIEW_ID))
-
-        fixture.markPreviewReady(THIRD_VIEW_ID)
-        assertFalse(fixture.hasPreview(FIRST_VIEW_ID))
-        assertTrue(fixture.hasPreview(THIRD_VIEW_ID))
     }
 
     @Test
@@ -178,7 +115,7 @@ internal class ScannerSessionImplTest {
             }
             fixture.completeInitialization()
             withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
-            fixture.session.startScan(100)
+            fixture.session.startScan(FIRST_VIEW_ID, 100)
             clearInvocations(fixture.scanner)
 
             fixture.session.disposeView(FIRST_VIEW_ID)
@@ -193,7 +130,7 @@ internal class ScannerSessionImplTest {
         }
 
     @Test
-    fun `new view during grace keeps camera active and waits for preview before restoring scan`() =
+    fun `new view during grace reuses camera and waits for preview before starting its scan`() =
         runSessionTest {
             val fixture = Fixture()
             val initialization = async(start = CoroutineStart.UNDISPATCHED) {
@@ -201,7 +138,7 @@ internal class ScannerSessionImplTest {
             }
             fixture.completeInitialization()
             withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
-            fixture.session.startScan(100)
+            fixture.session.startScan(FIRST_VIEW_ID, 100)
             fixture.session.disposeView(FIRST_VIEW_ID)
             val releaseTask = fixture.delayedCallbacks.single()
             clearInvocations(fixture.scanner)
@@ -212,11 +149,15 @@ internal class ScannerSessionImplTest {
             verify(fixture.scanner, never()).resumeScan()
             verify(fixture.mainHandler).removeCallbacks(releaseTask)
 
+            fixture.session.startCamera(SECOND_VIEW_ID, 0.75, null)
+            fixture.session.startScan(SECOND_VIEW_ID, 100)
+
+            assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+            verify(fixture.scanner, never()).resumeScan()
+
             fixture.markPreviewReady(SECOND_VIEW_ID)
 
             verify(fixture.scanner).resumeScan()
-
-            fixture.session.startCamera(SECOND_VIEW_ID, 0.75, null)
             releaseTask.run()
 
             assertEquals(1, fixture.startCalls)
@@ -224,49 +165,65 @@ internal class ScannerSessionImplTest {
         }
 
     @Test
-    fun `new view preserves manual camera pause until explicit resume`() = runSessionTest {
+    fun `late camera pause from covered view does not pause current view`() = runSessionTest {
         val fixture = Fixture()
         val initialization = async(start = CoroutineStart.UNDISPATCHED) {
             fixture.session.startCamera(FIRST_VIEW_ID, null, null)
         }
         fixture.completeInitialization()
         withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
-        fixture.session.startScan(100)
-        fixture.session.pauseCamera()
-        fixture.session.disposeView(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 100)
+        fixture.attach(SECOND_VIEW_ID)
         clearInvocations(fixture.scanner)
 
-        fixture.attach(SECOND_VIEW_ID)
+        fixture.session.pauseCamera(FIRST_VIEW_ID)
+
+        assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+        verify(fixture.scanner, never()).pauseScan()
+
         fixture.session.startCamera(SECOND_VIEW_ID, null, null)
+        fixture.session.startScan(SECOND_VIEW_ID, 100)
+        fixture.session.disposeView(SECOND_VIEW_ID)
+        fixture.markPreviewReady(FIRST_VIEW_ID)
 
         assertEquals(Lifecycle.State.CREATED, fixture.session.lifecycle.currentState)
-        verify(fixture.scanner, never()).resumeScan()
+        verify(fixture.scanner, atLeastOnce()).pauseScan()
+        clearInvocations(fixture.scanner)
 
-        fixture.session.resumeCamera()
+        fixture.session.resumeCamera(FIRST_VIEW_ID)
 
         assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
         verify(fixture.scanner).resumeScan()
     }
 
     @Test
-    fun `new view preserves cancelled scan while resuming requested camera`() = runSessionTest {
+    fun `scan pause belongs to its view and is restored when that view returns`() = runSessionTest {
         val fixture = Fixture()
         val initialization = async(start = CoroutineStart.UNDISPATCHED) {
             fixture.session.startCamera(FIRST_VIEW_ID, null, null)
         }
         fixture.completeInitialization()
         withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
-        fixture.session.startScan(100)
-        fixture.session.pauseScan()
-        fixture.session.disposeView(FIRST_VIEW_ID)
-        clearInvocations(fixture.scanner)
-
+        fixture.session.startScan(FIRST_VIEW_ID, 100)
         fixture.attach(SECOND_VIEW_ID)
         fixture.session.startCamera(SECOND_VIEW_ID, null, null)
+        fixture.session.startScan(SECOND_VIEW_ID, 100)
+        clearInvocations(fixture.scanner)
+
+        fixture.session.pauseScan(FIRST_VIEW_ID)
 
         assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
-        verify(fixture.scanner, never()).resumeScan()
+        verify(fixture.scanner, never()).pauseScan()
+
+        fixture.session.disposeView(SECOND_VIEW_ID)
+        fixture.markPreviewReady(FIRST_VIEW_ID)
+
         verify(fixture.scanner, atLeastOnce()).pauseScan()
+        clearInvocations(fixture.scanner)
+
+        fixture.session.startScan(FIRST_VIEW_ID, 100)
+
+        verify(fixture.scanner).resumeScan()
     }
 
     @Test
@@ -274,6 +231,7 @@ internal class ScannerSessionImplTest {
         val fixture = Fixture()
         fixture.attach(SECOND_VIEW_ID)
         fixture.setCameraActive(true)
+        fixture.session.startCamera(SECOND_VIEW_ID, null, null)
         fixture.completeZoom()
         val cropRect = RecognizeVisorCropRect(scaleWidth = 0.5)
         clearInvocations(fixture.scanner)
@@ -281,7 +239,7 @@ internal class ScannerSessionImplTest {
         fixture.session.setZoom(0.75F)
         fixture.session.updateScanPeriod(250)
         fixture.session.setCropArea(cropRect)
-        fixture.session.startScan(400)
+        fixture.session.startScan(SECOND_VIEW_ID, 400)
         fixture.session.toggleFlashLight()
 
         verify(fixture.scanner).setZoom(0.75F)
@@ -385,8 +343,8 @@ internal class ScannerSessionImplTest {
     fun `preview host replacement cancels result captured by previous view`() {
         val received = mutableListOf<Pair<Int, Barcode>>()
         val fixture = Fixture { viewId, barcode -> received += viewId to barcode }
-        fixture.setCameraActive(true)
-        fixture.session.startScan(0)
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 0)
 
         fixture.emitScanResult(BARCODE)
         fixture.attach(SECOND_VIEW_ID)
@@ -397,12 +355,54 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
+    fun `only current view receives results when multiple views requested scanning`() {
+        val received = mutableListOf<Pair<Int, Barcode>>()
+        val fixture = Fixture { viewId, barcode -> received += viewId to barcode }
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 0)
+        fixture.attach(SECOND_VIEW_ID)
+        fixture.activateCamera(SECOND_VIEW_ID)
+        fixture.session.startScan(SECOND_VIEW_ID, 0)
+
+        fixture.emitScanResult(BARCODE)
+        fixture.postedCallbacks.last().run()
+
+        assertEquals(listOf(SECOND_VIEW_ID to BARCODE), received)
+
+        fixture.session.disposeView(SECOND_VIEW_ID)
+        fixture.markPreviewReady(FIRST_VIEW_ID)
+        fixture.emitScanResult(BARCODE)
+        fixture.postedCallbacks.last().run()
+
+        assertEquals(
+            listOf(SECOND_VIEW_ID to BARCODE, FIRST_VIEW_ID to BARCODE),
+            received,
+        )
+    }
+
+    @Test
+    fun `lifecycle commands for disposed view do not affect current view`() {
+        val fixture = Fixture()
+        fixture.attach(SECOND_VIEW_ID)
+        fixture.activateCamera(SECOND_VIEW_ID)
+        fixture.session.startScan(SECOND_VIEW_ID, 0)
+        fixture.session.disposeView(FIRST_VIEW_ID)
+        clearInvocations(fixture.scanner)
+
+        fixture.session.pauseCamera(FIRST_VIEW_ID)
+        fixture.session.pauseScan(FIRST_VIEW_ID)
+
+        assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+        verify(fixture.scanner, never()).pauseScan()
+    }
+
+    @Test
     fun `disposing one of several views keeps queued shared result`() {
         val received = mutableListOf<Barcode>()
         val fixture = Fixture { _, barcode -> received.add(barcode) }
-        fixture.setCameraActive(true)
         fixture.attach(SECOND_VIEW_ID)
-        fixture.session.startScan(0)
+        fixture.activateCamera(SECOND_VIEW_ID)
+        fixture.session.startScan(SECOND_VIEW_ID, 0)
         fixture.emitScanResult(BARCODE)
         val delivery = fixture.postedCallbacks.single()
 
@@ -417,9 +417,11 @@ internal class ScannerSessionImplTest {
     fun `disposing preview host cancels result captured by that view`() {
         val received = mutableListOf<Pair<Int, Barcode>>()
         val fixture = Fixture { viewId, barcode -> received += viewId to barcode }
-        fixture.setCameraActive(true)
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 0)
         fixture.attach(SECOND_VIEW_ID)
-        fixture.session.startScan(0)
+        fixture.activateCamera(SECOND_VIEW_ID)
+        fixture.session.startScan(SECOND_VIEW_ID, 0)
         fixture.emitScanResult(BARCODE)
         val delivery = fixture.postedCallbacks.single()
         clearInvocations(fixture.scanner)
@@ -440,9 +442,9 @@ internal class ScannerSessionImplTest {
     @Test
     fun `disposing one of several views does not pause shared scan`() {
         val fixture = Fixture()
-        fixture.setCameraActive(true)
         fixture.attach(SECOND_VIEW_ID)
-        fixture.session.startScan(100)
+        fixture.activateCamera(SECOND_VIEW_ID)
+        fixture.session.startScan(SECOND_VIEW_ID, 100)
         clearInvocations(fixture.scanner)
 
         fixture.session.disposeView(FIRST_VIEW_ID)
@@ -451,16 +453,17 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `scan resumes after view gap without reapplying retained period`() {
+    fun `new view after navigation gap does not inherit removed view scan intent`() {
         val fixture = Fixture()
-        fixture.setCameraActive(true)
-        fixture.session.startScan(100)
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 100)
         clearInvocations(fixture.scanner)
 
         fixture.session.disposeView(FIRST_VIEW_ID)
         fixture.attach(SECOND_VIEW_ID)
+        fixture.activateCamera(SECOND_VIEW_ID)
 
-        verify(fixture.scanner).resumeScan()
+        verify(fixture.scanner, never()).resumeScan()
         verify(fixture.scanner, never()).updateScanPeriod(anyInt())
     }
 
@@ -468,8 +471,8 @@ internal class ScannerSessionImplTest {
     fun `disposing last view cancels queued shared result`() {
         val received = mutableListOf<Barcode>()
         val fixture = Fixture { _, barcode -> received.add(barcode) }
-        fixture.setCameraActive(true)
-        fixture.session.startScan(0)
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 0)
         fixture.emitScanResult(BARCODE)
         val delivery = fixture.postedCallbacks.single()
 
@@ -484,13 +487,13 @@ internal class ScannerSessionImplTest {
     fun `camera pause cancels queued result and resume restores requested scan`() {
         val received = mutableListOf<Barcode>()
         val fixture = Fixture { _, barcode -> received.add(barcode) }
-        fixture.setCameraActive(true)
-        fixture.session.startScan(0)
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 0)
         fixture.emitScanResult(BARCODE)
         val delivery = fixture.postedCallbacks.single()
         clearInvocations(fixture.scanner)
 
-        fixture.session.pauseCamera()
+        fixture.session.pauseCamera(FIRST_VIEW_ID)
         delivery.run()
 
         verify(fixture.mainHandler).removeCallbacks(delivery)
@@ -498,9 +501,20 @@ internal class ScannerSessionImplTest {
         assertTrue(received.isEmpty())
 
         clearInvocations(fixture.scanner)
-        fixture.session.resumeCamera()
+        fixture.session.resumeCamera(FIRST_VIEW_ID)
 
         verify(fixture.scanner).resumeScan()
+    }
+
+    @Test
+    fun `repeated camera initialization does not clear view pause`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.pauseCamera(FIRST_VIEW_ID)
+
+        fixture.session.startCamera(FIRST_VIEW_ID, null, null)
+
+        assertEquals(Lifecycle.State.CREATED, fixture.session.lifecycle.currentState)
     }
 
     @Test
@@ -515,7 +529,7 @@ internal class ScannerSessionImplTest {
             fixture.completeInitialization()
             withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
             clearInvocations(fixture.scanner)
-            fixture.session.startScan(0)
+            fixture.session.startScan(FIRST_VIEW_ID, 0)
             verify(fixture.scanner).pauseScan()
 
             clearInvocations(fixture.scanner)
@@ -534,7 +548,7 @@ internal class ScannerSessionImplTest {
             }
             fixture.completeInitialization()
             withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
-            fixture.session.startScan(0)
+            fixture.session.startScan(FIRST_VIEW_ID, 0)
             assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
 
             clearInvocations(fixture.scanner)
@@ -815,17 +829,15 @@ internal class ScannerSessionImplTest {
             previewState[viewId] = false
             previewReadyState[viewId] = false
             doAnswer { invocation ->
+                previewState.keys.forEach { currentViewId ->
+                    previewState[currentViewId] = false
+                    previewReadyState[currentViewId] = false
+                }
+                previewState[viewId] = true
                 previewReadyState[viewId] = false
                 previewReadyCallbacks[viewId] = invocation.getArgument(0)
                 null
             }.`when`(view).attachPreview(anyValue())
-            doAnswer {
-                if (previewState[viewId] != true) {
-                    previewReadyState[viewId] = false
-                    previewReadyCallbacks.remove(viewId)
-                }
-                null
-            }.`when`(view).cancelPendingPreviewAttachment()
             doAnswer {
                 clearPreview(viewId)
                 null
@@ -845,14 +857,8 @@ internal class ScannerSessionImplTest {
         }
 
         fun markPreviewReady(viewId: Int) {
-            val onPreviewReady = previewReadyCallbacks.remove(viewId) ?: return
-            previewState.keys.forEach { currentViewId ->
-                previewState[currentViewId] = false
-                previewReadyState[currentViewId] = false
-            }
-            previewState[viewId] = true
             previewReadyState[viewId] = true
-            onPreviewReady()
+            previewReadyCallbacks.remove(viewId)?.invoke()
         }
 
         fun view(viewId: Int): ScannerView = views.getValue(viewId)
@@ -871,6 +877,11 @@ internal class ScannerSessionImplTest {
 
         fun setCameraActive(value: Boolean) {
             isCameraActive = value
+        }
+
+        fun activateCamera(viewId: Int) {
+            isCameraActive = true
+            runBlocking { session.startCamera(viewId, null, null) }
         }
 
         fun completeInitialization() {
@@ -920,7 +931,6 @@ internal class ScannerSessionImplTest {
     private companion object {
         const val FIRST_VIEW_ID = 11
         const val SECOND_VIEW_ID = 22
-        const val THIRD_VIEW_ID = 33
         const val TEST_TIMEOUT_MS = 1_000L
         val BARCODE = Barcode(
             rawValue = "1234567890",

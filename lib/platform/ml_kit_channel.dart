@@ -105,14 +105,20 @@ class MlKitChannel {
     return _channel.invokeMethod(_toggleFlashMethod);
   }
 
-  /// Start recognition objects of type [RecognitionType]
+  /// Starts recognition requested by the platform view identified by [viewId].
   ///
   /// `type` - [RecognitionType], plugin will use MlKit API for this type.
   /// `delay` -  delay in milliseconds between detection for decreasing CPU consumption.
-  /// Detection happens every [delay] milliseconds, skipping frames during delay
+  /// Detection happens every [delay] milliseconds, skipping frames during delay.
+  /// Only the current scanner view receives native scan events.
   /// Can throw [PlatformException] if camera is not initialized.
-  Future<void> startScan(RecognitionType type, int delay) {
+  Future<void> startScan(
+    RecognitionType type,
+    int delay, {
+    required int viewId,
+  }) {
     final args = {
+      'viewId': viewId,
       'type': type.rawValue,
       'delay': delay,
     };
@@ -133,9 +139,9 @@ class MlKitChannel {
         .map((event) => event.value);
   }
 
-  /// Stop recognition of the objects.
-  Future<void> cancelScan() {
-    return _channel.invokeMethod(_cancelScanMethod);
+  /// Stops recognition requested by the platform view identified by [viewId].
+  Future<void> cancelScan({required int viewId}) {
+    return _channel.invokeMethod(_cancelScanMethod, {'viewId': viewId});
   }
 
   /// Set delay between detections when scanning is active.
@@ -157,18 +163,20 @@ class MlKitChannel {
     return _channel.invokeMethod(_updateConstraintsMethod, arg);
   }
 
-  /// Pause camera, also pause detection if scanning is active.
+  /// Pauses camera work requested by the platform view identified by [viewId].
   ///
+  /// Other registered scanner views keep their independent lifecycle intent.
   /// For release resources of the camera use method [dispose].
-  Future<void> pauseCamera() {
-    return _channel.invokeMethod(_pauseCameraMethod);
+  Future<void> pauseCamera({required int viewId}) {
+    return _channel.invokeMethod(_pauseCameraMethod, {'viewId': viewId});
   }
 
-  /// Resume camera, also start detection if method [startScan] was called before pause.
+  /// Resumes camera work requested by the platform view identified by [viewId].
   ///
+  /// Detection also resumes if [startScan] was previously requested by this view.
   /// Can throw [PlatformException] if camera is not initialized.
-  Future<void> resumeCamera() {
-    return _channel.invokeMethod(_resumeCameraMethod);
+  Future<void> resumeCamera({required int viewId}) {
+    return _channel.invokeMethod(_resumeCameraMethod, {'viewId': viewId});
   }
 
   /// Sets the camera zoom.

@@ -42,13 +42,24 @@ internal class ScannerMethodArgumentsTest {
     @Test
     fun `scan options require barcode type and non-negative integer delay`() {
         assertEquals(
-            ScannerMethodArguments.ScanOptions(periodMs = 150),
-            ScannerMethodArguments.scanOptions(mapOf("type" to 0, "delay" to 150L)),
+            ScannerMethodArguments.ScanOptions(viewId = 42, periodMs = 150),
+            ScannerMethodArguments.scanOptions(
+                mapOf("viewId" to 42, "type" to 0, "delay" to 150L),
+            ),
         )
 
-        assertInvalid { ScannerMethodArguments.scanOptions(mapOf("type" to 1, "delay" to 0)) }
-        assertInvalid { ScannerMethodArguments.scanOptions(mapOf("type" to 0, "delay" to -1)) }
-        assertInvalid { ScannerMethodArguments.scanOptions(mapOf("type" to 0, "delay" to 1.5)) }
+        assertInvalid {
+            ScannerMethodArguments.scanOptions(mapOf("viewId" to 42, "type" to 1, "delay" to 0))
+        }
+        assertInvalid {
+            ScannerMethodArguments.scanOptions(mapOf("viewId" to 42, "type" to 0, "delay" to -1))
+        }
+        assertInvalid {
+            ScannerMethodArguments.scanOptions(mapOf("viewId" to 42, "type" to 0, "delay" to 1.5))
+        }
+        assertInvalid {
+            ScannerMethodArguments.scanOptions(mapOf("type" to 0, "delay" to 0))
+        }
     }
 
     @Test

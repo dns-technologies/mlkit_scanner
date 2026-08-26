@@ -126,12 +126,15 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   Future<void> _startScan(int delay) async {
-    _requireViewId();
-    await _channel.startScan(RecognitionType.barcodeRecognition, delay);
+    await _channel.startScan(
+      RecognitionType.barcodeRecognition,
+      delay,
+      viewId: _requireViewId(),
+    );
   }
 
   Future<void> _cancelScan() async {
-    await _channel.cancelScan();
+    await _channel.cancelScan(viewId: _requireViewId());
   }
 
   Future<void> _setDelay(int delay) {
@@ -139,11 +142,11 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   Future<void> _pauseCamera() {
-    return _channel.pauseCamera();
+    return _channel.pauseCamera(viewId: _requireViewId());
   }
 
   Future<void> _resumeCamera() {
-    return _channel.resumeCamera();
+    return _channel.resumeCamera(viewId: _requireViewId());
   }
 
   Future<void> _setZoom(double value) {
@@ -196,7 +199,7 @@ class BarcodeScannerController {
     return _barcodeScannerState?._startScan(delay);
   }
 
-  /// Stop recognition of objects.
+  /// Stops recognition requested by this scanner widget.
   Future<void> cancelScan() async {
     return _barcodeScannerState?._cancelScan();
   }
@@ -209,14 +212,14 @@ class BarcodeScannerController {
     return _barcodeScannerState?._setDelay(delay);
   }
 
-  /// Pause camera, also pause detection if scanning is active.
+  /// Pauses this scanner widget without changing another registered scanner.
   ///
   /// For releasing resources of the camera use method [dispose].
   Future<void> pauseCamera() async {
     return _barcodeScannerState?._pauseCamera();
   }
 
-  /// Resume camera, also start detection if method [startScan] was called before pause.
+  /// Resumes this scanner widget and its previously requested detection state.
   ///
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> resumeCamera() async {

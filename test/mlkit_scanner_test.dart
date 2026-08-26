@@ -61,6 +61,7 @@ void main() {
       expect(
         calls.firstWhere((call) => call.method == 'startScan').arguments,
         {
+          'viewId': 17,
           'type': 0,
           'delay': 0,
         },
@@ -70,6 +71,38 @@ void main() {
       await tester.pump();
 
       expect(calls.map((call) => call.method), isNot(contains('cancelScan')));
+    });
+
+    testWidgets('controller addresses lifecycle commands to its preview',
+        (tester) async {
+      BarcodeScannerController? controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) => controller = value,
+          onScan: (value) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized(17);
+      await tester.pump();
+
+      await controller!.startScan(100);
+      await controller!.cancelScan();
+      await controller!.pauseCamera();
+      await controller!.resumeCamera();
+
+      for (final method in <String>[
+        'startScan',
+        'cancelScan',
+        'pauseCameraMethod',
+        'resumeCameraMethod',
+      ]) {
+        expect(
+          calls.firstWhere((call) => call.method == method).arguments,
+          containsPair('viewId', 17),
+        );
+      }
     });
   });
 }

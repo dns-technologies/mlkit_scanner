@@ -172,13 +172,13 @@ internal class InitCameraCommandTest {
             startInitialCropRect = initialCropRect
         }
 
-        override fun resumeCamera() = Unit
-        override fun pauseCamera() = Unit
+        override fun resumeCamera(viewId: Int) = Unit
+        override fun pauseCamera(viewId: Int) = Unit
         override fun attachHostLifecycle(lifecycle: Lifecycle) = Unit
         override fun detachHostLifecycle() = Unit
         override suspend fun toggleFlashLight() = Unit
-        override fun startScan(periodMs: Int) = Unit
-        override fun pauseScan() = Unit
+        override fun startScan(viewId: Int, periodMs: Int) = Unit
+        override fun pauseScan(viewId: Int) = Unit
         override fun updateScanPeriod(periodMs: Int) = Unit
         override suspend fun setZoom(value: Float) = Unit
         override fun setCropArea(cropRect: RecognizeVisorCropRect) = Unit

@@ -25,11 +25,19 @@ internal class ScannerCommandStateTest {
         val executions = listOf<(MethodChannel.Result) -> Unit>(
             { result ->
                 StartScanCommand { null }.execute(
-                    MethodCall("startScan", mapOf("type" to 0, "delay" to 0)),
+                    MethodCall(
+                        "startScan",
+                        mapOf("viewId" to VIEW_ID, "type" to 0, "delay" to 0),
+                    ),
                     result,
                 )
             },
-            { result -> ResumeCameraCommand { null }.execute(MethodCall("resume", null), result) },
+            { result ->
+                ResumeCameraCommand { null }.execute(
+                    MethodCall("resume", mapOf("viewId" to VIEW_ID)),
+                    result,
+                )
+            },
             { result -> SetScanDelayCommand { null }.execute(MethodCall("delay", 100), result) },
             { result ->
                 SetCropAreaCommand { null }.execute(
@@ -59,8 +67,18 @@ internal class ScannerCommandStateTest {
     @Test
     fun `stop and dispose commands remain idempotent without a session`() {
         val executions = listOf<(MethodChannel.Result) -> Unit>(
-            { result -> PauseCameraCommand { null }.execute(MethodCall("pause", null), result) },
-            { result -> CancelScanCommand { null }.execute(MethodCall("cancel", null), result) },
+            { result ->
+                PauseCameraCommand { null }.execute(
+                    MethodCall("pause", mapOf("viewId" to VIEW_ID)),
+                    result,
+                )
+            },
+            { result ->
+                CancelScanCommand { null }.execute(
+                    MethodCall("cancel", mapOf("viewId" to VIEW_ID)),
+                    result,
+                )
+            },
             { result ->
                 DisposeCameraCommand { null }.execute(
                     MethodCall("dispose", mapOf("viewId" to 42)),
@@ -129,13 +147,13 @@ internal class ScannerCommandStateTest {
             initialCropRect: RecognizeVisorCropRect?,
         ) = Unit
 
-        override fun resumeCamera() = Unit
-        override fun pauseCamera() = Unit
+        override fun resumeCamera(viewId: Int) = Unit
+        override fun pauseCamera(viewId: Int) = Unit
         override fun attachHostLifecycle(lifecycle: Lifecycle) = Unit
         override fun detachHostLifecycle() = Unit
         override suspend fun toggleFlashLight() = torchResult.await()
-        override fun startScan(periodMs: Int) = Unit
-        override fun pauseScan() = Unit
+        override fun startScan(viewId: Int, periodMs: Int) = Unit
+        override fun pauseScan(viewId: Int) = Unit
         override fun updateScanPeriod(periodMs: Int) = Unit
         override suspend fun setZoom(value: Float) = zoomResult.await()
         override fun setCropArea(cropRect: RecognizeVisorCropRect) = Unit
@@ -144,4 +162,8 @@ internal class ScannerCommandStateTest {
     }
 
     private fun <T> anyValue(): T = any<T>()
+
+    private companion object {
+        const val VIEW_ID = 42
+    }
 }

@@ -25,6 +25,7 @@ import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
+import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 
 internal class MlkitScannerPluginTest {
@@ -36,6 +37,7 @@ internal class MlkitScannerPluginTest {
             MethodCall(
                 PluginConstants.startScanMethod,
                 mapOf(
+                    PluginConstants.viewIdArgument to VIEW_ID,
                     "type" to 0,
                     "delay" to 150,
                 ),
@@ -43,8 +45,40 @@ internal class MlkitScannerPluginTest {
             fixture.result,
         )
 
-        verify(fixture.session).startScan(150)
+        verify(fixture.session).startScan(VIEW_ID, 150)
         verify(fixture.result).success(true)
+    }
+
+    @Test
+    fun `camera and scan lifecycle commands address one platform view`() {
+        val fixture = Fixture()
+
+        fixture.plugin.onMethodCall(
+            MethodCall(
+                PluginConstants.pauseCameraMethod,
+                mapOf(PluginConstants.viewIdArgument to VIEW_ID),
+            ),
+            fixture.result,
+        )
+        fixture.plugin.onMethodCall(
+            MethodCall(
+                PluginConstants.resumeCameraMethod,
+                mapOf(PluginConstants.viewIdArgument to VIEW_ID),
+            ),
+            fixture.result,
+        )
+        fixture.plugin.onMethodCall(
+            MethodCall(
+                PluginConstants.cancelScanMethod,
+                mapOf(PluginConstants.viewIdArgument to VIEW_ID),
+            ),
+            fixture.result,
+        )
+
+        verify(fixture.session).pauseCamera(VIEW_ID)
+        verify(fixture.session).resumeCamera(VIEW_ID)
+        verify(fixture.session).pauseScan(VIEW_ID)
+        verify(fixture.result, times(3)).success(true)
     }
 
     @Test

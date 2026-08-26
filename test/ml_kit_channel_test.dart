@@ -28,7 +28,7 @@ void main() {
     messenger.setMockMethodCallHandler(methodChannel, null);
   });
 
-  test('camera and scanner commands use the shared session contract', () async {
+  test('camera and scanner lifecycle commands include their viewId', () async {
     final calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(methodChannel, (call) async {
       calls.add(call);
@@ -40,13 +40,21 @@ void main() {
     await channel.startScan(
       RecognitionType.barcodeRecognition,
       200,
+      viewId: 42,
     );
+    await channel.cancelScan(viewId: 42);
+    await channel.pauseCamera(viewId: 42);
+    await channel.resumeCamera(viewId: 42);
 
     expect(calls[0].arguments, 0.5);
     expect(calls[1].arguments, {
+      'viewId': 42,
       'type': RecognitionType.barcodeRecognition.rawValue,
       'delay': 200,
     });
+    expect(calls[2].arguments, {'viewId': 42});
+    expect(calls[3].arguments, {'viewId': 42});
+    expect(calls[4].arguments, {'viewId': 42});
   });
 
   test('camera initialization sends initial settings directly', () async {
