@@ -2,9 +2,24 @@ package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 internal class PreviewCropCalculatorTest {
+    @Test
+    fun `state reuses crop until preview inputs change`() {
+        val state = PreviewCropState()
+        val source = Rect(0, 0, 1600, 900)
+
+        val first = state.resolve(source, 0, 1000, 1000)
+        val same = state.resolve(source.copy(), 0, 1000, 1000)
+        val resized = state.resolve(source, 0, 800, 1000)
+
+        assertSame(first, same)
+        assertNotSame(first, resized)
+    }
+
     @Test
     fun `matching preview aspect preserves source crop for every rotation`() {
         val source = Rect(10, 20, 1610, 920)

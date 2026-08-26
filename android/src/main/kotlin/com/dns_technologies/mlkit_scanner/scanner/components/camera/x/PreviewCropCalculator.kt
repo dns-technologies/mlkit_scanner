@@ -32,11 +32,46 @@ internal object PreviewCropCalculator {
 
         val sourceHorizontalInset = if (rotated) verticalInset else horizontalInset
         val sourceVerticalInset = if (rotated) horizontalInset else verticalInset
+        val horizontalInsetPixels = sourceHorizontalInset.roundToInt()
+        val verticalInsetPixels = sourceVerticalInset.roundToInt()
         return Rect(
-            left = source.left + sourceHorizontalInset.roundToInt(),
-            top = source.top + sourceVerticalInset.roundToInt(),
-            right = source.right - sourceHorizontalInset.roundToInt(),
-            bottom = source.bottom - sourceVerticalInset.roundToInt(),
+            left = source.left + horizontalInsetPixels,
+            top = source.top + verticalInsetPixels,
+            right = source.right - horizontalInsetPixels,
+            bottom = source.bottom - verticalInsetPixels,
         )
     }
+}
+
+/** Reuses a preview crop while every input that defines it remains unchanged. */
+internal class PreviewCropState {
+    private var input: Input? = null
+    private var cropRect: Rect? = null
+
+    fun resolve(
+        source: Rect,
+        rotationDegrees: Int,
+        previewWidth: Int,
+        previewHeight: Int,
+    ): Rect {
+        val nextInput = Input(source, rotationDegrees, previewWidth, previewHeight)
+        if (input == nextInput) return requireNotNull(cropRect)
+
+        return PreviewCropCalculator.calculate(
+            source,
+            rotationDegrees,
+            previewWidth,
+            previewHeight,
+        ).also {
+            input = nextInput
+            cropRect = it
+        }
+    }
+
+    private data class Input(
+        val source: Rect,
+        val rotationDegrees: Int,
+        val previewWidth: Int,
+        val previewHeight: Int,
+    )
 }

@@ -11,11 +11,14 @@ internal class XCameraFrame(
     private val nv21Converter: ImageProxyNv21Converter,
     previewWidth: Int,
     previewHeight: Int,
+    previewCropState: PreviewCropState = PreviewCropState(),
 ) : CameraFrame {
+    override val rotationDegree: Int = imageProxy.imageInfo.rotationDegrees
+
     override val cropRect: Rect = imageProxy.cropRect.let { cropRect ->
-        PreviewCropCalculator.calculate(
+        previewCropState.resolve(
             source = Rect(cropRect.left, cropRect.top, cropRect.right, cropRect.bottom),
-            rotationDegrees = imageProxy.imageInfo.rotationDegrees,
+            rotationDegrees = rotationDegree,
             previewWidth = previewWidth,
             previewHeight = previewHeight,
         )
@@ -24,8 +27,6 @@ internal class XCameraFrame(
     override val width: Int = imageProxy.width
 
     override val height: Int = imageProxy.height
-
-    override val rotationDegree: Int = imageProxy.imageInfo.rotationDegrees
 
     private var isMaterialized = false
     private var isClosed = false

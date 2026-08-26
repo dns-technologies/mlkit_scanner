@@ -1,56 +1,55 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.ui.focus
 
-import android.view.View
-import android.widget.FrameLayout
+import org.junit.Assert.assertEquals
 import org.junit.Test
-import org.mockito.ArgumentCaptor
-import org.mockito.Mockito.doReturn
+import org.mockito.ArgumentMatchers.any
+import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mock
-import org.mockito.Mockito.never
-import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 
 internal class FocusControllerTest {
     @Test
-    fun `zero bounds register one layout listener and apply latest offset after layout`() {
-        val boundsView = mock(FrameLayout::class.java)
+    fun `focus request uses actual center of offset visor rectangle`() {
         val focusView = mock(FocusView::class.java)
-        doReturn(0).`when`(boundsView).width
-        doReturn(0).`when`(boundsView).height
-        val controller = FocusController(
-            boundsView,
-            focusView,
+        var autoFocusCallback: (() -> Unit)? = null
+        doAnswer { invocation ->
+            autoFocusCallback = invocation.getArgument(0)
+            null
+        }.`when`(focusView).onAutoFocusRequested = any()
+        val controller = FocusController(focusView)
+        var requestedOffset: Pair<Float, Float>? = null
+        controller.bind(
+            onAutoFocusRequest = { x, y -> requestedOffset = Pair(x, y) },
+            onLockedFocusRequest = { _, _ -> },
         )
+        controller.updateCenter(50F, -20F)
 
-        controller.updateCenter(0.25F, -0.5F)
-        controller.updateCenter(0.5F, -0.25F)
+        autoFocusCallback?.invoke()
 
-        val listenerCaptor = ArgumentCaptor.forClass(View.OnLayoutChangeListener::class.java)
-        verify(boundsView, times(1)).addOnLayoutChangeListener(listenerCaptor.capture())
-        verify(focusView, never()).setCenterOffset(50.0F, -25.0F)
-
-        doReturn(200).`when`(boundsView).width
-        doReturn(100).`when`(boundsView).height
-        listenerCaptor.value.onLayoutChange(boundsView, 0, 0, 200, 100, 0, 0, 0, 0)
-
-        verify(boundsView).removeOnLayoutChangeListener(listenerCaptor.value)
-        verify(focusView).setCenterOffset(50.0F, -12.5F)
+        val offset = requireNotNull(requestedOffset)
+        assertEquals(50F, offset.first, 0.0001F)
+        assertEquals(-20F, offset.second, 0.0001F)
     }
 
     @Test
-    fun `dispose removes pending layout listener and focus callbacks`() {
-        val boundsView = mock(FrameLayout::class.java)
+    fun `new center updates visual focus offset`() {
         val focusView = mock(FocusView::class.java)
-        doReturn(0).`when`(boundsView).width
-        doReturn(0).`when`(boundsView).height
-        val controller = FocusController(boundsView, focusView)
-        controller.updateCenter(0.5F, 0.5F)
-        val listenerCaptor = ArgumentCaptor.forClass(View.OnLayoutChangeListener::class.java)
-        verify(boundsView).addOnLayoutChangeListener(listenerCaptor.capture())
+        val controller = FocusController(focusView)
+
+        controller.updateCenter(50F, -25F)
+        controller.updateCenter(100F, -50F)
+
+        verify(focusView).setCenterOffset(50F, -25F)
+        verify(focusView).setCenterOffset(100F, -50F)
+    }
+
+    @Test
+    fun `dispose removes focus callbacks`() {
+        val focusView = mock(FocusView::class.java)
+        val controller = FocusController(focusView)
 
         controller.dispose()
 
-        verify(boundsView).removeOnLayoutChangeListener(listenerCaptor.value)
         verify(focusView).onAutoFocusRequested = null
         verify(focusView).onLockFocusRequested = null
     }

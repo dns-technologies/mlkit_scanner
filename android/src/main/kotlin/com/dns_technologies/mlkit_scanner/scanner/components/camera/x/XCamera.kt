@@ -44,6 +44,7 @@ class XCamera(
     private val context: Context,
 ) : Camera {
     private val nv21Converter = ImageProxyNv21Converter()
+    private val previewCropState = PreviewCropState()
     private val mainExecutor = ContextCompat.getMainExecutor(context)
     private val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
 
@@ -364,6 +365,7 @@ class XCamera(
                         nv21Converter = nv21Converter,
                         previewWidth = currentPreviewSize.width,
                         previewHeight = currentPreviewSize.height,
+                        previewCropState = previewCropState,
                     )
                     onFrame.invoke(frame)
                 } catch (error: Exception) {

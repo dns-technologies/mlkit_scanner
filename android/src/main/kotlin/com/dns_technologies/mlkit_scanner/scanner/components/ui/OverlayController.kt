@@ -15,8 +15,12 @@ internal class OverlayController(
     private val scanner: Scanner,
 ) {
     private val focusView = FocusView(boundsView.context)
-    private val focusController = FocusController(boundsView, focusView)
-    private val visorController = VisorController(boundsView, focusView)
+    private val focusController = FocusController(focusView)
+    private val visorController = VisorController(
+        boundsView,
+        focusView,
+        focusController::updateCenter,
+    )
     private var isDisposed = false
 
     /** Connects focus UI callbacks to the active camera component. */
@@ -36,7 +40,6 @@ internal class OverlayController(
     /** Renders focus and visor UI for the scanner's current crop area. */
     fun renderCropArea(cropRect: RecognizeVisorCropRect) {
         if (isDisposed) return
-        focusController.updateCenter(cropRect.centerOffsetX.toFloat(), cropRect.centerOffsetY.toFloat())
         visorController.setCropArea(cropRect, scanner.isScanActive)
     }
 

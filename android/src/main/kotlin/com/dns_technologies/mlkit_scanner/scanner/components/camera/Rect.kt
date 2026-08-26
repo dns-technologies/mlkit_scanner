@@ -12,14 +12,11 @@ data class Rect(
     val bottom: Int,
 ) {
     /** Rectangle width in pixels. */
-    val width: Int
-        get() = right - left
+    val width: Int = right - left
 
     /** Rectangle height in pixels. */
-    val height: Int
-        get() = bottom - top
+    val height: Int = bottom - top
 
     /** Returns true when this rectangle contains no positive-area pixels. */
-    val isEmpty: Boolean
-        get() = width <= 0 || height <= 0
+    val isEmpty: Boolean = width <= 0 || height <= 0
 }

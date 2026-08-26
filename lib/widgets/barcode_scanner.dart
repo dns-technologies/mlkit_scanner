@@ -237,8 +237,9 @@ class BarcodeScannerController {
   /// Sets the detection area for barcode recognition.
   ///
   /// The [rect] parameter defines the crop area relative to the [CameraPreview] size
-  /// using scale and offset values in percentage. If the detection area exceeds
-  /// the [CameraPreview] bounds, no detection will occur.
+  /// using scale and offset values in percentage. If the area partially exceeds
+  /// the [CameraPreview] bounds, only its visible intersection is analyzed.
+  /// Detection is skipped when the area is completely outside the preview.
   ///
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> setCropArea(CropRect rect) async {

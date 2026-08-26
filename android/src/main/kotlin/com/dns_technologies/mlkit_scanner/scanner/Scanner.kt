@@ -10,7 +10,7 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
-import com.dns_technologies.mlkit_scanner.scanner.utils.ScanAreaCalculator
+import com.dns_technologies.mlkit_scanner.scanner.utils.ScanAreaState
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -33,6 +33,7 @@ class Scanner(
     private var analysisExecutor: ExecutorService? = null
     private val scanJobLock = Any()
     private var scanJob: CompletableJob? = null
+    private val scanAreaState = ScanAreaState()
     @Volatile
     private var cropArea: RecognizeVisorCropRect? = null
     private val scanResultListeners = CopyOnWriteArraySet<OnScanResultListener>()
@@ -137,7 +138,7 @@ class Scanner(
         val analysisJob = createAnalysisJob() ?: return
 
         try {
-            val cropRect = ScanAreaCalculator.calculate(frame, cropArea)
+            val cropRect = scanAreaState.resolve(frame, cropArea)
             if (cropRect.isEmpty) return
             val result = analyzer.analyze(frame, cropRect) ?: return
             synchronized(scanJobLock) {

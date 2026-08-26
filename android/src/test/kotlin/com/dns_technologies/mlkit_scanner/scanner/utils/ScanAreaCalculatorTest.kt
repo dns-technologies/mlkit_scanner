@@ -4,9 +4,31 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 internal class ScanAreaCalculatorTest {
+    @Test
+    fun `state reuses crop until frame geometry or visor changes`() {
+        val state = ScanAreaState()
+        val scanArea = RecognizeVisorCropRect(scaleWidth = 0.5)
+
+        val first = state.resolve(metadata(0), scanArea)
+        val same = state.resolve(metadata(0), scanArea.copy())
+        val rotated = state.resolve(metadata(90), scanArea)
+        val resized = state.resolve(frame(width = 1080, height = 1920), scanArea)
+        val moved = state.resolve(
+            frame(width = 1080, height = 1920),
+            scanArea.copy(centerOffsetX = 0.25),
+        )
+
+        assertSame(first, same)
+        assertNotSame(first, rotated)
+        assertNotSame(rotated, resized)
+        assertNotSame(resized, moved)
+    }
+
     @Test
     fun `full visor produces full frame`() {
         assertEquals(

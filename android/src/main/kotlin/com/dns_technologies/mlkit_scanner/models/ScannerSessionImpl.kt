@@ -235,7 +235,7 @@ internal class ScannerSessionImpl(
     }
 
     private fun attachPreview(view: ScannerView) {
-        view.attachPreview()
+        view.attachPreview(::applyScanState)
         applyPreviewConfiguration(view)
         if (scanner.isActive()) view.bindFocus()
     }
@@ -247,7 +247,7 @@ internal class ScannerSessionImpl(
 
     private fun applyScanState() {
         val shouldScan = scanRequested &&
-            views.isNotEmpty() &&
+            previewHost()?.isPreviewReady() == true &&
             !cameraPaused &&
             !hostPaused &&
             !isReleased

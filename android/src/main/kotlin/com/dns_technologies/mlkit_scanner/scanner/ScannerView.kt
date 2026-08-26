@@ -6,6 +6,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.core.view.OneShotPreDrawListener
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.OverlayController
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import io.flutter.plugin.platform.PlatformView
@@ -23,29 +24,37 @@ class ScannerView(
     private val onDispose: () -> Unit,
 ) : FrameLayout(context), PlatformView {
     private val overlayController = OverlayController(this, scanner)
+    private var previewReadyListener: OneShotPreDrawListener? = null
+    private var previewReady = false
     private var isDisposed = false
 
     init {
         layoutParams = matchParentLayoutParams()
     }
 
-    /** Moves the shared camera preview into this platform-view container. */
-    fun attachPreview() {
+    /** Moves the shared preview here and reports when its current non-zero layout can be used. */
+    fun attachPreview(onPreviewReady: () -> Unit) {
         if (isDisposed) return
         val preview = scanner.previewView
+        clearPreviewReadiness()
         (preview.parent as? ViewGroup)?.removeView(preview)
         addView(preview, 0)
+        awaitPreviewReady(onPreviewReady)
     }
 
     /** Removes the shared preview without disposing the shared camera pipeline. */
     fun detachPreview() {
         overlayController.setScanActive(false)
+        clearPreviewReadiness()
         val preview = scanner.previewView
         if (preview.parent === this) removeView(preview)
     }
 
     /** Returns whether this container currently hosts the one shared preview view. */
     fun hasPreview(): Boolean = scanner.previewView.parent === this
+
+    /** Returns whether the hosted preview has completed a non-zero layout in this container. */
+    fun isPreviewReady(): Boolean = hasPreview() && previewReady
 
     /** Connects focus UI to the shared camera after CameraX is ready. */
     fun bindFocus() = overlayController.bindFocus()
@@ -79,6 +88,27 @@ class ScannerView(
     private fun disposeLocalView() {
         detachPreview()
         overlayController.dispose()
+    }
+
+    private fun awaitPreviewReady(onPreviewReady: () -> Unit) {
+        val preview = scanner.previewView
+        previewReadyListener = OneShotPreDrawListener.add(preview) {
+            previewReadyListener = null
+            if (hasPreview()) {
+                if (preview.width > 0 && preview.height > 0) {
+                    previewReady = true
+                    onPreviewReady()
+                } else {
+                    awaitPreviewReady(onPreviewReady)
+                }
+            }
+        }
+    }
+
+    private fun clearPreviewReadiness() {
+        previewReadyListener?.removeListener()
+        previewReadyListener = null
+        previewReady = false
     }
 
     /** Returns this native view to Flutter's platform view host. */

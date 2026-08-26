@@ -12,36 +12,45 @@ internal object ScanAreaCalculator {
     fun calculate(
         frame: CameraFrame,
         scanArea: RecognizeVisorCropRect?,
+    ): Rect = calculate(frame.cropRect, frame.rotationDegree, scanArea)
+
+    internal fun calculate(
+        bounds: Rect,
+        rotationDegree: Int,
+        scanArea: RecognizeVisorCropRect?,
     ): Rect = normalizeCropBounds(
-        rect = scanArea?.let { calculateRawCropRect(frame, it) } ?: frame.cropRect.toRawCropRect(),
-        bounds = frame.cropRect,
+        rect = scanArea?.let { calculateRawCropRect(bounds, rotationDegree, it) }
+            ?: bounds.toRawCropRect(),
+        bounds = bounds,
     )
 
     private fun calculateRawCropRect(
-        frame: CameraFrame,
+        bounds: Rect,
+        rotationDegree: Int,
         scanArea: RecognizeVisorCropRect,
     ): RawCropRect {
-        val bounds = frame.cropRect
+        val boundsWidth = bounds.width
+        val boundsHeight = bounds.height
         val centerX = (bounds.left + bounds.right) / 2.0
         val centerY = (bounds.top + bounds.bottom) / 2.0
-        val rotated = frame.rotationDegree == 90 || frame.rotationDegree == 270
-        val previewWidth = if (rotated) bounds.height else bounds.width
-        val previewHeight = if (rotated) bounds.width else bounds.height
+        val rotated = rotationDegree == 90 || rotationDegree == 270
+        val previewWidth = if (rotated) boundsHeight else boundsWidth
+        val previewHeight = if (rotated) boundsWidth else boundsHeight
         val previewOffsetX = previewWidth * scanArea.centerOffsetX / 2.0
         val previewOffsetY = previewHeight * scanArea.centerOffsetY / 2.0
         val sourceHalfWidth = (
-            if (rotated) bounds.width * scanArea.scaleHeight else bounds.width * scanArea.scaleWidth
+            if (rotated) boundsWidth * scanArea.scaleHeight else boundsWidth * scanArea.scaleWidth
         ) / 2.0
         val sourceHalfHeight = (
-            if (rotated) bounds.height * scanArea.scaleWidth else bounds.height * scanArea.scaleHeight
+            if (rotated) boundsHeight * scanArea.scaleWidth else boundsHeight * scanArea.scaleHeight
         ) / 2.0
-        val sourceCenterX = centerX + when (frame.rotationDegree) {
+        val sourceCenterX = centerX + when (rotationDegree) {
             90 -> previewOffsetY
             180 -> -previewOffsetX
             270 -> -previewOffsetY
             else -> previewOffsetX
         }
-        val sourceCenterY = centerY + when (frame.rotationDegree) {
+        val sourceCenterY = centerY + when (rotationDegree) {
             90 -> -previewOffsetX
             180 -> -previewOffsetY
             270 -> previewOffsetX
@@ -121,4 +130,30 @@ internal object ScanAreaCalculator {
 
     private const val MIN_CROP_SIZE = 2
     private val EMPTY_RECT = Rect(0, 0, 0, 0)
+}
+
+/** Reuses a scan crop while frame geometry and crop configuration remain unchanged. */
+internal class ScanAreaState {
+    private var input: Input? = null
+    private var cropRect: Rect? = null
+
+    fun resolve(frame: CameraFrame, scanArea: RecognizeVisorCropRect?): Rect {
+        val nextInput = Input(frame.cropRect, frame.rotationDegree, scanArea)
+        if (input == nextInput) return requireNotNull(cropRect)
+
+        return ScanAreaCalculator.calculate(
+            nextInput.frameBounds,
+            nextInput.rotationDegree,
+            nextInput.scanArea,
+        ).also {
+            input = nextInput
+            cropRect = it
+        }
+    }
+
+    private data class Input(
+        val frameBounds: Rect,
+        val rotationDegree: Int,
+        val scanArea: RecognizeVisorCropRect?,
+    )
 }

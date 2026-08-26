@@ -1,6 +1,7 @@
 ///  Model for setting detection area of recognizers.
 ///
-/// If detection area is bigger than [CameraPreview] size, there won't any detection.
+/// The part of the detection area inside [CameraPreview] is analyzed.
+/// Detection is skipped only when the area is completely outside the preview.
 class CropRect {
   /// Width relative to width of the [CameraPreview] in percentage.
   ///
