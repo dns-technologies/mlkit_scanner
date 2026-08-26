@@ -43,10 +43,75 @@ internal class ScannerSessionImplTest {
         val first = fixture.view(FIRST_VIEW_ID)
         val second = fixture.attach(SECOND_VIEW_ID)
 
-        verify(first).detachPreview()
+        verify(first, never()).detachPreview()
+        verify(first, atLeastOnce()).setScanActive(false)
         verify(second).attachPreview(anyValue())
+        assertFalse(fixture.hasPreview(FIRST_VIEW_ID))
+        assertTrue(fixture.hasPreview(SECOND_VIEW_ID))
         verify(first, never()).disposeFromSession()
         verify(fixture.scanner, never()).dispose()
+    }
+
+    @Test
+    fun `attached scanner keeps camera hot until new preview host is ready`() = runSessionTest {
+        val fixture = Fixture()
+        val first = fixture.view(FIRST_VIEW_ID)
+        fixture.setCameraActive(true)
+        fixture.session.startCamera(FIRST_VIEW_ID, null, null)
+        fixture.session.startScan(100)
+        clearInvocations(fixture.scanner, first)
+
+        val second = fixture.attach(SECOND_VIEW_ID, previewReady = false)
+
+        assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
+        assertTrue(fixture.hasPreview(FIRST_VIEW_ID))
+        assertFalse(fixture.hasPreview(SECOND_VIEW_ID))
+        verify(first, never()).detachPreview()
+        verify(fixture.scanner, atLeastOnce()).pauseScan()
+        verify(fixture.scanner, never()).resumeScan()
+        verify(second, never()).bindFocus()
+
+        fixture.markPreviewReady(SECOND_VIEW_ID)
+
+        assertFalse(fixture.hasPreview(FIRST_VIEW_ID))
+        assertTrue(fixture.hasPreview(SECOND_VIEW_ID))
+        verify(second).bindFocus()
+        verify(fixture.scanner).resumeScan()
+    }
+
+    @Test
+    fun `disposing pending preview host resumes scan on the still attached preview`() =
+        runSessionTest {
+            val fixture = Fixture()
+            val first = fixture.view(FIRST_VIEW_ID)
+            fixture.setCameraActive(true)
+            fixture.session.startCamera(FIRST_VIEW_ID, null, null)
+            fixture.session.startScan(100)
+            val second = fixture.attach(SECOND_VIEW_ID, previewReady = false)
+            clearInvocations(fixture.scanner, first)
+
+            fixture.session.disposeView(SECOND_VIEW_ID)
+
+            assertTrue(fixture.hasPreview(FIRST_VIEW_ID))
+            verify(second).disposeFromSession()
+            verify(first, never()).attachPreview(anyValue())
+            verify(fixture.scanner).resumeScan()
+        }
+
+    @Test
+    fun `newest pending preview cancels an older pending transfer`() {
+        val fixture = Fixture()
+        val second = fixture.attach(SECOND_VIEW_ID, previewReady = false)
+
+        fixture.attach(THIRD_VIEW_ID, previewReady = false)
+
+        verify(second).cancelPendingPreviewAttachment()
+        fixture.markPreviewReady(SECOND_VIEW_ID)
+        assertTrue(fixture.hasPreview(FIRST_VIEW_ID))
+
+        fixture.markPreviewReady(THIRD_VIEW_ID)
+        assertFalse(fixture.hasPreview(FIRST_VIEW_ID))
+        assertTrue(fixture.hasPreview(THIRD_VIEW_ID))
     }
 
     @Test
@@ -750,11 +815,17 @@ internal class ScannerSessionImplTest {
             previewState[viewId] = false
             previewReadyState[viewId] = false
             doAnswer { invocation ->
-                previewState[viewId] = true
                 previewReadyState[viewId] = false
                 previewReadyCallbacks[viewId] = invocation.getArgument(0)
                 null
             }.`when`(view).attachPreview(anyValue())
+            doAnswer {
+                if (previewState[viewId] != true) {
+                    previewReadyState[viewId] = false
+                    previewReadyCallbacks.remove(viewId)
+                }
+                null
+            }.`when`(view).cancelPendingPreviewAttachment()
             doAnswer {
                 clearPreview(viewId)
                 null
@@ -774,11 +845,19 @@ internal class ScannerSessionImplTest {
         }
 
         fun markPreviewReady(viewId: Int) {
+            val onPreviewReady = previewReadyCallbacks.remove(viewId) ?: return
+            previewState.keys.forEach { currentViewId ->
+                previewState[currentViewId] = false
+                previewReadyState[currentViewId] = false
+            }
+            previewState[viewId] = true
             previewReadyState[viewId] = true
-            previewReadyCallbacks.remove(viewId)?.invoke()
+            onPreviewReady()
         }
 
         fun view(viewId: Int): ScannerView = views.getValue(viewId)
+
+        fun hasPreview(viewId: Int): Boolean = previewState[viewId] == true
 
         private fun clearPreview(viewId: Int) {
             previewState[viewId] = false
@@ -841,6 +920,7 @@ internal class ScannerSessionImplTest {
     private companion object {
         const val FIRST_VIEW_ID = 11
         const val SECOND_VIEW_ID = 22
+        const val THIRD_VIEW_ID = 33
         const val TEST_TIMEOUT_MS = 1_000L
         val BARCODE = Barcode(
             rawValue = "1234567890",

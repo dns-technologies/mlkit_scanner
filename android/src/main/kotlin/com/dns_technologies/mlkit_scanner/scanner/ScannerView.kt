@@ -35,11 +35,17 @@ class ScannerView(
     /** Moves the shared preview here and reports when its current non-zero layout can be used. */
     fun attachPreview(onPreviewReady: () -> Unit) {
         if (isDisposed) return
-        val preview = scanner.previewView
         clearPreviewReadiness()
-        (preview.parent as? ViewGroup)?.removeView(preview)
-        addView(preview, 0)
-        awaitPreviewReady(onPreviewReady)
+        if (hasUsableLayout()) {
+            movePreview(onPreviewReady)
+        } else {
+            awaitHostReady(onPreviewReady)
+        }
+    }
+
+    /** Cancels a transfer that has not moved the shared preview into this container yet. */
+    fun cancelPendingPreviewAttachment() {
+        if (!hasPreview()) clearPreviewReadiness()
     }
 
     /** Removes the shared preview without disposing the shared camera pipeline. */
@@ -90,6 +96,28 @@ class ScannerView(
         overlayController.dispose()
     }
 
+    private fun awaitHostReady(onPreviewReady: () -> Unit) {
+        previewReadyListener = OneShotPreDrawListener.add(this) {
+            previewReadyListener = null
+            if (!isDisposed) {
+                if (hasUsableLayout()) {
+                    movePreview(onPreviewReady)
+                } else {
+                    awaitHostReady(onPreviewReady)
+                }
+            }
+        }
+    }
+
+    private fun movePreview(onPreviewReady: () -> Unit) {
+        val preview = scanner.previewView
+        if (preview.parent !== this) {
+            (preview.parent as? ViewGroup)?.removeView(preview)
+            addView(preview, 0)
+        }
+        awaitPreviewReady(onPreviewReady)
+    }
+
     private fun awaitPreviewReady(onPreviewReady: () -> Unit) {
         val preview = scanner.previewView
         previewReadyListener = OneShotPreDrawListener.add(preview) {
@@ -110,6 +138,9 @@ class ScannerView(
         previewReadyListener = null
         previewReady = false
     }
+
+    private fun hasUsableLayout(): Boolean =
+        isAttachedToWindow && width > 0 && height > 0
 
     /** Returns this native view to Flutter's platform view host. */
     override fun getView(): View = this

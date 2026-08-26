@@ -79,10 +79,13 @@ internal class ScannerSessionImpl(
         check(viewId !in views) { "Scanner view $viewId is already registered" }
 
         cancelDeferredRelease()
-        previewHost()?.let { previousHost ->
+        activeView()
+            ?.takeUnless(ScannerView::hasPreview)
+            ?.cancelPendingPreviewAttachment()
+        actualPreviewHost()?.let { previousHost ->
             scanner.pauseScan()
             cancelPendingResultDeliveries()
-            previousHost.detachPreview()
+            previousHost.setScanActive(false)
         }
         views[viewId] = view
         attachPreview(view)
@@ -188,28 +191,31 @@ internal class ScannerSessionImpl(
 
     private fun applyCropArea(cropRect: RecognizeVisorCropRect) {
         scanner.setCropArea(cropRect)
-        previewHost()?.renderCropArea(cropRect)
+        activeView()?.renderCropArea(cropRect)
     }
 
     override fun disposeView(viewId: Int) {
-        val view = views.remove(viewId) ?: return
+        val view = views[viewId] ?: return
+        val wasActive = activeView() === view
         val hostedPreview = view.hasPreview()
+        views.remove(viewId)
         if (hostedPreview) {
             scanner.pauseScan()
             cancelPendingResultDeliveries()
         }
         view.disposeFromSession()
 
-        if (hostedPreview) {
-            views.values.lastOrNull()?.let(::attachPreview)
-            applyScanState()
+        if (hostedPreview || wasActive) {
+            activeView()
+                ?.takeUnless(ScannerView::hasPreview)
+                ?.let(::attachPreview)
         }
 
         if (views.isEmpty()) {
             updateCameraLifecycle()
-            if (!hostedPreview) applyScanState()
             scheduleDeferredRelease()
         }
+        applyScanState()
     }
 
     override fun release() {
@@ -235,14 +241,18 @@ internal class ScannerSessionImpl(
     }
 
     private fun attachPreview(view: ScannerView) {
-        view.attachPreview(::applyScanState)
+        view.attachPreview(::onPreviewReady)
         applyPreviewConfiguration(view)
-        if (scanner.isActive()) view.bindFocus()
     }
 
     private fun applyPreviewConfiguration(view: ScannerView) {
         scanner.currentCropArea?.let(view::renderCropArea)
-        view.setScanActive(scanRequested && views.isNotEmpty())
+        view.setScanActive(false)
+    }
+
+    private fun onPreviewReady() {
+        if (scanner.isActive()) previewHost()?.bindFocus()
+        applyScanState()
     }
 
     private fun applyScanState() {
@@ -258,7 +268,7 @@ internal class ScannerSessionImpl(
             scanner.pauseScan()
             cancelPendingResultDeliveries()
         }
-        previewHost()?.setScanActive(shouldScan)
+        activeView()?.setScanActive(shouldScan)
     }
 
     private fun updateCameraLifecycle() {
@@ -333,10 +343,16 @@ internal class ScannerSessionImpl(
     private fun failedInitialization(error: Throwable): CompletableDeferred<Unit> =
         CompletableDeferred<Unit>().also { it.completeExceptionally(error) }
 
-    private fun previewHost(): ScannerView? = previewHostEntry()?.value
+    private fun activeView(): ScannerView? = views.values.lastOrNull()
+
+    private fun actualPreviewHost(): ScannerView? =
+        views.values.firstOrNull(ScannerView::hasPreview)
+
+    private fun previewHost(): ScannerView? =
+        activeView()?.takeIf(ScannerView::hasPreview)
 
     private fun previewHostEntry(): Map.Entry<Int, ScannerView>? =
-        views.entries.firstOrNull { (_, view) -> view.hasPreview() }
+        views.entries.lastOrNull()?.takeIf { (_, view) -> view.hasPreview() }
 
     private fun enqueueScanResult(result: Barcode) {
         lateinit var delivery: Runnable
