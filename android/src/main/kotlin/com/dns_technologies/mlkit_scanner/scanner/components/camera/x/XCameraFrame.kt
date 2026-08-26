@@ -9,9 +9,16 @@ import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
 internal class XCameraFrame(
     private val imageProxy: ImageProxy,
     private val nv21Converter: ImageProxyNv21Converter,
+    previewWidth: Int,
+    previewHeight: Int,
 ) : CameraFrame {
     override val cropRect: Rect = imageProxy.cropRect.let { cropRect ->
-        Rect(cropRect.left, cropRect.top, cropRect.right, cropRect.bottom)
+        PreviewCropCalculator.calculate(
+            source = Rect(cropRect.left, cropRect.top, cropRect.right, cropRect.bottom),
+            rotationDegrees = imageProxy.imageInfo.rotationDegrees,
+            previewWidth = previewWidth,
+            previewHeight = previewHeight,
+        )
     }
 
     override val width: Int = imageProxy.width

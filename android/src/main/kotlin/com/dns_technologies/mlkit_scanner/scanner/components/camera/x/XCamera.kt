@@ -9,6 +9,7 @@ import android.util.Size
 import android.view.View
 import android.view.ViewGroup
 import androidx.camera.core.Camera as AndroidXCamera
+import androidx.camera.core.CameraState as AndroidXCameraState
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
@@ -22,6 +23,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.Observer
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
@@ -63,8 +65,15 @@ class XCamera(
     /** Current lifecycle state and resources owned by this adapter. */
     private var cameraState: CameraState = CameraState.Idle
 
+    /** Latest native preview bounds used to map analysis onto the resized preview. */
+    @Volatile
+    private var previewSize = PreviewSize(0, 0)
+
     private val previewLayoutChangeListener =
-        View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> bindForCurrentViewPort() }
+        View.OnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+            previewSize = PreviewSize(right - left, bottom - top)
+            bindForCurrentViewPort()
+        }
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) = Unit
 
@@ -118,15 +127,18 @@ class XCamera(
 
     /** Toggles torch state for the active CameraX camera. */
     override fun toggleFlashLight(): Deferred<Unit> {
-        val activeCamera = (cameraState as? BoundCamera)?.camera
+        val current = cameraState as? BoundCamera
             ?: throw PluginError.CameraIsNotInitialized
-        if (!activeCamera.cameraInfo.hasFlashUnit()) {
+        if (!current.camera.cameraInfo.hasFlashUnit()) {
             throw PluginError.DeviceHasNotFlash
         }
 
-        val isTorchEnabled = activeCamera.cameraInfo.torchState.value == TorchState.ON
-        return activeCamera.cameraControl.enableTorch(!isTorchEnabled)
-            .asCameraControlDeferred(mainExecutor)
+        return executeTorchOperation(
+            current,
+            current.controlState.beginTorchToggle(
+                current.camera.cameraInfo.torchState.value == TorchState.ON,
+            ),
+        )
     }
 
     /** Starts CameraX focus and metering around the provided preview offsets. */
@@ -161,14 +173,13 @@ class XCamera(
 
     /** Applies normalized linear zoom and completes after CameraX accepts the value. */
     override fun setZoom(value: Float): Deferred<Unit> {
-        val activeCamera = (cameraState as? BoundCamera)?.camera
+        val current = cameraState as? BoundCamera
             ?: throw PluginError.CameraIsNotInitialized
         if (!value.isFinite() || value !in MIN_LINEAR_ZOOM..MAX_LINEAR_ZOOM) {
             throw PluginError.InvalidArguments
         }
 
-        return activeCamera.cameraControl.setLinearZoom(value)
-            .asCameraControlDeferred(mainExecutor)
+        return executeZoomOperation(current, current.controlState.beginZoom(value))
     }
 
     /** Reveals preview only after session-level startup configuration is complete. */
@@ -205,6 +216,7 @@ class XCamera(
                         viewPort,
                     )
                     cameraState = bound
+                    observeCameraState(bound)
                     try {
                         current.onInit()
                     } catch (error: Exception) {
@@ -218,7 +230,7 @@ class XCamera(
                 }
             }
 
-            is BoundCamera -> if (!current.viewPort.hasSameConfiguration(viewPort)) {
+            is BoundCamera -> if (current.viewPort.requiresRebind(viewPort)) {
                 rebindCamera(provider, current, viewPort)
             }
 
@@ -233,6 +245,7 @@ class XCamera(
         analysisExecutor: ExecutorService,
         onFrame: OnCameraFrame,
         viewPort: ViewPort,
+        controlState: CameraControlState = CameraControlState(),
     ): BoundCamera {
         val preview = createPreview(viewPort.rotation)
         val imageAnalysis = createImageAnalysis(
@@ -247,19 +260,22 @@ class XCamera(
             .build()
 
         return try {
+            val camera = provider.bindToLifecycle(
+                lifecycleOwner,
+                CameraSelector.DEFAULT_BACK_CAMERA,
+                useCaseGroup,
+            )
             BoundCamera(
                 lifecycleOwner = lifecycleOwner,
                 analysisExecutor = analysisExecutor,
                 onFrame = onFrame,
-                camera = provider.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    useCaseGroup,
-                ),
+                camera = camera,
                 preview = preview,
                 imageAnalysis = imageAnalysis,
                 useCaseGroup = useCaseGroup,
                 viewPort = viewPort,
+                controlState = controlState,
+                cameraStateObserver = createCameraStateObserver(camera, controlState),
             )
         } catch (error: Exception) {
             imageAnalysis.clearAnalyzer()
@@ -273,21 +289,27 @@ class XCamera(
         current: BoundCamera,
         viewPort: ViewPort,
     ) {
+        stopObservingCameraState(current)
+        current.controlState.onCameraUnavailable()
         try {
             provider.unbind(current.preview, current.imageAnalysis)
         } catch (error: Exception) {
+            observeCameraState(current)
             Log.w(TAG, "Unable to unbind CameraX use cases for viewport update", error)
             return
         }
 
         try {
-            cameraState = bindCamera(
+            val replacement = bindCamera(
                 provider,
                 current.lifecycleOwner,
                 current.analysisExecutor,
                 current.onFrame,
                 viewPort,
+                current.controlState,
             )
+            cameraState = replacement
+            observeCameraState(replacement)
             current.imageAnalysis.clearAnalyzer()
         } catch (error: Exception) {
             try {
@@ -296,9 +318,18 @@ class XCamera(
                     CameraSelector.DEFAULT_BACK_CAMERA,
                     current.useCaseGroup,
                 )
-                cameraState = current.copy(camera = restoredCamera)
+                val restored = current.copy(
+                    camera = restoredCamera,
+                    cameraStateObserver = createCameraStateObserver(
+                        restoredCamera,
+                        current.controlState,
+                    ),
+                )
+                cameraState = restored
+                observeCameraState(restored)
             } catch (restoreError: Exception) {
                 current.imageAnalysis.clearAnalyzer()
+                current.controlState.dispose()
                 cameraState = CameraState.Idle
                 previewView.alpha = 0.0F
                 Log.e(TAG, "Unable to restore CameraX use cases after viewport update", restoreError)
@@ -330,7 +361,13 @@ class XCamera(
             imageAnalysis.setAnalyzer(analysisExecutor) { image ->
                 var frame: XCameraFrame? = null
                 try {
-                    frame = XCameraFrame(image, nv21Converter)
+                    val currentPreviewSize = previewSize
+                    frame = XCameraFrame(
+                        imageProxy = image,
+                        nv21Converter = nv21Converter,
+                        previewWidth = currentPreviewSize.width,
+                        previewHeight = currentPreviewSize.height,
+                    )
                     onFrame.invoke(frame)
                 } catch (error: Exception) {
                     Log.e(TAG, "Camera frame processing failed", error)
@@ -342,6 +379,8 @@ class XCamera(
 
     /** Unbinds the use cases owned by one completed binding. */
     private fun unbindCamera(current: BoundCamera) {
+        stopObservingCameraState(current)
+        current.controlState.dispose()
         try {
             cameraProvider?.unbind(current.preview, current.imageAnalysis)
         } catch (error: Exception) {
@@ -349,6 +388,116 @@ class XCamera(
         } finally {
             current.imageAnalysis.clearAnalyzer()
         }
+    }
+
+    private fun observeCameraState(current: BoundCamera) {
+        current.camera.cameraInfo.cameraState.observeForever(current.cameraStateObserver)
+    }
+
+    private fun stopObservingCameraState(current: BoundCamera) {
+        current.camera.cameraInfo.cameraState.removeObserver(current.cameraStateObserver)
+    }
+
+    private fun createCameraStateObserver(
+        camera: AndroidXCamera,
+        controlState: CameraControlState,
+    ) = Observer<AndroidXCameraState> { state ->
+        onCameraStateChanged(camera, controlState, state)
+    }
+
+    private fun onCameraStateChanged(
+        sourceCamera: AndroidXCamera,
+        controlState: CameraControlState,
+        state: AndroidXCameraState?,
+    ) {
+        val current = cameraState as? BoundCamera ?: return
+        if (current.camera !== sourceCamera || current.controlState !== controlState) return
+        if (state?.type == AndroidXCameraState.Type.OPEN) {
+            if (controlState.onCameraOpened()) restoreCameraControls(current, force = true)
+        } else {
+            controlState.onCameraUnavailable()
+        }
+    }
+
+    private fun restoreCameraControls(current: BoundCamera, force: Boolean = false) {
+        if (cameraState !== current) return
+        current.controlState.beginZoomRestoration(
+            current.camera.cameraInfo.zoomState.value?.linearZoom,
+            force,
+        )?.let { operation ->
+            try {
+                executeZoomOperation(current, operation)
+            } catch (_: Exception) {
+                // executeZoomOperation already records and logs restoration failure.
+            }
+        }
+        current.controlState.beginTorchRestoration(
+            current.camera.cameraInfo.torchState.value?.let { it == TorchState.ON },
+            force,
+        )?.let { operation ->
+            try {
+                executeTorchOperation(current, operation)
+            } catch (_: Exception) {
+                // executeTorchOperation already records and logs restoration failure.
+            }
+        }
+    }
+
+    private fun restoreCameraControls(controlState: CameraControlState) {
+        val current = cameraState as? BoundCamera ?: return
+        if (current.controlState === controlState) restoreCameraControls(current)
+    }
+
+    private fun executeZoomOperation(
+        current: BoundCamera,
+        operation: CameraControlState.Operation<Float>,
+    ): Deferred<Unit> = try {
+        current.camera.cameraControl.setLinearZoom(operation.value)
+            .asCameraControlDeferred(mainExecutor)
+            .also { result ->
+                result.invokeOnCompletion { error ->
+                    handleZoomCompletion(current.controlState, operation, error)
+                }
+            }
+    } catch (error: Exception) {
+        handleZoomCompletion(current.controlState, operation, error)
+        throw error
+    }
+
+    private fun handleZoomCompletion(
+        controlState: CameraControlState,
+        operation: CameraControlState.Operation<Float>,
+        error: Throwable?,
+    ) {
+        val completion = controlState.completeZoom(operation, error == null)
+        if (completion.restorationFailed) Log.d(TAG, "Unable to restore CameraX zoom", error)
+        if (completion.shouldRestore) restoreCameraControls(controlState)
+    }
+
+    private fun executeTorchOperation(
+        current: BoundCamera,
+        operation: CameraControlState.Operation<Boolean>,
+    ): Deferred<Unit> = try {
+        current.camera.cameraControl.enableTorch(operation.value)
+            .asCameraControlDeferred(mainExecutor)
+            .also { result ->
+                result.invokeOnCompletion { error ->
+                    handleTorchCompletion(current.controlState, operation, error)
+                }
+            }
+    } catch (error: Exception) {
+        handleTorchCompletion(current.controlState, operation, error)
+        throw error
+    }
+
+    private fun handleTorchCompletion(
+        controlState: CameraControlState,
+        operation: CameraControlState.Operation<Boolean>,
+        error: Throwable?,
+    ) {
+        val completion = controlState.completeTorch(operation, error == null)
+        if (completion.restorationFailed) Log.d(TAG, "Unable to restore CameraX torch", error)
+        if (completion.shouldRestore) restoreCameraControls(controlState)
     }
 
     private fun failPendingStart(request: PendingStart, error: Exception) {
@@ -380,13 +529,20 @@ class XCamera(
         val imageAnalysis: ImageAnalysis,
         val useCaseGroup: UseCaseGroup,
         val viewPort: ViewPort,
+        val controlState: CameraControlState,
+        val cameraStateObserver: Observer<AndroidXCameraState>,
     ) : CameraState
 
-    private fun ViewPort.hasSameConfiguration(other: ViewPort): Boolean =
-        aspectRatio == other.aspectRatio &&
-            rotation == other.rotation &&
-            scaleType == other.scaleType &&
-            layoutDirection == other.layoutDirection
+    /** PreviewView handles size changes; only transform changes require a disruptive rebind. */
+    private fun ViewPort.requiresRebind(other: ViewPort): Boolean =
+        rotation != other.rotation ||
+            scaleType != other.scaleType ||
+            layoutDirection != other.layoutDirection
+
+    private data class PreviewSize(
+        val width: Int,
+        val height: Int,
+    )
 
     private companion object {
         const val MIN_LINEAR_ZOOM = 0.0F

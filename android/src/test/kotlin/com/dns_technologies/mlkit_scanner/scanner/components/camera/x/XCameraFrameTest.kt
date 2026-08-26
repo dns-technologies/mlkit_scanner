@@ -35,7 +35,7 @@ internal class XCameraFrameTest {
             receivedCrop = cropRect
             conversionCalls.incrementAndGet()
         }
-        val frame = XCameraFrame(imageProxy, converter)
+        val frame = createFrame(imageProxy, converter)
 
         val result = frame.useNv21(null) { bytes, width, height, rotation ->
             receivedArguments = listOf(bytes, width, height, rotation)
@@ -59,9 +59,24 @@ internal class XCameraFrameTest {
         val crop = cameraCropRect(2, 1, 7, 5)
         val imageProxy = imageProxy(crop)
 
-        val frame = XCameraFrame(imageProxy, mock(ImageProxyNv21Converter::class.java))
+        val frame = createFrame(imageProxy, mock(ImageProxyNv21Converter::class.java))
 
         assertEquals(Rect(crop.left, crop.top, crop.right, crop.bottom), frame.cropRect)
+        frame.close()
+        verify(imageProxy).close()
+    }
+
+    @Test
+    fun `frame crop follows resized fill-center preview`() {
+        val imageProxy = imageProxy(cameraCropRect(0, 0, 8, 6))
+        val frame = XCameraFrame(
+            imageProxy = imageProxy,
+            nv21Converter = mock(ImageProxyNv21Converter::class.java),
+            previewWidth = 1,
+            previewHeight = 1,
+        )
+
+        assertEquals(Rect(1, 0, 7, 6), frame.cropRect)
         frame.close()
         verify(imageProxy).close()
     }
@@ -78,7 +93,7 @@ internal class XCameraFrameTest {
             assertSame(imageProxy, receivedImage)
             receivedCrop = cropRect
         }
-        val frame = XCameraFrame(imageProxy, converter)
+        val frame = createFrame(imageProxy, converter)
 
         frame.useNv21(crop) { bytes, width, height, rotation ->
             receivedArguments = listOf(bytes, width, height, rotation)
@@ -98,7 +113,7 @@ internal class XCameraFrameTest {
         stubConversion(converter, ByteArray(24), crop.width, crop.height) { _, _ ->
             conversionCalls.incrementAndGet()
         }
-        val frame = XCameraFrame(imageProxy, converter)
+        val frame = createFrame(imageProxy, converter)
 
         val error = runCatching {
             frame.useNv21(crop) { _, _, _, _ -> error("analysis failed") }
@@ -116,7 +131,7 @@ internal class XCameraFrameTest {
     @Test
     fun `frame closes image proxy once and rejects later access`() {
         val imageProxy = imageProxy()
-        val frame = XCameraFrame(imageProxy, mock(ImageProxyNv21Converter::class.java))
+        val frame = createFrame(imageProxy, mock(ImageProxyNv21Converter::class.java))
 
         frame.close()
         frame.close()
@@ -131,7 +146,7 @@ internal class XCameraFrameTest {
     @Test
     fun `scoped frame closes image proxy when camera callback fails`() {
         val imageProxy = imageProxy()
-        val frame = XCameraFrame(imageProxy, mock(ImageProxyNv21Converter::class.java))
+        val frame = createFrame(imageProxy, mock(ImageProxyNv21Converter::class.java))
 
         val error = runCatching {
             frame.use { error("callback failed") }
@@ -156,7 +171,7 @@ internal class XCameraFrameTest {
             height = FRAME_HEIGHT,
             onConvert = { _, _ -> conversionCalls.incrementAndGet() },
         )
-        val frame = XCameraFrame(imageProxy, converter)
+        val frame = createFrame(imageProxy, converter)
         val executor = Executors.newFixedThreadPool(2)
 
         try {
@@ -223,6 +238,19 @@ internal class XCameraFrameTest {
         doReturn(imageInfo).`when`(imageProxy).imageInfo
         doReturn(ROTATION_DEGREES).`when`(imageInfo).rotationDegrees
         return imageProxy
+    }
+
+    private fun createFrame(
+        imageProxy: ImageProxy,
+        converter: ImageProxyNv21Converter,
+    ): XCameraFrame {
+        val cropRect = imageProxy.cropRect
+        return XCameraFrame(
+            imageProxy = imageProxy,
+            nv21Converter = converter,
+            previewWidth = cropRect.bottom - cropRect.top,
+            previewHeight = cropRect.right - cropRect.left,
+        )
     }
 
     private fun cameraCropRect(left: Int, top: Int, right: Int, bottom: Int) =
