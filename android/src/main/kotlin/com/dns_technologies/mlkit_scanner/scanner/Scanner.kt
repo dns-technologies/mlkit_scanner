@@ -68,6 +68,9 @@ class Scanner(
     /** Returns true when the scanner camera is active. */
     fun isActive(): Boolean = camera.isActive()
 
+    /** Waits until the lifecycle-bound camera device is actually open. */
+    fun awaitCameraOpen() = camera.awaitOpen()
+
     /** Returns whether the active camera exposes a flash unit. */
     fun isFlashSupported(): Boolean = camera.isFlashSupported()
 

@@ -116,6 +116,7 @@ internal class ScannerSessionImpl(
     override fun pauseCamera(viewId: Int) {
         val viewState = views[viewId] ?: return
         viewState.cameraRequested = false
+        if (viewState.view.hasPreview()) viewState.configurationApplied = false
         applyViewStateIfActive(viewState)
     }
 
@@ -304,6 +305,12 @@ internal class ScannerSessionImpl(
     private fun updateHostPaused(isPaused: Boolean) {
         if (hostPaused == isPaused) return
         hostPaused = isPaused
+        if (isPaused && scanner.isActive()) {
+            previewHostState()?.let { viewState ->
+                viewState.configurationApplied = false
+                scanner.hidePreview()
+            }
+        }
         updateCameraLifecycle()
         applyScanState()
         if (!isPaused) previewHostState()?.let(::restoreCameraControlsIfActive)
@@ -367,6 +374,8 @@ internal class ScannerSessionImpl(
 
     private suspend fun applyCameraControlsIfActive(viewState: ScannerViewState) {
         cameraControlMutex.withLock {
+            if (!canApplyCameraControls(viewState)) return
+            scanner.awaitCameraOpen().await()
             if (!canApplyCameraControls(viewState)) return
             scanner.setZoom(viewState.zoom ?: DEFAULT_ZOOM).await()
             if (!canApplyCameraControls(viewState)) return

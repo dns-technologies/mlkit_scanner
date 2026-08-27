@@ -322,6 +322,8 @@ internal class ScannerTest {
 
         override fun isActive(): Boolean = onFrame != null
 
+        override fun awaitOpen(): Deferred<Unit> = CompletableDeferred(Unit)
+
         override fun isFlashSupported(): Boolean = true
 
         override fun setTorch(enabled: Boolean): Deferred<Unit> = CompletableDeferred(Unit)

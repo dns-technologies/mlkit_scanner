@@ -1,15 +1,18 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
+import com.dns_technologies.mlkit_scanner.PluginError
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-internal class CameraControlStateTest {
+internal class CameraRuntimeStateTest {
     @Test
     fun `successful controls are retained and restored after camera reopens`() {
-        val state = CameraControlState()
+        val state = CameraRuntimeState()
         assertTrue(state.onCameraOpened())
         val zoom = state.beginZoom(0.75F)
         val torch = state.beginTorch(true)
@@ -25,7 +28,7 @@ internal class CameraControlStateTest {
 
     @Test
     fun `matching controls and duplicate open event do not start restoration`() {
-        val state = CameraControlState()
+        val state = CameraRuntimeState()
         state.onCameraOpened()
         state.completeZoom(state.beginZoom(0.5F), succeeded = true)
         state.completeTorch(
@@ -40,7 +43,7 @@ internal class CameraControlStateTest {
 
     @Test
     fun `new camera opening can force controls despite stale CameraInfo values`() {
-        val state = CameraControlState()
+        val state = CameraRuntimeState()
         state.onCameraOpened()
         state.completeZoom(state.beginZoom(0.5F), succeeded = true)
         state.completeTorch(
@@ -56,7 +59,7 @@ internal class CameraControlStateTest {
 
     @Test
     fun `failed user controls preserve last confirmed values`() {
-        val state = CameraControlState()
+        val state = CameraRuntimeState()
         state.onCameraOpened()
         state.completeZoom(state.beginZoom(0.25F), succeeded = true)
         state.completeTorch(
@@ -78,7 +81,7 @@ internal class CameraControlStateTest {
 
     @Test
     fun `stale successful operation cannot overwrite a newer request`() {
-        val state = CameraControlState()
+        val state = CameraRuntimeState()
         state.onCameraOpened()
         val first = state.beginZoom(0.25F)
         val second = state.beginZoom(0.75F)
@@ -92,7 +95,7 @@ internal class CameraControlStateTest {
 
     @Test
     fun `user operation supersedes pending restoration`() {
-        val state = CameraControlState()
+        val state = CameraRuntimeState()
         state.onCameraOpened()
         state.completeZoom(state.beginZoom(0.5F), succeeded = true)
         state.onCameraUnavailable()
@@ -109,7 +112,7 @@ internal class CameraControlStateTest {
 
     @Test
     fun `current restoration failure is reported without changing retained value`() {
-        val state = CameraControlState()
+        val state = CameraRuntimeState()
         state.onCameraOpened()
         state.completeZoom(state.beginZoom(0.5F), succeeded = true)
         val restoration = requireNotNull(state.beginZoomRestoration(0.0F))
@@ -123,7 +126,7 @@ internal class CameraControlStateTest {
 
     @Test
     fun `successful user operation from previous opening is restored on current camera`() {
-        val state = CameraControlState()
+        val state = CameraRuntimeState()
         state.onCameraOpened()
         val operation = state.beginZoom(0.75F)
         state.onCameraUnavailable()
@@ -137,7 +140,7 @@ internal class CameraControlStateTest {
 
     @Test
     fun `parallel torch updates retain latest absolute request`() {
-        val state = CameraControlState()
+        val state = CameraRuntimeState()
         state.onCameraOpened()
         val first = state.beginTorch(true)
         val second = state.beginTorch(false)
@@ -152,7 +155,7 @@ internal class CameraControlStateTest {
 
     @Test
     fun `dispose drops retained controls and ignores stale completions`() {
-        val state = CameraControlState()
+        val state = CameraRuntimeState()
         state.onCameraOpened()
         val zoom = state.beginZoom(0.75F)
         state.dispose()
@@ -162,5 +165,65 @@ internal class CameraControlStateTest {
         assertFalse(completion.shouldRestore)
         assertFalse(state.onCameraOpened())
         assertNull(state.beginZoomRestoration(0.0F))
+    }
+
+    @Test
+    fun `waiter completes only after camera opens`() = runBlocking {
+        val state = CameraRuntimeState()
+        val waiter = state.awaitOpen()
+
+        assertFalse(waiter.isCompleted)
+
+        state.onCameraOpened()
+
+        waiter.await()
+        assertTrue(state.awaitOpen().isCompleted)
+    }
+
+    @Test
+    fun `camera unavailable requires the next opening`() = runBlocking {
+        val state = CameraRuntimeState()
+        state.onCameraOpened()
+        state.onCameraUnavailable()
+
+        val waiter = state.awaitOpen()
+
+        assertFalse(waiter.isCompleted)
+        state.onCameraOpened()
+        waiter.await()
+    }
+
+    @Test
+    fun `camera error fails current waiters but allows a later opening`() = runBlocking {
+        val state = CameraRuntimeState()
+        val failedWaiter = state.awaitOpen()
+
+        state.onCameraUnavailable(PluginError.CameraControlError)
+
+        assertSame(
+            PluginError.CameraControlError,
+            runCatching { failedWaiter.await() }.exceptionOrNull(),
+        )
+        val recoveredWaiter = state.awaitOpen()
+        assertFalse(recoveredWaiter.isCompleted)
+        state.onCameraOpened()
+        recoveredWaiter.await()
+    }
+
+    @Test
+    fun `dispose fails current and future waiters`() = runBlocking {
+        val state = CameraRuntimeState()
+        val currentWaiter = state.awaitOpen()
+
+        state.dispose()
+
+        assertSame(
+            PluginError.CameraSessionDisposed,
+            runCatching { currentWaiter.await() }.exceptionOrNull(),
+        )
+        assertSame(
+            PluginError.CameraSessionDisposed,
+            runCatching { state.awaitOpen().await() }.exceptionOrNull(),
+        )
     }
 }

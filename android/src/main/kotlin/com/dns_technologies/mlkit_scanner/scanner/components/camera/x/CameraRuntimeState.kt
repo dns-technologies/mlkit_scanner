@@ -1,10 +1,14 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
+import com.dns_technologies.mlkit_scanner.PluginError
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlin.math.abs
 
-/** Retains successfully applied CameraX controls across camera close and rebind events. */
-internal class CameraControlState {
+/** Tracks camera availability and retains applied controls across close and rebind events. */
+internal class CameraRuntimeState {
     private val lock = Any()
+    private val openWaiters = mutableSetOf<CompletableDeferred<Unit>>()
     private val zoom = RetainedControl<Float> { first, second ->
         abs(first - second) <= ZOOM_COMPARISON_EPSILON
     }
@@ -14,21 +18,59 @@ internal class CameraControlState {
     private var cameraOpen = false
     private var cameraOpenRevision = 0L
 
-    /** Marks the current camera unavailable and invalidates operations tied to that opening. */
-    fun onCameraUnavailable() = synchronized(lock) {
-        cameraOpen = false
-        zoom.invalidateOperation()
-        torch.invalidateOperation()
+    /**
+     * Returns a deferred that completes when the current CameraX camera reaches the open state.
+     *
+     * The result is already completed when the camera is open and fails with
+     * [PluginError.CameraSessionDisposed] after this state has been disposed.
+     */
+    fun awaitOpen(): Deferred<Unit> = synchronized(lock) {
+        when {
+            disposed -> failedDeferred(PluginError.CameraSessionDisposed)
+            cameraOpen -> CompletableDeferred(Unit)
+            else -> CompletableDeferred<Unit>().also { waiter ->
+                openWaiters += waiter
+                waiter.invokeOnCompletion {
+                    synchronized(lock) { openWaiters -= waiter }
+                }
+            }
+        }
     }
 
-    /** Returns true once for every transition to an open camera. */
-    fun onCameraOpened(): Boolean = synchronized(lock) {
-        if (disposed || cameraOpen) return@synchronized false
-        cameraOpen = true
-        cameraOpenRevision += 1
-        zoom.invalidateOperation()
-        torch.invalidateOperation()
-        true
+    /** Marks the camera open, completes pending [awaitOpen] calls, and reports a new opening. */
+    fun onCameraOpened(): Boolean {
+        val (opened, pending) = synchronized(lock) {
+            if (disposed) return false
+            val opened = !cameraOpen
+            cameraOpen = true
+            if (opened) {
+                cameraOpenRevision += 1
+                zoom.invalidateOperation()
+                torch.invalidateOperation()
+            }
+            opened to openWaiters.toList().also { openWaiters.clear() }
+        }
+        pending.forEach { it.complete(Unit) }
+        return opened
+    }
+
+    /**
+     * Marks the camera unavailable and invalidates operations tied to its previous opening.
+     *
+     * When [error] is supplied, pending [awaitOpen] calls fail instead of waiting for a reopening.
+     */
+    fun onCameraUnavailable(error: Exception? = null) {
+        val pending = synchronized(lock) {
+            if (disposed) return
+            cameraOpen = false
+            zoom.invalidateOperation()
+            torch.invalidateOperation()
+            if (error == null) emptyList()
+            else openWaiters.toList().also { openWaiters.clear() }
+        }
+        error?.let { failure ->
+            pending.forEach { it.completeExceptionally(failure) }
+        }
     }
 
     /** Starts a user zoom request, superseding any pending zoom restoration. */
@@ -75,12 +117,17 @@ internal class CameraControlState {
             else torch.complete(operation, succeeded, cameraOpenRevision)
         }
 
-    /** Drops retained values and prevents stale completions from changing the state. */
-    fun dispose() = synchronized(lock) {
-        disposed = true
-        cameraOpen = false
-        zoom.clear()
-        torch.clear()
+    /** Drops retained controls and fails current and future [awaitOpen] calls. */
+    fun dispose() {
+        val pending = synchronized(lock) {
+            if (disposed) return
+            disposed = true
+            cameraOpen = false
+            zoom.clear()
+            torch.clear()
+            openWaiters.toList().also { openWaiters.clear() }
+        }
+        pending.forEach { it.completeExceptionally(PluginError.CameraSessionDisposed) }
     }
 
     /** One CameraX control operation associated with a specific camera opening. */
@@ -96,6 +143,9 @@ internal class CameraControlState {
         val shouldRestore: Boolean = false,
         val restorationFailed: Boolean = false,
     )
+
+    private fun failedDeferred(error: Exception): Deferred<Unit> =
+        CompletableDeferred<Unit>().also { it.completeExceptionally(error) }
 
     private class RetainedControl<T : Any>(
         private val valuesMatch: (T, T) -> Boolean,

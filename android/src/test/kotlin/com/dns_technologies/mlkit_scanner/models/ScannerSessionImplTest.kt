@@ -195,6 +195,63 @@ internal class ScannerSessionImplTest {
         }
 
     @Test
+    fun `new preview host waits for open camera before applying controls`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.attach(SECOND_VIEW_ID)
+        val cameraOpen = CompletableDeferred<Unit>()
+        fixture.enqueueOpenResult(cameraOpen)
+        clearInvocations(fixture.scanner)
+
+        val activation = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.startCamera(
+                SECOND_VIEW_ID,
+                initialZoom = 0.75,
+                initialCropRect = null,
+                initialFlashEnabled = true,
+            )
+        }
+
+        verify(fixture.scanner).awaitCameraOpen()
+        verify(fixture.scanner, never()).setZoom(0.75F)
+        verify(fixture.scanner, never()).setTorch(true)
+        verify(fixture.scanner, never()).showPreview()
+        assertFalse(activation.isCompleted)
+
+        cameraOpen.complete(Unit)
+        withTimeout(TEST_TIMEOUT_MS) { activation.await() }
+
+        verify(fixture.scanner).setZoom(0.75F)
+        verify(fixture.scanner).setTorch(true)
+        verify(fixture.scanner).showPreview()
+    }
+
+    @Test
+    fun `open completion ignores controls of preview host replaced while waiting`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.attach(SECOND_VIEW_ID)
+        fixture.attach(THIRD_VIEW_ID)
+        val cameraOpen = CompletableDeferred<Unit>()
+        fixture.enqueueOpenResult(cameraOpen)
+        clearInvocations(fixture.scanner)
+
+        val secondActivation = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.startCamera(SECOND_VIEW_ID, 0.25, null)
+        }
+        val thirdActivation = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.startCamera(THIRD_VIEW_ID, 0.75, null)
+        }
+
+        cameraOpen.complete(Unit)
+        withTimeout(TEST_TIMEOUT_MS) { awaitAll(secondActivation, thirdActivation) }
+
+        verify(fixture.scanner, never()).setZoom(0.25F)
+        verify(fixture.scanner).setZoom(0.75F)
+        verify(fixture.scanner, times(1)).showPreview()
+    }
+
+    @Test
     fun `late camera pause from covered view does not pause current view`() = runSessionTest {
         val fixture = Fixture()
         val initialization = async(start = CoroutineStart.UNDISPATCHED) {
@@ -714,11 +771,13 @@ internal class ScannerSessionImplTest {
 
         verify(fixture.mainHandler).removeCallbacks(delivery)
         verify(fixture.scanner).pauseScan()
+        verify(fixture.scanner, never()).hidePreview()
         assertTrue(received.isEmpty())
 
         clearInvocations(fixture.scanner)
         fixture.session.resumeCamera(FIRST_VIEW_ID)
 
+        verify(fixture.scanner).showPreview()
         verify(fixture.scanner).resumeScan()
     }
 
@@ -801,6 +860,29 @@ internal class ScannerSessionImplTest {
         fixture.completeInitialization()
         withTimeout(TEST_TIMEOUT_MS) { awaitAll(first, second) }
         Unit
+    }
+
+    @Test
+    fun `initialization completes only after bound camera opens`() = runSessionTest {
+        val fixture = Fixture()
+        val cameraOpen = CompletableDeferred<Unit>()
+        fixture.enqueueOpenResult(cameraOpen)
+
+        val initialization = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.startCamera(FIRST_VIEW_ID, 0.5, null)
+        }
+        fixture.completeInitialization()
+
+        verify(fixture.scanner).awaitCameraOpen()
+        verify(fixture.scanner, never()).setZoom(0.5F)
+        verify(fixture.scanner, never()).showPreview()
+        assertFalse(initialization.isCompleted)
+
+        cameraOpen.complete(Unit)
+        withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+
+        verify(fixture.scanner).setZoom(0.5F)
+        verify(fixture.scanner).showPreview()
     }
 
     @Test
@@ -1025,6 +1107,7 @@ internal class ScannerSessionImplTest {
         private var onReady: (() -> Unit)? = null
         private var onError: ((Exception) -> Unit)? = null
         private var scanResultListener: ((Barcode) -> Unit)? = null
+        private val openResults = ArrayDeque<CompletableDeferred<Unit>>()
         private val zoomResults = ArrayDeque<CompletableDeferred<Unit>>()
         private val torchResults = ArrayDeque<CompletableDeferred<Unit>>()
 
@@ -1050,6 +1133,9 @@ internal class ScannerSessionImplTest {
                 onError = invocation.getArgument(2)
                 null
             }.`when`(scanner).startCamera(anyValue(), anyValue(), anyValue())
+            doAnswer {
+                openResults.removeFirstOrNull() ?: CompletableDeferred(Unit)
+            }.`when`(scanner).awaitCameraOpen()
             doAnswer {
                 zoomResults.removeFirstOrNull() ?: CompletableDeferred(Unit)
             }.`when`(scanner).setZoom(anyFloat())
@@ -1142,6 +1228,10 @@ internal class ScannerSessionImplTest {
 
         fun enqueueZoomResult(result: CompletableDeferred<Unit>) {
             zoomResults += result
+        }
+
+        fun enqueueOpenResult(result: CompletableDeferred<Unit>) {
+            openResults += result
         }
 
         fun failInitialization(error: Exception) {
