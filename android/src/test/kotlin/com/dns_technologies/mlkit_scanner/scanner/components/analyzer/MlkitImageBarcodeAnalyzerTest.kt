@@ -47,14 +47,19 @@ internal class MlkitImageBarcodeAnalyzerTest {
     }
 
     @Test
-    fun `only every third frame is accessed after missed recognition`() {
+    fun `missed recognition is retried after the time interval`() {
         val scanner = barcodeScanner()
-        val analyzer = analyzer(scanner)
-        val frames = List(4) { FakeFrame() }
+        val clock = MutableClock()
+        val analyzer = analyzer(scanner, currentTimeMs = clock::read)
+        val frames = List(3) { FakeFrame() }
 
-        frames.forEach { analyzer.analyze(it, null) }
+        analyzer.analyze(frames[0], null)
+        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS - 1
+        analyzer.analyze(frames[1], null)
+        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS
+        analyzer.analyze(frames[2], null)
 
-        assertEquals(listOf(1, 0, 0, 1), frames.map(FakeFrame::accessCalls))
+        assertEquals(listOf(1, 0, 1), frames.map(FakeFrame::accessCalls))
     }
 
     @Test
@@ -129,20 +134,25 @@ internal class MlkitImageBarcodeAnalyzerTest {
 
     private fun analyzer(
         scanner: BarcodeScanner,
+        currentTimeMs: () -> Long = { 0L },
         logError: (String) -> Unit = {},
         awaitBarcodes: (Task<List<MlkitBarcode>>) -> List<MlkitBarcode> = { it.result },
         fromByteArray: (ByteArray, Int, Int, Int, Int) -> InputImage =
             { _, _, _, _, _ -> mock(InputImage::class.java) },
     ): MlkitImageBarcodeAnalyzer = MlkitImageBarcodeAnalyzer(
         barcodeScanner = scanner,
-        currentTimeMs = { 0L },
+        currentTimeMs = currentTimeMs,
         logError = logError,
         awaitBarcodes = awaitBarcodes,
         fromByteArray = fromByteArray,
     )
 
+    private class MutableClock(var timeMs: Long = 0L) {
+        fun read(): Long = timeMs
+    }
+
     private class FakeFrame(
-        private val nv21Bytes: ByteArray = ByteArray(24),
+        private val nv21Bytes: ByteArray = ByteArray(FRAME_WIDTH * FRAME_HEIGHT * 3 / 2),
     ) : CameraFrame {
         override val width = FRAME_WIDTH
         override val height = FRAME_HEIGHT
@@ -167,6 +177,7 @@ internal class MlkitImageBarcodeAnalyzerTest {
     }
 
     private companion object {
+        const val FAILED_ANALYSIS_INTERVAL_MS = 1_000L
         const val FRAME_WIDTH = 8
         const val FRAME_HEIGHT = 6
         const val ROTATION_DEGREES = 90

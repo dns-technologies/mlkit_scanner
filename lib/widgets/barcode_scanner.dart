@@ -190,7 +190,7 @@ class BarcodeScannerController {
   ///
   /// `delay` - minimum delay in milliseconds after successful recognition.
   /// Failed recognition does not start this timer. On Android, failed attempts
-  /// sample every third available camera frame.
+  /// wait one second before analyzing the next available camera frame.
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> startScan(int delay) async {
     return _barcodeScannerState?._startScan(delay);

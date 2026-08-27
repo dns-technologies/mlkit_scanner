@@ -113,7 +113,7 @@ class MlKitChannel {
   /// `type` - [RecognitionType], plugin will use MlKit API for this type.
   /// `delay` - minimum delay in milliseconds after successful recognition.
   /// Failed recognition does not start this timer. On Android, failed attempts
-  /// sample every third available camera frame.
+  /// wait one second before analyzing the next available camera frame.
   /// Only the current scanner view receives native scan events.
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> startScan(

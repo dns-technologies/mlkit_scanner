@@ -18,11 +18,13 @@ internal class ImageBarcodeAnalyzerTest {
     fun `concurrent frame is skipped while analysis is running`() {
         val analysisStarted = CountDownLatch(1)
         val allowAnalysisToFinish = CountDownLatch(1)
-        val analyzer = TestAnalyzer {
-            analysisStarted.countDown()
-            allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            null
-        }
+        val analyzer = TestAnalyzer(
+            analysis = {
+                analysisStarted.countDown()
+                allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                null
+            },
+        )
         val executor = Executors.newSingleThreadExecutor()
 
         try {
@@ -44,11 +46,13 @@ internal class ImageBarcodeAnalyzerTest {
     fun `dispose returns while analysis runs and releases resources after completion`() {
         val analysisStarted = CountDownLatch(1)
         val allowAnalysisToFinish = CountDownLatch(1)
-        val analyzer = TestAnalyzer {
-            analysisStarted.countDown()
-            allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            null
-        }
+        val analyzer = TestAnalyzer(
+            analysis = {
+                analysisStarted.countDown()
+                allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                null
+            },
+        )
         val executor = Executors.newFixedThreadPool(2)
 
         try {
@@ -79,12 +83,15 @@ internal class ImageBarcodeAnalyzerTest {
     fun `period update returns while analysis is running`() {
         val analysisStarted = CountDownLatch(1)
         val allowAnalysisToFinish = CountDownLatch(1)
-        var currentTimeMs = 0L
-        val analyzer = TestAnalyzer(currentTimeMs = { currentTimeMs }) {
-            analysisStarted.countDown()
-            allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            TEST_BARCODE
-        }
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(
+            clock = clock,
+            analysis = {
+                analysisStarted.countDown()
+                allowAnalysisToFinish.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                TEST_BARCODE
+            },
+        )
         val executor = Executors.newFixedThreadPool(2)
 
         try {
@@ -98,9 +105,9 @@ internal class ImageBarcodeAnalyzerTest {
             allowAnalysisToFinish.countDown()
             analysis.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
-            currentTimeMs = 249
+            clock.timeMs = 249
             assertNull(analyzer.analyze(TEST_FRAME, null))
-            currentTimeMs = 250
+            clock.timeMs = 250
             analyzer.analyze(TEST_FRAME, null)
             assertEquals(2, analyzer.analysisCalls.get())
         } finally {
@@ -122,25 +129,31 @@ internal class ImageBarcodeAnalyzerTest {
     }
 
     @Test
-    fun `failed recognition analyzes every third incoming frame`() {
-        val analyzer = TestAnalyzer()
+    fun `failed recognition is retried after time interval instead of frame count`() {
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock = clock)
 
-        repeat(7) { analyzer.analyze(TEST_FRAME, null) }
+        analyzer.analyze(TEST_FRAME, null)
+        repeat(5) { analyzer.analyze(TEST_FRAME, null) }
+        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS - 1
+        analyzer.analyze(TEST_FRAME, null)
+        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS
+        analyzer.analyze(TEST_FRAME, null)
 
-        assertEquals(3, analyzer.analysisCalls.get())
+        assertEquals(2, analyzer.analysisCalls.get())
     }
 
     @Test
     fun `configured period is applied only after recognized barcode`() {
-        var currentTimeMs = 0L
-        val analyzer = TestAnalyzer(currentTimeMs = { currentTimeMs }) { TEST_BARCODE }
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock = clock) { TEST_BARCODE }
         analyzer.updatePeriod(100)
 
         analyzer.analyze(TEST_FRAME, null)
         repeat(5) { assertNull(analyzer.analyze(TEST_FRAME, null)) }
-        currentTimeMs = 99
+        clock.timeMs = 99
         assertNull(analyzer.analyze(TEST_FRAME, null))
-        currentTimeMs = 100
+        clock.timeMs = 100
         analyzer.analyze(TEST_FRAME, null)
 
         assertEquals(2, analyzer.analysisCalls.get())
@@ -148,7 +161,7 @@ internal class ImageBarcodeAnalyzerTest {
 
     @Test
     fun `zero successful recognition period accepts the next frame`() {
-        val analyzer = TestAnalyzer { TEST_BARCODE }
+        val analyzer = TestAnalyzer(analysis = { TEST_BARCODE })
 
         repeat(2) { analyzer.analyze(TEST_FRAME, null) }
 
@@ -157,24 +170,35 @@ internal class ImageBarcodeAnalyzerTest {
 
     @Test
     fun `configured period does not throttle failed recognition`() {
-        val analyzer = TestAnalyzer()
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock = clock)
         analyzer.updatePeriod(10_000)
 
-        repeat(4) { analyzer.analyze(TEST_FRAME, null) }
+        analyzer.analyze(TEST_FRAME, null)
+        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS - 1
+        analyzer.analyze(TEST_FRAME, null)
+        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS
+        analyzer.analyze(TEST_FRAME, null)
 
         assertEquals(2, analyzer.analysisCalls.get())
     }
 
     @Test
     fun `failed analysis consumes an attempt and releases execution lock`() {
+        val clock = MutableClock()
         val blockCalls = AtomicInteger()
-        val analyzer = TestAnalyzer {
-            if (blockCalls.incrementAndGet() == 1) error("analysis failed")
-            null
-        }
+        val analyzer = TestAnalyzer(
+            clock = clock,
+            analysis = {
+                if (blockCalls.incrementAndGet() == 1) error("analysis failed")
+                null
+            },
+        )
 
         val error = runCatching { analyzer.analyze(TEST_FRAME, null) }.exceptionOrNull()
-        repeat(2) { analyzer.analyze(TEST_FRAME, null) }
+        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS - 1
+        analyzer.analyze(TEST_FRAME, null)
+        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS
         analyzer.analyze(TEST_FRAME, null)
 
         assertTrue(error is IllegalStateException)
@@ -182,9 +206,9 @@ internal class ImageBarcodeAnalyzerTest {
     }
 
     private class TestAnalyzer(
-        currentTimeMs: () -> Long = { 0L },
+        clock: MutableClock = MutableClock(),
         private val analysis: () -> Barcode? = { null },
-    ) : ImageBarcodeAnalyzer(currentTimeMs) {
+    ) : ImageBarcodeAnalyzer(currentTimeMs = clock::read) {
         val analysisCalls = AtomicInteger()
         val disposeCalls = AtomicInteger()
         val resourcesDisposed = CountDownLatch(1)
@@ -200,9 +224,14 @@ internal class ImageBarcodeAnalyzerTest {
         }
     }
 
+    private class MutableClock(var timeMs: Long = 0L) {
+        fun read(): Long = timeMs
+    }
+
     private companion object {
         const val TEST_TIMEOUT_MS = 1_000L
         const val SHORT_WAIT_MS = 100L
+        const val FAILED_ANALYSIS_INTERVAL_MS = 1_000L
 
         val TEST_BARCODE = Barcode(
             rawValue = "barcode",

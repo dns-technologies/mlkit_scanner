@@ -41,15 +41,19 @@ internal class ScannerTest {
     }
 
     @Test
-    fun `analyzer controls lazy frame materialization`() {
+    fun `analyzer materializes frames only when time based attempt is due`() {
         val fixture = Fixture()
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
         fixture.scanner.startScan(periodMs = 100)
 
-        repeat(4) { fixture.emitFrame() }
+        fixture.emitFrame()
+        fixture.setCurrentTimeMs(FAILED_ANALYSIS_INTERVAL_MS - 1)
+        fixture.emitFrame()
+        fixture.setCurrentTimeMs(FAILED_ANALYSIS_INTERVAL_MS)
+        fixture.emitFrame()
 
         assertEquals(2, fixture.materializedFrames)
-        assertEquals(4, fixture.closedFrames)
+        assertEquals(3, fixture.closedFrames)
         assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
     }
 
@@ -259,7 +263,7 @@ internal class ScannerTest {
     private class FakeAnalyzer(
         currentTimeMs: () -> Long,
         private val analysisResult: Barcode?,
-    ) : ImageBarcodeAnalyzer(currentTimeMs) {
+    ) : ImageBarcodeAnalyzer(currentTimeMs = currentTimeMs) {
         var acceptedAnalysisCalls = 0
             private set
         var lastCropRect: Rect? = null
@@ -345,6 +349,7 @@ internal class ScannerTest {
 
     private companion object {
         const val TEST_TIMEOUT_MS = 1_000L
+        const val FAILED_ANALYSIS_INTERVAL_MS = 1_000L
         val BARCODE = Barcode(
             rawValue = "1234567890",
             displayValue = "1234567890",

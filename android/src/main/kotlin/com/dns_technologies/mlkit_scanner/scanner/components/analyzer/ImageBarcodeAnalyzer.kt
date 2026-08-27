@@ -9,8 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Base class for barcode analyzers independent of a concrete image-analysis library.
  *
- * Provides sampled frame analysis, a cooldown after successful recognition, exclusive frame
- * processing and thread-safe resource disposal to every implementation.
+ * Provides time-based frame throttling, exclusive frame processing and thread-safe resource
+ * disposal to every implementation.
  *
  * @param currentTimeMs Monotonic clock used by the analysis throttle.
  */
@@ -22,7 +22,7 @@ abstract class ImageBarcodeAnalyzer protected constructor(
     private val isDisposed = AtomicBoolean(false)
     private val isClosed = AtomicBoolean(false)
 
-    /** Attempts recognition when the shared sampling and successful-result gate accepts the frame. */
+    /** Attempts recognition for the first frame available after the active cooldown. */
     fun analyze(frame: CameraFrame, cropRect: Rect?): Barcode? {
         if (isDisposed.get() || !isAnalyzing.compareAndSet(false, true)) return null
 
@@ -54,10 +54,7 @@ abstract class ImageBarcodeAnalyzer protected constructor(
 
     /** Marks the analyzer disposed and releases its resources once active analysis has finished. */
     fun dispose() {
-        if (isDisposed.compareAndSet(false, true)) {
-            frameAnalysisGate.reset()
-        }
-
+        isDisposed.compareAndSet(false, true)
         closeIfDisposedAndIdle()
     }
 
@@ -65,7 +62,6 @@ abstract class ImageBarcodeAnalyzer protected constructor(
         if (!isDisposed.get() || !isAnalyzing.compareAndSet(false, true)) return
 
         try {
-            frameAnalysisGate.reset()
             if (isClosed.compareAndSet(false, true)) {
                 disposeAnalyzer()
             }
@@ -74,7 +70,7 @@ abstract class ImageBarcodeAnalyzer protected constructor(
         }
     }
 
-    /** Analyzes a frame accepted by the common execution policy. */
+    /** Analyzes a frame and the requested source crop accepted by the common execution policy. */
     protected abstract fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode?
 
     /** Releases resources owned by the concrete analyzer implementation. */

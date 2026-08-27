@@ -31,7 +31,7 @@ class MlkitImageBarcodeAnalyzer internal constructor(
         logError = { message -> Log.e(logTag, message) },
     )
 
-    /** Lazily creates an ML Kit NV21 image for a frame accepted by the common analyzer policy. */
+    /** Lazily creates one cropped ML Kit NV21 image for an accepted frame. */
     override fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode? {
         return frame.useNv21(
             cropRect = cropRect,
