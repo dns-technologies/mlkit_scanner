@@ -33,7 +33,7 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         case PluginConstants.disposeMethod:
             dispose(arguments: call.arguments, result: result)
         case PluginConstants.toggleFlashMethod:
-            toggleFlash(result: result)
+            toggleFlash(arguments: call.arguments, result: result)
         case PluginConstants.startScanMethod:
             startScan(arguments: call.arguments, result: result)
         case PluginConstants.cancelScanMethod:
@@ -133,7 +133,11 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         }
     }
 
-    private func toggleFlash(result: @escaping FlutterResult) {
+    private func toggleFlash(arguments: Any?, result: @escaping FlutterResult) {
+        guard ownsCurrentView(arguments) else {
+            handleError(error: MlKitPluginError.cameraIsNotInitialized, result: result)
+            return
+        }
         do {
             try cameraPreview?.toggleFlash()
             result(nil)
@@ -211,7 +215,11 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     }
 
     private func setScanDelayMethod(arguments: Any?, result: @escaping FlutterResult) {
-        guard let delay = arguments as? Int else {
+        guard
+            let params = arguments as? Dictionary<String, Any?>,
+            ownsCurrentView(params),
+            let delay = params[PluginConstants.delayArgument] as? Int
+        else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
@@ -244,7 +252,11 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     }
 
     private func setZoom(arguments: Any?, result: @escaping FlutterResult) {
-        guard let zoom = arguments as? Double else {
+        guard
+            let params = arguments as? Dictionary<String, Any?>,
+            ownsCurrentView(params),
+            let zoom = params[PluginConstants.valueArgument] as? Double
+        else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
@@ -257,7 +269,12 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     }
 
     private func handleSetCropArea(arguments: Any?, result: @escaping FlutterResult) {
-        guard let rectArgs = arguments as? Dictionary<String, CGFloat>, let rect = CropRect(arguments: rectArgs) else {
+        guard
+            let params = arguments as? Dictionary<String, Any?>,
+            ownsCurrentView(params),
+            let rectArgs = params[PluginConstants.cropRectArgument] as? Dictionary<String, CGFloat>,
+            let rect = CropRect(arguments: rectArgs)
+        else {
             handleError(error: MlKitPluginError.invalidArguments, result: result)
             return
         }
@@ -322,6 +339,16 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         }
         let viewId = value.int64Value
         return viewId >= 0 ? viewId : nil
+    }
+
+    private func ownsCurrentView(_ arguments: Any?) -> Bool {
+        guard let params = arguments as? Dictionary<String, Any?> else { return false }
+        return ownsCurrentView(params)
+    }
+
+    private func ownsCurrentView(_ arguments: Dictionary<String, Any?>) -> Bool {
+        guard let viewId = viewId(from: arguments) else { return false }
+        return cameraPreview?.viewId == viewId
     }
 }
 

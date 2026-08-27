@@ -11,8 +11,20 @@ internal object PluginConstants {
     /** Optional camera-initialization argument containing normalized zoom. */
     const val initialZoomArgument = "initialZoom"
 
+    /** Optional camera-initialization argument containing the initial torch state. */
+    const val initialFlashEnabledArgument = "initialFlashEnabled"
+
     /** Optional camera-initialization argument containing the recognition area. */
     const val initialCropRectArgument = "initialCropRect"
+
+    /** Argument key containing a camera-control value. */
+    const val valueArgument = "value"
+
+    /** Argument key containing a scan cooldown. */
+    const val delayArgument = "delay"
+
+    /** Argument key containing a recognition area. */
+    const val cropRectArgument = "cropRect"
 
     /** Method channel name used for scanner commands and events. */
     const val channelName = "mlkit_channel"
@@ -23,7 +35,7 @@ internal object PluginConstants {
     /** Method name used to initialize the native camera preview. */
     const val initCameraMethod = "initCameraPreview"
 
-    /** Method name used to resume the camera preview lifecycle. */
+    /** Method name used to select and resume a platform view's camera preview. */
     const val resumeCameraMethod = "resumeCameraMethod"
 
     /** Method name used to update scanner layout constraints from Dart. */

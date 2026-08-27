@@ -12,7 +12,7 @@ internal class CameraControlStateTest {
         val state = CameraControlState()
         assertTrue(state.onCameraOpened())
         val zoom = state.beginZoom(0.75F)
-        val torch = state.beginTorchToggle(currentTorchEnabled = false)
+        val torch = state.beginTorch(true)
 
         state.completeZoom(zoom, succeeded = true)
         state.completeTorch(torch, succeeded = true)
@@ -29,7 +29,7 @@ internal class CameraControlStateTest {
         state.onCameraOpened()
         state.completeZoom(state.beginZoom(0.5F), succeeded = true)
         state.completeTorch(
-            state.beginTorchToggle(currentTorchEnabled = false),
+            state.beginTorch(true),
             succeeded = true,
         )
 
@@ -44,7 +44,7 @@ internal class CameraControlStateTest {
         state.onCameraOpened()
         state.completeZoom(state.beginZoom(0.5F), succeeded = true)
         state.completeTorch(
-            state.beginTorchToggle(currentTorchEnabled = false),
+            state.beginTorch(true),
             succeeded = true,
         )
         state.onCameraUnavailable()
@@ -60,13 +60,13 @@ internal class CameraControlStateTest {
         state.onCameraOpened()
         state.completeZoom(state.beginZoom(0.25F), succeeded = true)
         state.completeTorch(
-            state.beginTorchToggle(currentTorchEnabled = false),
+            state.beginTorch(true),
             succeeded = true,
         )
 
         val zoomCompletion = state.completeZoom(state.beginZoom(0.75F), succeeded = false)
         val torchCompletion = state.completeTorch(
-            state.beginTorchToggle(currentTorchEnabled = true),
+            state.beginTorch(false),
             succeeded = false,
         )
 
@@ -136,11 +136,11 @@ internal class CameraControlStateTest {
     }
 
     @Test
-    fun `parallel torch toggles use latest logical request`() {
+    fun `parallel torch updates retain latest absolute request`() {
         val state = CameraControlState()
         state.onCameraOpened()
-        val first = state.beginTorchToggle(currentTorchEnabled = false)
-        val second = state.beginTorchToggle(currentTorchEnabled = false)
+        val first = state.beginTorch(true)
+        val second = state.beginTorch(false)
 
         state.completeTorch(first, succeeded = true)
         state.completeTorch(second, succeeded = true)

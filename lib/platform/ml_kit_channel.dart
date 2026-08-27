@@ -77,12 +77,15 @@ class MlKitChannel {
   Future<void> initCameraPreview({
     required int viewId,
     double? initialZoom,
+    bool? initialFlashEnabled,
     CropRect? initialCropRect,
     IosCamera? initialCamera,
   }) {
     final arguments = <String, Object?>{
       'viewId': viewId,
       if (initialZoom != null) 'initialZoom': initialZoom,
+      if (initialFlashEnabled != null)
+        'initialFlashEnabled': initialFlashEnabled,
       if (initialCropRect != null) 'initialCropRect': initialCropRect.toJson(),
       if (initialCamera != null)
         'initialCamera': {
@@ -98,11 +101,11 @@ class MlKitChannel {
     return _channel.invokeMethod(_disposeMethod, {'viewId': viewId});
   }
 
-  /// Toggle flash of the device.
+  /// Toggles flash configuration owned by the platform view identified by [viewId].
   ///
   /// Can throw a [PlatformException] if doesn't have flash.
-  Future<void> toggleFlash() {
-    return _channel.invokeMethod(_toggleFlashMethod);
+  Future<void> toggleFlash({required int viewId}) {
+    return _channel.invokeMethod(_toggleFlashMethod, {'viewId': viewId});
   }
 
   /// Starts recognition requested by the platform view identified by [viewId].
@@ -145,11 +148,14 @@ class MlKitChannel {
     return _channel.invokeMethod(_cancelScanMethod, {'viewId': viewId});
   }
 
-  /// Sets the delay applied after successful recognition.
+  /// Sets the delay owned by the platform view identified by [viewId].
   ///
   /// Failed recognition does not start this timer.
-  Future<void> setScanDelay(int delay) {
-    return _channel.invokeMethod(_setScanDelayMethod, delay);
+  Future<void> setScanDelay(int delay, {required int viewId}) {
+    return _channel.invokeMethod(_setScanDelayMethod, {
+      'viewId': viewId,
+      'delay': delay,
+    });
   }
 
   /// Update frame constraints for native platform view.
@@ -171,24 +177,31 @@ class MlKitChannel {
     return _channel.invokeMethod(_pauseCameraMethod, {'viewId': viewId});
   }
 
-  /// Resumes camera work requested by the platform view identified by [viewId].
+  /// Selects [viewId] as the preview host and resumes its camera work.
   ///
-  /// Detection also resumes if [startScan] was previously requested by this view.
+  /// The view's retained camera configuration is restored. Detection also
+  /// resumes if [startScan] was previously requested by this view.
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> resumeCamera({required int viewId}) {
     return _channel.invokeMethod(_resumeCameraMethod, {'viewId': viewId});
   }
 
-  /// Sets the camera zoom.
-  Future<void> setZoom(double value) {
-    return _channel.invokeMethod(_setZoomMethod, value);
+  /// Sets zoom owned by the platform view identified by [viewId].
+  Future<void> setZoom(double value, {required int viewId}) {
+    return _channel.invokeMethod(_setZoomMethod, {
+      'viewId': viewId,
+      'value': value,
+    });
   }
 
-  /// Adds overlay to the [CameraPreview] and sets area for recognition
+  /// Sets the recognition area owned by the platform view identified by [viewId].
   ///
   /// `rect` - Scanning area of the overlay.
-  Future<void> setCropArea(CropRect rect) {
-    return _channel.invokeMethod(_setCropAreaMethod, rect.toJson());
+  Future<void> setCropArea(CropRect rect, {required int viewId}) {
+    return _channel.invokeMethod(_setCropAreaMethod, {
+      'viewId': viewId,
+      'cropRect': rect.toJson(),
+    });
   }
 
   /// Gets all available iOS cameras.

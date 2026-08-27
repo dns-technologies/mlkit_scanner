@@ -33,8 +33,11 @@ interface Camera {
     /** Returns true when the camera has an active binding. */
     fun isActive(): Boolean
 
-    /** Toggles the camera torch and completes after the camera accepts the change. */
-    fun toggleFlashLight(): Deferred<Unit>
+    /** Returns whether the active camera exposes a flash unit usable as a torch. */
+    fun isFlashSupported(): Boolean
+
+    /** Applies the camera torch state and completes after the camera accepts the change. */
+    fun setTorch(enabled: Boolean): Deferred<Unit>
 
     /** Starts focus and metering and completes after the camera accepts the action. */
     fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float): Deferred<Unit>
@@ -44,6 +47,9 @@ interface Camera {
 
     /** Reveals preview after startup camera controls have been applied. */
     fun showPreview()
+
+    /** Hides preview while another platform view's controls are being restored. */
+    fun hidePreview()
 
     /** Releases resources owned by the concrete camera implementation. */
     fun dispose()

@@ -56,6 +56,8 @@ return SizedBox(
   height: 200.0                                 // CameraPreview needs height constraints, if you use widget 
                                                 // in Column use SizedBox or Container with height.
   child: BarcodeScanner(
+    initialZoom: 0.0,                           // Each Android scanner widget owns and restores
+    initialFlashEnabled: false,                 // its own zoom, torch and crop configuration.
     cropOverlay: ScannerCropOverlay             // you can use default ScannerOverlay, create custom, or do not 
                                                 // use it at all
 
@@ -73,8 +75,8 @@ return SizedBox(
 
 Future<void> _onScannerInitialized(BarcodeScannerController controller) async {
     await controller.startScan(100)             // Detection starts only after this call.
-                                                // 100 - delay in milliseconds between detection for decreasing 
-                                                // CPU consumption. Detection happens every 100 milliseconds 
+                                                // 100 - delay in milliseconds after successful recognition.
+                                                // Failed attempts continue with platform frame sampling.
                                                 // skipping frames during delay. Use 0 to turn off delay.
 
     await controller.stopScan()                 // You can stop detection.
@@ -86,9 +88,9 @@ Future<void> _onScannerInitialized(BarcodeScannerController controller) async {
 
     await controller.pauseCamera()              // Pause camera preview, detection also stops.
 
-    await controller.resumeCamera()             // Resume camera preview, detection resumes too if 
-                                                // controller.startScan calls before.
-                                                
+    await controller.resumeCamera()             // Select this scanner preview, restore its settings,
+                                                // and resume detection if startScan was called before.
+
     await controller.setZoom(0.5)               // Set camera zoom. Values must be in range 0...1                            
 }
 ```

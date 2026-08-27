@@ -30,6 +30,7 @@ internal class InitCameraCommand(
                 arguments.viewId,
                 arguments.initialZoom,
                 arguments.initialCropRect,
+                arguments.initialFlashEnabled,
             )
         } catch (error: PluginError) {
             throw error

@@ -11,6 +11,7 @@ import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.mock
@@ -38,18 +39,35 @@ internal class ScannerCommandStateTest {
                     result,
                 )
             },
-            { result -> SetScanDelayCommand { null }.execute(MethodCall("delay", 100), result) },
             { result ->
-                SetCropAreaCommand { null }.execute(
-                    MethodCall("crop", emptyMap<String, Any?>()),
+                SetScanDelayCommand { null }.execute(
+                    MethodCall("delay", mapOf("viewId" to VIEW_ID, "delay" to 100)),
                     result,
                 )
             },
             { result ->
-                SetZoomCommand({ null }, commandScope).execute(MethodCall("zoom", 0.5), result)
+                SetCropAreaCommand { null }.execute(
+                    MethodCall(
+                        "crop",
+                        mapOf(
+                            "viewId" to VIEW_ID,
+                            "cropRect" to emptyMap<String, Any?>(),
+                        ),
+                    ),
+                    result,
+                )
             },
             { result ->
-                ToggleFlashCommand({ null }, commandScope).execute(MethodCall("torch", null), result)
+                SetZoomCommand({ null }, commandScope).execute(
+                    MethodCall("zoom", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
+                    result,
+                )
+            },
+            { result ->
+                ToggleFlashCommand({ null }, commandScope).execute(
+                    MethodCall("torch", mapOf("viewId" to VIEW_ID)),
+                    result,
+                )
             },
         )
 
@@ -99,9 +117,13 @@ internal class ScannerCommandStateTest {
         val session = ControlSession()
         val result = mock(MethodChannel.Result::class.java)
 
-        SetZoomCommand({ session }, commandScope).execute(MethodCall("zoom", 0.5), result)
+        SetZoomCommand({ session }, commandScope).execute(
+            MethodCall("zoom", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
+            result,
+        )
 
         verify(result, never()).success(anyValue())
+        assertEquals(VIEW_ID, session.zoomViewId)
         session.zoomResult.complete(Unit)
         verify(result).success(true)
     }
@@ -111,9 +133,13 @@ internal class ScannerCommandStateTest {
         val session = ControlSession()
         val result = mock(MethodChannel.Result::class.java)
 
-        ToggleFlashCommand({ session }, commandScope).execute(MethodCall("torch", null), result)
+        ToggleFlashCommand({ session }, commandScope).execute(
+            MethodCall("torch", mapOf("viewId" to VIEW_ID)),
+            result,
+        )
 
         verify(result, never()).success(anyValue())
+        assertEquals(VIEW_ID, session.torchViewId)
         session.torchResult.complete(Unit)
         verify(result).success(true)
     }
@@ -123,7 +149,10 @@ internal class ScannerCommandStateTest {
         val session = ControlSession()
         val result = mock(MethodChannel.Result::class.java)
 
-        SetZoomCommand({ session }, commandScope).execute(MethodCall("zoom", 0.5), result)
+        SetZoomCommand({ session }, commandScope).execute(
+            MethodCall("zoom", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
+            result,
+        )
         session.zoomResult.completeExceptionally(PluginError.CameraControlError)
 
         verify(result).error(
@@ -137,6 +166,10 @@ internal class ScannerCommandStateTest {
     private class ControlSession : ScannerSession {
         val zoomResult = CompletableDeferred<Unit>()
         val torchResult = CompletableDeferred<Unit>()
+        var zoomViewId: Int? = null
+            private set
+        var torchViewId: Int? = null
+            private set
 
         override fun createView(context: Context, viewId: Int): ScannerView =
             mock(ScannerView::class.java)
@@ -145,18 +178,25 @@ internal class ScannerCommandStateTest {
             viewId: Int,
             initialZoom: Double?,
             initialCropRect: RecognizeVisorCropRect?,
+            initialFlashEnabled: Boolean?,
         ) = Unit
 
         override fun resumeCamera(viewId: Int) = Unit
         override fun pauseCamera(viewId: Int) = Unit
         override fun attachHostLifecycle(lifecycle: Lifecycle) = Unit
         override fun detachHostLifecycle() = Unit
-        override suspend fun toggleFlashLight() = torchResult.await()
+        override suspend fun toggleFlashLight(viewId: Int) {
+            torchViewId = viewId
+            torchResult.await()
+        }
         override fun startScan(viewId: Int, periodMs: Int) = Unit
         override fun pauseScan(viewId: Int) = Unit
-        override fun updateScanPeriod(periodMs: Int) = Unit
-        override suspend fun setZoom(value: Float) = zoomResult.await()
-        override fun setCropArea(cropRect: RecognizeVisorCropRect) = Unit
+        override fun updateScanPeriod(viewId: Int, periodMs: Int) = Unit
+        override suspend fun setZoom(viewId: Int, value: Float) {
+            zoomViewId = viewId
+            zoomResult.await()
+        }
+        override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) = Unit
         override fun disposeView(viewId: Int) = Unit
         override fun release() = Unit
     }

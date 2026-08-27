@@ -10,14 +10,15 @@ internal interface ScannerSession {
     /** Creates and registers a platform view. */
     fun createView(context: Context, viewId: Int): ScannerView
 
-    /** Starts the shared camera once without overriding controls retained for later views. */
+    /** Starts the shared camera and records initial controls owned by this platform view. */
     suspend fun startCamera(
         viewId: Int,
         initialZoom: Double?,
         initialCropRect: RecognizeVisorCropRect?,
+        initialFlashEnabled: Boolean?,
     )
 
-    /** Resumes camera work requested by one registered platform view. */
+    /** Selects one registered platform view and resumes its retained camera and scan state. */
     fun resumeCamera(viewId: Int)
 
     /** Pauses camera work requested by one platform view without releasing the shared camera. */
@@ -29,8 +30,8 @@ internal interface ScannerSession {
     /** Stops observing the previous Activity lifecycle and pauses shared camera work. */
     fun detachHostLifecycle()
 
-    /** Toggles the shared camera torch and waits for CameraX completion. */
-    suspend fun toggleFlashLight()
+    /** Toggles the requesting view's torch state and applies it when that view is active. */
+    suspend fun toggleFlashLight(viewId: Int)
 
     /** Starts sampled barcode analysis with a cooldown between successful results. */
     fun startScan(viewId: Int, periodMs: Int)
@@ -38,14 +39,14 @@ internal interface ScannerSession {
     /** Pauses barcode analysis requested by one platform view. */
     fun pauseScan(viewId: Int)
 
-    /** Updates the shared cooldown applied after successful barcode recognition. */
-    fun updateScanPeriod(periodMs: Int)
+    /** Updates the requesting view's cooldown applied after successful recognition. */
+    fun updateScanPeriod(viewId: Int, periodMs: Int)
 
-    /** Applies normalized zoom and waits for CameraX completion. */
-    suspend fun setZoom(value: Float)
+    /** Updates the requesting view's normalized zoom and applies it when active. */
+    suspend fun setZoom(viewId: Int, value: Float)
 
-    /** Updates the initialized shared camera barcode recognition region. */
-    fun setCropArea(cropRect: RecognizeVisorCropRect)
+    /** Updates the requesting view's barcode recognition region. */
+    fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect)
 
     /** Removes one platform view registration. */
     fun disposeView(viewId: Int)

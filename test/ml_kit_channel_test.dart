@@ -28,7 +28,8 @@ void main() {
     messenger.setMockMethodCallHandler(methodChannel, null);
   });
 
-  test('camera and scanner lifecycle commands include their viewId', () async {
+  test('camera scanner and configuration commands include their viewId',
+      () async {
     final calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(methodChannel, (call) async {
       calls.add(call);
@@ -36,7 +37,13 @@ void main() {
     });
     final channel = MlKitChannel();
 
-    await channel.setZoom(0.5);
+    await channel.setZoom(0.5, viewId: 42);
+    await channel.toggleFlash(viewId: 42);
+    await channel.setScanDelay(150, viewId: 42);
+    await channel.setCropArea(
+      const CropRect(scaleWidth: 0.5, scaleHeight: 0.75),
+      viewId: 42,
+    );
     await channel.startScan(
       RecognitionType.barcodeRecognition,
       200,
@@ -46,15 +53,26 @@ void main() {
     await channel.pauseCamera(viewId: 42);
     await channel.resumeCamera(viewId: 42);
 
-    expect(calls[0].arguments, 0.5);
-    expect(calls[1].arguments, {
+    expect(calls[0].arguments, {'viewId': 42, 'value': 0.5});
+    expect(calls[1].arguments, {'viewId': 42});
+    expect(calls[2].arguments, {'viewId': 42, 'delay': 150});
+    expect(calls[3].arguments, {
+      'viewId': 42,
+      'cropRect': {
+        'scaleWidth': 0.5,
+        'scaleHeight': 0.75,
+        'offsetX': 0.0,
+        'offsetY': 0.0,
+      },
+    });
+    expect(calls[4].arguments, {
       'viewId': 42,
       'type': RecognitionType.barcodeRecognition.rawValue,
       'delay': 200,
     });
-    expect(calls[2].arguments, {'viewId': 42});
-    expect(calls[3].arguments, {'viewId': 42});
-    expect(calls[4].arguments, {'viewId': 42});
+    expect(calls[5].arguments, {'viewId': 42});
+    expect(calls[6].arguments, {'viewId': 42});
+    expect(calls[7].arguments, {'viewId': 42});
   });
 
   test('camera initialization sends initial settings directly', () async {
@@ -68,6 +86,7 @@ void main() {
     await channel.initCameraPreview(
       viewId: 42,
       initialZoom: 0.4,
+      initialFlashEnabled: true,
       initialCropRect: const CropRect(
         scaleWidth: 0.5,
         scaleHeight: 0.75,
@@ -83,6 +102,7 @@ void main() {
     expect(initCall?.arguments, {
       'viewId': 42,
       'initialZoom': 0.4,
+      'initialFlashEnabled': true,
       'initialCropRect': {
         'scaleWidth': 0.5,
         'scaleHeight': 0.75,
@@ -93,6 +113,25 @@ void main() {
         'position': 1,
         'type': 0,
       },
+    });
+  });
+
+  test('camera initialization sends an explicit disabled flash state',
+      () async {
+    MethodCall? initCall;
+    messenger.setMockMethodCallHandler(methodChannel, (call) async {
+      if (call.method == 'initCameraPreview') initCall = call;
+      return null;
+    });
+
+    await MlKitChannel().initCameraPreview(
+      viewId: 42,
+      initialFlashEnabled: false,
+    );
+
+    expect(initCall?.arguments, {
+      'viewId': 42,
+      'initialFlashEnabled': false,
     });
   });
 

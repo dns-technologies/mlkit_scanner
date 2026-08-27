@@ -28,6 +28,9 @@ class CameraPreview extends StatefulWidget {
   /// Optional normalized zoom applied before the preview becomes visible.
   final double? initialZoom;
 
+  /// Optional torch state applied during camera initialization.
+  final bool? initialFlashEnabled;
+
   /// Optional recognition area applied during camera initialization.
   final CropRect? initialCropRect;
 
@@ -38,6 +41,7 @@ class CameraPreview extends StatefulWidget {
     Key? key,
     required this.onCameraInitialized,
     this.initialZoom,
+    this.initialFlashEnabled,
     this.initialCropRect,
     this.initialCamera,
     this.onCameraInitializeError,
@@ -121,6 +125,7 @@ class _CameraPreviewState extends State<CameraPreview> {
       await _channel.initCameraPreview(
         viewId: id,
         initialZoom: widget.initialZoom,
+        initialFlashEnabled: widget.initialFlashEnabled,
         initialCropRect: widget.initialCropRect,
         initialCamera: widget.initialCamera,
       );

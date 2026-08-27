@@ -11,12 +11,19 @@ internal object ScannerMethodArguments {
         val viewId: Int,
         val initialZoom: Double?,
         val initialCropRect: RecognizeVisorCropRect?,
+        val initialFlashEnabled: Boolean?,
     )
 
     /** Typed arguments required to start barcode recognition. */
     data class ScanOptions(
         val viewId: Int,
         val periodMs: Int,
+    )
+
+    /** One typed configuration value addressed to a platform view. */
+    data class ViewValue<T>(
+        val viewId: Int,
+        val value: T,
     )
 
     /** Parses camera initialization arguments, including optional startup controls. */
@@ -28,6 +35,7 @@ internal object ScannerMethodArguments {
                 ?.requireInRange(MIN_ZOOM, MAX_ZOOM),
             initialCropRect = map.optionalMap(PluginConstants.initialCropRectArgument)
                 ?.let(::cropRect),
+            initialFlashEnabled = map.optionalBoolean(PluginConstants.initialFlashEnabledArgument),
         )
     }
 
@@ -42,20 +50,37 @@ internal object ScannerMethodArguments {
         if (recognitionType != BARCODE_RECOGNITION_TYPE) throw PluginError.InvalidArguments
         return ScanOptions(
             viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
-            periodMs = map.requireInt(SCAN_DELAY_ARGUMENT, minimum = 0),
+            periodMs = map.requireInt(PluginConstants.delayArgument, minimum = 0),
         )
     }
 
-    /** Parses normalized linear camera zoom in the CameraX-supported range. */
-    fun zoom(arguments: Any?): Float = arguments.requireFiniteDouble()
-        .requireInRange(MIN_ZOOM, MAX_ZOOM)
-        .toFloat()
+    /** Parses view identity and normalized linear camera zoom. */
+    fun zoom(arguments: Any?): ViewValue<Float> = arguments.requireMap().let { map ->
+        ViewValue(
+            viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
+            value = map[PluginConstants.valueArgument]
+                .requireFiniteDouble()
+                .requireInRange(MIN_ZOOM, MAX_ZOOM)
+                .toFloat(),
+        )
+    }
 
-    /** Parses a non-negative cooldown after successful recognition. */
-    fun scanDelay(arguments: Any?): Int = arguments.requireInt(minimum = 0)
+    /** Parses view identity and a non-negative cooldown after successful recognition. */
+    fun scanDelay(arguments: Any?): ViewValue<Int> = arguments.requireMap().let { map ->
+        ViewValue(
+            viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
+            value = map.requireInt(PluginConstants.delayArgument, minimum = 0),
+        )
+    }
 
-    /** Parses a finite crop rectangle with positive width and height scales. */
-    fun cropRect(arguments: Any?): RecognizeVisorCropRect = cropRect(arguments.requireMap())
+    /** Parses view identity and a finite crop rectangle with positive width and height scales. */
+    fun cropRect(arguments: Any?): ViewValue<RecognizeVisorCropRect> =
+        arguments.requireMap().let { map ->
+            ViewValue(
+                viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
+                value = cropRect(map.requireMap(PluginConstants.cropRectArgument)),
+            )
+        }
 
     private fun cropRect(map: Map<*, *>): RecognizeVisorCropRect {
         val scaleWidth = map.optionalFiniteDouble(SCALE_WIDTH_ARGUMENT) ?: DEFAULT_SCALE
@@ -82,6 +107,15 @@ internal object ScannerMethodArguments {
         null -> null
         else -> value.requireFiniteDouble()
     }
+
+    private fun Map<*, *>.optionalBoolean(key: String): Boolean? = when (val value = this[key]) {
+        null -> null
+        is Boolean -> value
+        else -> throw PluginError.InvalidArguments
+    }
+
+    private fun Map<*, *>.requireMap(key: String): Map<*, *> =
+        optionalMap(key) ?: throw PluginError.InvalidArguments
 
     private fun Map<*, *>.requireInt(key: String, minimum: Int): Int =
         this[key].requireInt(minimum)
@@ -130,7 +164,6 @@ internal object ScannerMethodArguments {
     }
 
     private const val RECOGNITION_TYPE_ARGUMENT = "type"
-    private const val SCAN_DELAY_ARGUMENT = "delay"
     private const val SCALE_WIDTH_ARGUMENT = "scaleWidth"
     private const val SCALE_HEIGHT_ARGUMENT = "scaleHeight"
     private const val OFFSET_X_ARGUMENT = "offsetX"

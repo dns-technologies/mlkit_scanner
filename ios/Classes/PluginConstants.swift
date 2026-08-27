@@ -21,6 +21,10 @@ class PluginConstants {
     static let initialCameraArgument = "initialCamera"
     /// Event key containing a scalar event value.
     static let valueArgument = "value"
+    /// Argument key containing the scan cooldown.
+    static let delayArgument = "delay"
+    /// Argument key containing a recognition area.
+    static let cropRectArgument = "cropRect"
     /// Method name for camera initialization.
     static let initCameraMethod = "initCameraPreview"
     /// Method name for cleaning camera resources.

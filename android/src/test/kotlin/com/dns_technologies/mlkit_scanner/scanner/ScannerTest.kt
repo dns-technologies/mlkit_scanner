@@ -63,7 +63,6 @@ internal class ScannerTest {
 
         fixture.emitFrame()
 
-        assertEquals(cropArea, fixture.scanner.currentCropArea)
         assertEquals(Rect(180, 320, 540, 960), fixture.lastCropRect)
     }
 
@@ -319,7 +318,9 @@ internal class ScannerTest {
 
         override fun isActive(): Boolean = onFrame != null
 
-        override fun toggleFlashLight(): Deferred<Unit> = CompletableDeferred(Unit)
+        override fun isFlashSupported(): Boolean = true
+
+        override fun setTorch(enabled: Boolean): Deferred<Unit> = CompletableDeferred(Unit)
 
         override fun focusOnCenter(
             resetDelayMs: Long,
@@ -334,6 +335,8 @@ internal class ScannerTest {
         }
 
         override fun showPreview() = Unit
+
+        override fun hidePreview() = Unit
 
         override fun dispose() {
             onFrame = null

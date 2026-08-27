@@ -11,8 +11,8 @@ internal class SetScanDelayCommand(
     scannerSessionProvider: () -> ScannerSession?,
 ) : ScannerCommand(scannerSessionProvider) {
     override fun executeCommand(call: MethodCall, result: Result) {
-        val delay = ScannerMethodArguments.scanDelay(call.arguments)
-        requireScannerSession().updateScanPeriod(delay)
+        val arguments = ScannerMethodArguments.scanDelay(call.arguments)
+        requireScannerSession().updateScanPeriod(arguments.viewId, arguments.value)
         success(result)
     }
 }

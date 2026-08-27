@@ -29,6 +29,9 @@ class BarcodeScanner extends StatefulWidget {
   /// Optional normalized zoom applied before the preview becomes visible.
   final double? initialZoom;
 
+  /// Initial torch state.
+  final bool initialFlashEnabled;
+
   /// Optional recognition area applied during camera initialization.
   final CropRect? initialCropRect;
 
@@ -39,6 +42,7 @@ class BarcodeScanner extends StatefulWidget {
     required this.onScan,
     required this.onScannerInitialized,
     this.initialZoom,
+    this.initialFlashEnabled = false,
     this.initialCropRect,
     this.initialCamera,
     this.onCameraInitializeError,
@@ -66,18 +70,10 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   @override
-  void didUpdateWidget(covariant BarcodeScanner oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialCropRect != widget.initialCropRect &&
-        widget.initialCropRect != null) {
-      _channel.setCropArea(widget.initialCropRect!);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     return CameraPreview(
       initialZoom: widget.initialZoom,
+      initialFlashEnabled: widget.initialFlashEnabled,
       initialCropRect: widget.initialCropRect,
       initialCamera: widget.initialCamera,
       onCameraInitializeError: widget.onCameraInitializeError,
@@ -122,7 +118,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   Future<void> _toggleFlash() {
-    return _channel.toggleFlash();
+    return _channel.toggleFlash(viewId: _requireViewId());
   }
 
   Future<void> _startScan(int delay) async {
@@ -138,7 +134,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   Future<void> _setDelay(int delay) {
-    return _channel.setScanDelay(delay);
+    return _channel.setScanDelay(delay, viewId: _requireViewId());
   }
 
   Future<void> _pauseCamera() {
@@ -150,11 +146,11 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   }
 
   Future<void> _setZoom(double value) {
-    return _channel.setZoom(value);
+    return _channel.setZoom(value, viewId: _requireViewId());
   }
 
   Future<void> _setCropArea(CropRect rect) {
-    return _channel.setCropArea(rect);
+    return _channel.setCropArea(rect, viewId: _requireViewId());
   }
 
   Future<void> _setIosCamera({

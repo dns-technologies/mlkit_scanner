@@ -53,13 +53,10 @@ internal class CameraControlState {
             else zoom.complete(operation, succeeded, cameraOpenRevision)
         }
 
-    /** Starts a user torch toggle from the latest logical torch value. */
-    fun beginTorchToggle(currentTorchEnabled: Boolean): Operation<Boolean> = synchronized(lock) {
+    /** Starts an absolute user torch request, superseding pending torch restoration. */
+    fun beginTorch(enabled: Boolean): Operation<Boolean> = synchronized(lock) {
         check(!disposed)
-        torch.beginUserOperation(
-            !torch.logicalValue(currentTorchEnabled),
-            cameraOpenRevision,
-        )
+        torch.beginUserOperation(enabled, cameraOpenRevision)
     }
 
     /** Starts torch restoration when required for the currently open camera. */
@@ -108,12 +105,6 @@ internal class CameraControlState {
 
         private var revision = 0L
         private var activeOperation: Operation<T>? = null
-
-        fun logicalValue(fallback: T): T = activeOperation
-            ?.takeIf { it.userInitiated }
-            ?.value
-            ?: retainedValue
-            ?: fallback
 
         fun beginUserOperation(value: T, cameraOpenRevision: Long): Operation<T> {
             revision += 1

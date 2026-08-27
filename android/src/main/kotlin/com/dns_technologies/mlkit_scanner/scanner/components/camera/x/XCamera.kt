@@ -126,20 +126,21 @@ class XCamera(
     /** Returns true when a CameraX camera is currently bound. */
     override fun isActive(): Boolean = cameraState is BoundCamera
 
-    /** Toggles torch state for the active CameraX camera. */
-    override fun toggleFlashLight(): Deferred<Unit> {
+    /** Returns whether the active CameraX camera exposes a flash unit. */
+    override fun isFlashSupported(): Boolean = isFlashSupported(
+        cameraState as? BoundCamera ?: throw PluginError.CameraIsNotInitialized,
+    )
+
+    /** Applies an absolute torch state for the active CameraX camera. */
+    override fun setTorch(enabled: Boolean): Deferred<Unit> {
         val current = cameraState as? BoundCamera
             ?: throw PluginError.CameraIsNotInitialized
-        if (!current.camera.cameraInfo.hasFlashUnit()) {
+        if (!isFlashSupported(current)) {
+            if (!enabled) return CompletableDeferred(Unit)
             throw PluginError.DeviceHasNotFlash
         }
 
-        return executeTorchOperation(
-            current,
-            current.controlState.beginTorchToggle(
-                current.camera.cameraInfo.torchState.value == TorchState.ON,
-            ),
-        )
+        return executeTorchOperation(current, current.controlState.beginTorch(enabled))
     }
 
     /** Starts CameraX focus and metering around the provided preview offsets. */
@@ -184,6 +185,11 @@ class XCamera(
     override fun showPreview() {
         if (!isActive()) throw PluginError.CameraIsNotInitialized
         previewView.alpha = 1.0F
+    }
+
+    /** Hides preview without changing CameraX bindings or analysis resources. */
+    override fun hidePreview() {
+        previewView.alpha = 0.0F
     }
 
     /** Releases CameraX bindings owned by this adapter. */
@@ -396,6 +402,9 @@ class XCamera(
     private fun stopObservingCameraState(current: BoundCamera) {
         current.camera.cameraInfo.cameraState.removeObserver(current.cameraStateObserver)
     }
+
+    private fun isFlashSupported(current: BoundCamera): Boolean =
+        current.camera.cameraInfo.hasFlashUnit()
 
     private fun createCameraStateObserver(
         camera: AndroidXCamera,

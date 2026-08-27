@@ -45,6 +45,7 @@ internal class InitCameraCommandTest {
         assertEquals(VIEW_ID, scannerSession.startViewId)
         assertNull(scannerSession.startInitialZoom)
         assertNull(scannerSession.startInitialCropRect)
+        assertNull(scannerSession.startInitialFlashEnabled)
         verify(result).success(true)
     }
 
@@ -66,6 +67,7 @@ internal class InitCameraCommandTest {
                 mapOf(
                     "viewId" to VIEW_ID,
                     "initialZoom" to 0.4,
+                    "initialFlashEnabled" to true,
                     "initialCropRect" to mapOf(
                         "scaleWidth" to 0.5,
                         "scaleHeight" to 0.75,
@@ -90,6 +92,7 @@ internal class InitCameraCommandTest {
             ),
             scannerSession.startInitialCropRect,
         )
+        assertEquals(true, scannerSession.startInitialFlashEnabled)
         verify(result).success(true)
     }
 
@@ -156,6 +159,8 @@ internal class InitCameraCommandTest {
             private set
         var startViewId: Int? = null
             private set
+        var startInitialFlashEnabled: Boolean? = null
+            private set
         var startError: Exception? = null
         override fun createView(context: Context, viewId: Int): ScannerView =
             mock(ScannerView::class.java)
@@ -164,24 +169,26 @@ internal class InitCameraCommandTest {
             viewId: Int,
             initialZoom: Double?,
             initialCropRect: RecognizeVisorCropRect?,
+            initialFlashEnabled: Boolean?,
         ) {
             startError?.let { throw it }
             startCalls += 1
             startViewId = viewId
             startInitialZoom = initialZoom
             startInitialCropRect = initialCropRect
+            startInitialFlashEnabled = initialFlashEnabled
         }
 
         override fun resumeCamera(viewId: Int) = Unit
         override fun pauseCamera(viewId: Int) = Unit
         override fun attachHostLifecycle(lifecycle: Lifecycle) = Unit
         override fun detachHostLifecycle() = Unit
-        override suspend fun toggleFlashLight() = Unit
+        override suspend fun toggleFlashLight(viewId: Int) = Unit
         override fun startScan(viewId: Int, periodMs: Int) = Unit
         override fun pauseScan(viewId: Int) = Unit
-        override fun updateScanPeriod(periodMs: Int) = Unit
-        override suspend fun setZoom(value: Float) = Unit
-        override fun setCropArea(cropRect: RecognizeVisorCropRect) = Unit
+        override fun updateScanPeriod(viewId: Int, periodMs: Int) = Unit
+        override suspend fun setZoom(viewId: Int, value: Float) = Unit
+        override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) = Unit
         override fun disposeView(viewId: Int) = Unit
         override fun release() = Unit
     }

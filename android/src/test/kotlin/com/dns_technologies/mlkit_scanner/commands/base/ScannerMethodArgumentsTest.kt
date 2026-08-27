@@ -14,6 +14,7 @@ internal class ScannerMethodArgumentsTest {
             mapOf(
                 "viewId" to 42L,
                 "initialZoom" to 0.75F,
+                "initialFlashEnabled" to true,
                 "initialCropRect" to mapOf(
                     "scaleWidth" to 0.5F,
                     "scaleHeight" to 0.6,
@@ -25,6 +26,7 @@ internal class ScannerMethodArgumentsTest {
 
         assertEquals(42, arguments.viewId)
         assertEquals(0.75, arguments.initialZoom)
+        assertEquals(true, arguments.initialFlashEnabled)
         assertEquals(
             RecognizeVisorCropRect(0.5, 0.6, 0.1, -0.2),
             arguments.initialCropRect,
@@ -37,6 +39,12 @@ internal class ScannerMethodArgumentsTest {
 
         assertNull(arguments.initialZoom)
         assertNull(arguments.initialCropRect)
+        assertNull(arguments.initialFlashEnabled)
+        assertInvalid {
+            ScannerMethodArguments.cameraInitialization(
+                mapOf("viewId" to 1, "initialFlashEnabled" to 1),
+            )
+        }
     }
 
     @Test
@@ -64,16 +72,30 @@ internal class ScannerMethodArgumentsTest {
 
     @Test
     fun `zoom rejects non-finite and out-of-range values`() {
-        assertEquals(0.5F, ScannerMethodArguments.zoom(0.5))
+        assertEquals(
+            ScannerMethodArguments.ViewValue(viewId = 42, value = 0.5F),
+            ScannerMethodArguments.zoom(mapOf("viewId" to 42, "value" to 0.5)),
+        )
 
         listOf(Double.NaN, Double.POSITIVE_INFINITY, -0.01, 1.01, "0.5").forEach { value ->
-            assertInvalid { ScannerMethodArguments.zoom(value) }
+            assertInvalid {
+                ScannerMethodArguments.zoom(mapOf("viewId" to 42, "value" to value))
+            }
         }
+        assertInvalid { ScannerMethodArguments.zoom(mapOf("value" to 0.5)) }
     }
 
     @Test
     fun `crop uses defaults and rejects invalid components`() {
-        assertEquals(RecognizeVisorCropRect(), ScannerMethodArguments.cropRect(emptyMap<String, Any?>()))
+        assertEquals(
+            ScannerMethodArguments.ViewValue(
+                viewId = 42,
+                value = RecognizeVisorCropRect(),
+            ),
+            ScannerMethodArguments.cropRect(
+                mapOf("viewId" to 42, "cropRect" to emptyMap<String, Any?>()),
+            ),
+        )
 
         listOf(
             mapOf("scaleWidth" to 0.0),
@@ -82,8 +104,23 @@ internal class ScannerMethodArgumentsTest {
             mapOf("offsetY" to Double.NEGATIVE_INFINITY),
             mapOf("scaleWidth" to "0.5"),
         ).forEach { arguments ->
-            assertInvalid { ScannerMethodArguments.cropRect(arguments) }
+            assertInvalid {
+                ScannerMethodArguments.cropRect(
+                    mapOf("viewId" to 42, "cropRect" to arguments),
+                )
+            }
         }
+        assertInvalid { ScannerMethodArguments.cropRect(mapOf("viewId" to 42)) }
+    }
+
+    @Test
+    fun `scan delay is scoped to a view and rejects invalid values`() {
+        assertEquals(
+            ScannerMethodArguments.ViewValue(viewId = 42, value = 150),
+            ScannerMethodArguments.scanDelay(mapOf("viewId" to 42, "delay" to 150L)),
+        )
+        assertInvalid { ScannerMethodArguments.scanDelay(mapOf("viewId" to 42, "delay" to -1)) }
+        assertInvalid { ScannerMethodArguments.scanDelay(mapOf("delay" to 150)) }
     }
 
     @Test

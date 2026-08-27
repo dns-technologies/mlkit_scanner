@@ -46,10 +46,6 @@ class Scanner(
     val previewView: View
         get() = camera.previewView
 
-    /** Current recognition area reapplied only to newly attached preview overlays. */
-    val currentCropArea: RecognizeVisorCropRect?
-        get() = cropArea
-
     /** Starts the delegated camera and wires common frame handling. */
     fun startCamera(
         lifecycleOwner: LifecycleOwner,
@@ -72,8 +68,11 @@ class Scanner(
     /** Returns true when the scanner camera is active. */
     fun isActive(): Boolean = camera.isActive()
 
-    /** Toggles torch state through the active camera component. */
-    fun toggleFlashLight() = camera.toggleFlashLight()
+    /** Returns whether the active camera exposes a flash unit. */
+    fun isFlashSupported(): Boolean = camera.isFlashSupported()
+
+    /** Applies torch state through the active camera component. */
+    fun setTorch(enabled: Boolean) = camera.setTorch(enabled)
 
     /** Starts camera focus and metering around the visual scanner focus point. */
     fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) =
@@ -122,6 +121,9 @@ class Scanner(
 
     /** Reveals camera preview after startup controls have been applied. */
     fun showPreview() = camera.showPreview()
+
+    /** Hides camera preview until the active platform view configuration is restored. */
+    fun hidePreview() = camera.hidePreview()
 
     /** Releases scanner components and stops pending analysis work. */
     fun dispose() {

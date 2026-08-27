@@ -13,8 +13,8 @@ internal class SetZoomCommand(
     commandScope: CoroutineScope,
 ) : AsyncScannerCommand(scannerSessionProvider, commandScope) {
     override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
-        val value = ScannerMethodArguments.zoom(call.arguments)
-        requireScannerSession().setZoom(value)
+        val arguments = ScannerMethodArguments.zoom(call.arguments)
+        requireScannerSession().setZoom(arguments.viewId, arguments.value)
         success(result)
     }
 }
