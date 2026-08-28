@@ -6,7 +6,7 @@ import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 
 /** Creates a scanner platform view for the supplied Flutter platform-view id. */
-typealias CreateScannerView = (context: Context, viewId: Int) -> ScannerView
+typealias CreateScannerView = (context: Context, viewId: Int, creationParams: Any?) -> ScannerView
 
 /**
  * Creates scanner camera platform views.
@@ -21,6 +21,7 @@ class ScannerViewFactory(
         return createScannerView(
             requireNotNull(context) { "Flutter did not provide a platform-view context" },
             viewId,
+            args,
         )
     }
 }

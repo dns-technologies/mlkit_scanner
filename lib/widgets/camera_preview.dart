@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -9,10 +7,7 @@ import 'package:mlkit_scanner/models/crop_rect.dart';
 import 'package:mlkit_scanner/models/ios_camera.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 
-/// Signature for the CameraPreview error function.
-typedef CameraInitilizeError = void Function(PlatformException);
-
-/// Signature for a successful camera initialization callback.
+/// Signature for a platform view that is ready to capture the camera.
 typedef CameraInitialized = void Function(int viewId);
 
 /// Camera Preview of the device camera.
@@ -21,9 +16,6 @@ typedef CameraInitialized = void Function(int viewId);
 class CameraPreview extends StatefulWidget {
   /// Callback when device camera initialize.
   final CameraInitialized onCameraInitialized;
-
-  /// Callback if camera cannot be initialized.
-  final CameraInitilizeError? onCameraInitializeError;
 
   /// Optional normalized zoom applied before the preview becomes visible.
   final double? initialZoom;
@@ -44,7 +36,6 @@ class CameraPreview extends StatefulWidget {
     this.initialFlashEnabled,
     this.initialCropRect,
     this.initialCamera,
-    this.onCameraInitializeError,
   }) : super(key: key);
 
   @override
@@ -53,7 +44,6 @@ class CameraPreview extends StatefulWidget {
 
 class _CameraPreviewState extends State<CameraPreview> {
   late MlKitChannel _channel;
-  int? _viewId;
 
   @override
   void initState() {
@@ -69,7 +59,7 @@ class _CameraPreviewState extends State<CameraPreview> {
         if (defaultTargetPlatform == TargetPlatform.iOS) {
           return UiKitView(
             viewType: 'mlkit/camera_preview',
-            onPlatformViewCreated: _onViewCreated,
+            onPlatformViewCreated: widget.onCameraInitialized,
             creationParamsCodec: const StandardMessageCodec(),
             creationParams: {
               'width': constraints.maxWidth,
@@ -96,42 +86,25 @@ class _CameraPreviewState extends State<CameraPreview> {
               viewType: 'mlkit/camera_preview',
               layoutDirection: TextDirection.ltr,
               creationParams: {
+                'viewId': params.id,
                 'width': constraints.maxWidth,
                 'height': constraints.maxHeight,
+                if (widget.initialZoom != null)
+                  'initialZoom': widget.initialZoom,
+                'initialFlashEnabled': widget.initialFlashEnabled,
+                if (widget.initialCropRect != null)
+                  'initialCropRect': widget.initialCropRect!.toJson(),
               },
               creationParamsCodec: const StandardMessageCodec(),
             )
               ..addOnPlatformViewCreatedListener((id) {
                 params.onPlatformViewCreated(id);
-                _onViewCreated(id);
+                widget.onCameraInitialized(id);
               })
               ..create();
           },
         );
       },
     );
-  }
-
-  @override
-  void dispose() {
-    final viewId = _viewId;
-    if (viewId != null) _channel.dispose(viewId: viewId);
-    super.dispose();
-  }
-
-  Future<void> _onViewCreated(int id) async {
-    _viewId = id;
-    try {
-      await _channel.initCameraPreview(
-        viewId: id,
-        initialZoom: widget.initialZoom,
-        initialFlashEnabled: widget.initialFlashEnabled,
-        initialCropRect: widget.initialCropRect,
-        initialCamera: widget.initialCamera,
-      );
-      widget.onCameraInitialized(id);
-    } on PlatformException catch (e) {
-      widget.onCameraInitializeError?.call(e);
-    }
   }
 }

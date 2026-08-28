@@ -8,13 +8,13 @@ internal object PluginConstants {
     /** Event key containing the recognized barcode payload. */
     const val barcodeArgument = "barcode"
 
-    /** Optional camera-initialization argument containing normalized zoom. */
+    /** Optional view-registration argument containing normalized zoom. */
     const val initialZoomArgument = "initialZoom"
 
-    /** Optional camera-initialization argument containing the initial torch state. */
+    /** Optional view-registration argument containing the initial torch state. */
     const val initialFlashEnabledArgument = "initialFlashEnabled"
 
-    /** Optional camera-initialization argument containing the recognition area. */
+    /** Optional view-registration argument containing the recognition area. */
     const val initialCropRectArgument = "initialCropRect"
 
     /** Argument key containing a camera-control value. */
@@ -32,8 +32,11 @@ internal object PluginConstants {
     /** Platform view type name registered for the native camera preview. */
     const val cameraPlatformViewName = "mlkit/camera_preview"
 
-    /** Method name used to initialize the native camera preview. */
-    const val initCameraMethod = "initCameraPreview"
+    /** Method name used to transfer camera ownership to one registered platform view. */
+    const val captureCameraMethod = "captureCamera"
+
+    /** Method name used to release camera ownership held by one platform view. */
+    const val releaseCameraMethod = "releaseCamera"
 
     /** Method name used to select and resume a platform view's camera preview. */
     const val resumeCameraMethod = "resumeCameraMethod"
@@ -43,9 +46,6 @@ internal object PluginConstants {
 
     /** Method name used to pause the camera preview lifecycle. */
     const val pauseCameraMethod = "pauseCameraMethod"
-
-    /** Method name used to release native camera resources. */
-    const val disposeCameraMethod = "dispose"
 
     /** Method name used to toggle the camera torch. */
     const val toggleFlashMethod = "toggleFlash"

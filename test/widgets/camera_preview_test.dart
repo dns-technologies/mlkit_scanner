@@ -3,6 +3,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mlkit_scanner/models/crop_rect.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 void main() {
@@ -10,149 +11,112 @@ void main() {
 
   group('$CameraPreview', () {
     const channel = MethodChannel('mlkit_channel');
+    const messageCodec = StandardMessageCodec();
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
-    Widget _buildApp({
-      required Function(int) onCameraInitialized,
-      Function(PlatformException)? onCameraInitializeError,
+    Widget buildApp({
+      required ValueChanged<int> onCameraInitialized,
+      double? initialZoom,
+      bool? initialFlashEnabled,
+      CropRect? initialCropRect,
     }) {
       return MaterialApp(
         home: CameraPreview(
           onCameraInitialized: onCameraInitialized,
-          onCameraInitializeError: onCameraInitializeError,
+          initialZoom: initialZoom,
+          initialFlashEnabled: initialFlashEnabled,
+          initialCropRect: initialCropRect,
         ),
       );
     }
 
     setUp(() {
       messenger.setMockMethodCallHandler(channel, (call) async => null);
-
       messenger.setMockMethodCallHandler(
         SystemChannels.platform_views,
-        (call) async {
-          switch (call.method) {
-            default:
-              return null;
-          }
-        },
+        (call) async => null,
       );
     });
 
     tearDown(() {
+      debugDefaultTargetPlatformOverride = null;
       messenger.setMockMethodCallHandler(channel, null);
       messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
     });
 
-    group('Инициализация виджета при успешной инициализации камеры', () {
-      testWidgets('Android', (tester) async {
-        debugDefaultTargetPlatformOverride = TargetPlatform.android;
-        var cameraInitialized = false;
-        int? initializedViewId;
-        MethodCall? initCall;
-        MethodCall? disposeCall;
-        PlatformException? error;
-        messenger.setMockMethodCallHandler(channel, (call) async {
-          if (call.method == 'initCameraPreview') initCall = call;
-          if (call.method == 'dispose') disposeCall = call;
-          return null;
-        });
-
-        await tester.pumpWidget(_buildApp(
-          onCameraInitialized: (viewId) {
-            cameraInitialized = true;
-            initializedViewId = viewId;
-          },
-          onCameraInitializeError: (e) => error = e,
-        ));
-
-        final platformView = find.byType(PlatformViewLink);
-        await tester.pumpAndSettle();
-        final surface = tester.widget<AndroidViewSurface>(
-          find.byType(AndroidViewSurface),
-        );
-        expect(
-          surface.gestureRecognizers.map((factory) => factory.type).toSet(),
-          {TapGestureRecognizer, LongPressGestureRecognizer},
-        );
-        expect(platformView, findsOneWidget,
-            reason: "Не отображается нативный виджет");
-        expect(cameraInitialized, true,
-            reason: 'Не вызвался колбек при успешной инициализации камеры');
-        expect(error, isNull,
-            reason: "Не должно быть ошибки инициализации камеры");
-        expect(initCall?.arguments, {'viewId': initializedViewId});
-        await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pump();
-        expect(disposeCall?.arguments, {'viewId': initializedViewId});
-        debugDefaultTargetPlatformOverride = null;
-      });
-
-      testWidgets('IOS', (tester) async {
-        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-        var cameraInitialized = false;
-        int? initializedViewId;
-        MethodCall? initCall;
-        MethodCall? disposeCall;
-        PlatformException? error;
-        messenger.setMockMethodCallHandler(channel, (call) async {
-          if (call.method == 'initCameraPreview') initCall = call;
-          if (call.method == 'dispose') disposeCall = call;
-          return null;
-        });
-
-        await tester.pumpWidget(_buildApp(
-          onCameraInitialized: (viewId) {
-            cameraInitialized = true;
-            initializedViewId = viewId;
-          },
-          onCameraInitializeError: (e) => error = e,
-        ));
-
-        final platformView = find.byType(UiKitView);
-        final widget = tester.firstWidget(platformView) as UiKitView;
-
-        widget.onPlatformViewCreated!(1);
-        await tester.pumpAndSettle();
-        expect(platformView, findsOneWidget,
-            reason: "Не отображается нативный виджет");
-        expect(cameraInitialized, true,
-            reason: 'Не вызвался колбек при успешной инициализации камеры');
-        expect(error, isNull,
-            reason: "Не должно быть ошибки инициализации камеры");
-        expect(initializedViewId, 1);
-        expect(initCall?.arguments, {'viewId': 1});
-        await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pump();
-        expect(disposeCall?.arguments, {'viewId': 1});
-        debugDefaultTargetPlatformOverride = null;
-      });
-    });
-
-    testWidgets('Инициализация виджета при ошибке инициализации камеры',
+    testWidgets('Android registers configured native view without channel init',
         (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final channelCalls = <MethodCall>[];
+      MethodCall? platformCreateCall;
+      int? initializedViewId;
       messenger.setMockMethodCallHandler(channel, (call) async {
-        if (call.method == 'initCameraPreview') {
-          throw PlatformException(code: "911", message: "Ошибочка");
-        }
+        channelCalls.add(call);
         return null;
       });
-      var cameraInitialized = false;
-      late PlatformException error;
+      messenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        (call) async {
+          if (call.method == 'create') platformCreateCall = call;
+          return null;
+        },
+      );
 
-      await tester.pumpWidget(_buildApp(
-        onCameraInitialized: (_) => cameraInitialized = true,
-        onCameraInitializeError: (e) => error = e,
+      await tester.pumpWidget(buildApp(
+        onCameraInitialized: (viewId) => initializedViewId = viewId,
+        initialZoom: 0.4,
+        initialFlashEnabled: false,
+        initialCropRect: const CropRect(
+          scaleWidth: 0.5,
+          scaleHeight: 0.75,
+          offsetX: 0.1,
+          offsetY: -0.1,
+        ),
       ));
-
-      final platformView = find.byType(PlatformViewLink);
       await tester.pumpAndSettle();
-      expect(platformView, findsOneWidget,
-          reason: "Не отображается нативный виджет");
-      expect(cameraInitialized, false,
-          reason: 'Колбек инициализации не должен вызываться при ошибке');
-      expect(error.message, "Ошибочка",
-          reason: "Должна вернуться ошибка инициализации камеры");
+
+      expect(find.byType(PlatformViewLink), findsOneWidget);
+      final surface = tester.widget<AndroidViewSurface>(
+        find.byType(AndroidViewSurface),
+      );
+      expect(
+        surface.gestureRecognizers.map((factory) => factory.type).toSet(),
+        {TapGestureRecognizer, LongPressGestureRecognizer},
+      );
+      expect(initializedViewId, isNotNull);
+      expect(
+        channelCalls.map((call) => call.method),
+        isNot(contains('initCameraPreview')),
+      );
+
+      final createArguments =
+          Map<Object?, Object?>.from(platformCreateCall!.arguments as Map);
+      final encodedParams = createArguments['params']! as Uint8List;
+      final creationParams = Map<Object?, Object?>.from(
+        messageCodec.decodeMessage(ByteData.sublistView(encodedParams)) as Map,
+      );
+      expect(creationParams, {
+        'viewId': initializedViewId,
+        'width': 800.0,
+        'height': 600.0,
+        'initialZoom': 0.4,
+        'initialFlashEnabled': false,
+        'initialCropRect': {
+          'scaleWidth': 0.5,
+          'scaleHeight': 0.75,
+          'offsetX': 0.1,
+          'offsetY': -0.1,
+        },
+      });
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(
+        channelCalls.map((call) => call.method),
+        isNot(contains('dispose')),
+      );
+      debugDefaultTargetPlatformOverride = null;
     });
   });
 }

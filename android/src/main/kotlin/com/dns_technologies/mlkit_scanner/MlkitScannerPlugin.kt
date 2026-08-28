@@ -4,9 +4,9 @@ import android.os.Handler
 import android.os.Looper
 import androidx.lifecycle.Lifecycle
 import com.dns_technologies.mlkit_scanner.commands.CancelScanCommand
-import com.dns_technologies.mlkit_scanner.commands.DisposeCameraCommand
-import com.dns_technologies.mlkit_scanner.commands.InitCameraCommand
+import com.dns_technologies.mlkit_scanner.commands.CaptureCameraCommand
 import com.dns_technologies.mlkit_scanner.commands.PauseCameraCommand
+import com.dns_technologies.mlkit_scanner.commands.ReleaseCameraCommand
 import com.dns_technologies.mlkit_scanner.commands.ResumeCameraCommand
 import com.dns_technologies.mlkit_scanner.commands.SetCropAreaCommand
 import com.dns_technologies.mlkit_scanner.commands.SetScanDelayCommand
@@ -14,6 +14,7 @@ import com.dns_technologies.mlkit_scanner.commands.SetZoomCommand
 import com.dns_technologies.mlkit_scanner.commands.StartScanCommand
 import com.dns_technologies.mlkit_scanner.commands.ToggleFlashCommand
 import com.dns_technologies.mlkit_scanner.commands.UpdateConstraintsCommand
+import com.dns_technologies.mlkit_scanner.commands.base.ScannerMethodArguments
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.models.ScannerSessionImpl
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
@@ -108,14 +109,15 @@ class MlkitScannerPlugin internal constructor(
     /** Routes Flutter method channel calls to scanner initialization and command handlers. */
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
-            PluginConstants.initCameraMethod -> InitCameraCommand(
+            PluginConstants.captureCameraMethod -> CaptureCameraCommand(
                 scannerSessionProvider = ::scannerSession,
                 permissionGateway = permissionGateway,
                 commandScope = commandScope,
             ).execute(call, result)
+            PluginConstants.releaseCameraMethod ->
+                ReleaseCameraCommand(::scannerSession).execute(call, result)
             PluginConstants.resumeCameraMethod -> ResumeCameraCommand(::scannerSession).execute(call, result)
             PluginConstants.pauseCameraMethod -> PauseCameraCommand(::scannerSession).execute(call, result)
-            PluginConstants.disposeCameraMethod -> DisposeCameraCommand(::scannerSession).execute(call, result)
             PluginConstants.toggleFlashMethod -> ToggleFlashCommand(
                 scannerSessionProvider = ::scannerSession,
                 commandScope = commandScope,
@@ -155,7 +157,13 @@ class MlkitScannerPlugin internal constructor(
     }
 
     /** Creates a platform view inside the one scanner session owned by this engine. */
-    private fun createScannerView(context: android.content.Context, viewId: Int): ScannerView {
+    private fun createScannerView(
+        context: android.content.Context,
+        viewId: Int,
+        creationParams: Any?,
+    ): ScannerView {
+        val registration = ScannerMethodArguments.viewRegistration(creationParams)
+        if (registration.viewId != viewId) throw PluginError.InvalidArguments
         val session = scannerSession ?: ScannerSessionImpl(
             scanner = Scanner(
                 camera = XCamera(context),
@@ -168,7 +176,13 @@ class MlkitScannerPlugin internal constructor(
             scannerSession = newSession
             activityBinding?.activityLifecycle?.let(newSession::attachHostLifecycle)
         }
-        return session.createView(context, viewId)
+        return session.createView(
+            context = context,
+            viewId = viewId,
+            initialZoom = registration.initialZoom,
+            initialCropRect = registration.initialCropRect,
+            initialFlashEnabled = registration.initialFlashEnabled,
+        )
     }
 
     private fun disposeScanner() {

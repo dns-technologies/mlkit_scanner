@@ -74,6 +74,8 @@ internal class VisorController(
             appliedHeight == containerHeight &&
             appliedCropArea == currentCropArea
         ) {
+            // Flutter may recreate the PlatformView render target without changing its geometry.
+            activeVisor.invalidate()
             return
         }
 

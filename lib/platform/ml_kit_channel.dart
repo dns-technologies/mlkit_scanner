@@ -8,6 +8,8 @@ import 'package:mlkit_scanner/models/recognition_type.dart';
 class MlKitChannel {
   static const _initCameraMethod = 'initCameraPreview';
   static const _disposeMethod = 'dispose';
+  static const _captureCameraMethod = 'captureCamera';
+  static const _releaseCameraMethod = 'releaseCamera';
   static const _toggleFlashMethod = 'toggleFlash';
   static const _startScanMethod = 'startScan';
   static const _cancelScanMethod = 'cancelScan';
@@ -96,6 +98,16 @@ class MlKitChannel {
     return _channel.invokeMethod(_initCameraMethod, arguments);
   }
 
+  /// Transfers Android camera ownership to [viewId] and restores its state.
+  Future<void> captureCamera({required int viewId}) {
+    return _channel.invokeMethod(_captureCameraMethod, {'viewId': viewId});
+  }
+
+  /// Releases Android camera ownership if [viewId] still owns it.
+  Future<void> releaseCamera({required int viewId}) {
+    return _channel.invokeMethod(_releaseCameraMethod, {'viewId': viewId});
+  }
+
   /// Removes one platform view from the shared native scanner session.
   Future<void> dispose({required int viewId}) {
     return _channel.invokeMethod(_disposeMethod, {'viewId': viewId});
@@ -169,15 +181,14 @@ class MlKitChannel {
     return _channel.invokeMethod(_updateConstraintsMethod, arg);
   }
 
-  /// Pauses camera work requested by the platform view identified by [viewId].
+  /// Pauses camera.
   ///
   /// Other registered scanner views keep their independent lifecycle intent.
-  /// For release resources of the camera use method [dispose].
   Future<void> pauseCamera({required int viewId}) {
     return _channel.invokeMethod(_pauseCameraMethod, {'viewId': viewId});
   }
 
-  /// Selects [viewId] as the preview host and resumes its camera work.
+  /// Resumes camera.
   ///
   /// The view's retained camera configuration is restored. Detection also
   /// resumes if [startScan] was previously requested by this view.

@@ -52,6 +52,8 @@ void main() {
     await channel.cancelScan(viewId: 42);
     await channel.pauseCamera(viewId: 42);
     await channel.resumeCamera(viewId: 42);
+    await channel.captureCamera(viewId: 42);
+    await channel.releaseCamera(viewId: 42);
 
     expect(calls[0].arguments, {'viewId': 42, 'value': 0.5});
     expect(calls[1].arguments, {'viewId': 42});
@@ -73,9 +75,14 @@ void main() {
     expect(calls[5].arguments, {'viewId': 42});
     expect(calls[6].arguments, {'viewId': 42});
     expect(calls[7].arguments, {'viewId': 42});
+    expect(calls[8].method, 'captureCamera');
+    expect(calls[8].arguments, {'viewId': 42});
+    expect(calls[9].method, 'releaseCamera');
+    expect(calls[9].arguments, {'viewId': 42});
   });
 
-  test('camera initialization sends initial settings directly', () async {
+  test('legacy iOS camera initialization sends initial settings directly',
+      () async {
     MethodCall? initCall;
     messenger.setMockMethodCallHandler(methodChannel, (call) async {
       if (call.method == 'initCameraPreview') initCall = call;
@@ -116,7 +123,7 @@ void main() {
     });
   });
 
-  test('camera initialization sends an explicit disabled flash state',
+  test('legacy iOS initialization sends an explicit disabled flash state',
       () async {
     MethodCall? initCall;
     messenger.setMockMethodCallHandler(methodChannel, (call) async {

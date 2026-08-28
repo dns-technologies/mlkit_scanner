@@ -6,8 +6,8 @@ import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 
 /** Validates untyped values received from Flutter before they reach scanner domain code. */
 internal object ScannerMethodArguments {
-    /** Typed arguments required to initialize a platform-view camera. */
-    data class CameraInitialization(
+    /** Typed arguments required to register a platform view and its initial configuration. */
+    data class ViewRegistration(
         val viewId: Int,
         val initialZoom: Double?,
         val initialCropRect: RecognizeVisorCropRect?,
@@ -26,10 +26,10 @@ internal object ScannerMethodArguments {
         val value: T,
     )
 
-    /** Parses camera initialization arguments, including optional startup controls. */
-    fun cameraInitialization(arguments: Any?): CameraInitialization {
+    /** Parses view registration arguments, including optional retained controls. */
+    fun viewRegistration(arguments: Any?): ViewRegistration {
         val map = arguments.requireMap()
-        return CameraInitialization(
+        return ViewRegistration(
             viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
             initialZoom = map.optionalFiniteDouble(PluginConstants.initialZoomArgument)
                 ?.requireInRange(MIN_ZOOM, MAX_ZOOM),

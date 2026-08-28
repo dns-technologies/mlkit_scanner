@@ -1,25 +1,23 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 import 'package:mlkit_scanner/models/recognition_type.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
-
-/// Signature of the BarcodeScanner success initialize scanner function.
-typedef BarcodeScannerInitializeCallback = void Function(
-    BarcodeScannerController controller);
 
 /// Widget for scanning barcodes using MLkit Barcode Scanning.
 class BarcodeScanner extends StatefulWidget {
   /// Callback with barcode scanning result, when scanner detect a barcode.
   final ValueChanged<Barcode> onScan;
 
-  /// Callback on success scanner initialize, with [BarcodeScannerController] for control camera and detection.
-  final BarcodeScannerInitializeCallback onScannerInitialized;
+  /// Called after this visible scanner has captured the camera successfully.
+  final void Function(
+      BarcodeScannerController controller) onScannerInitialized;
 
   /// Callback if camera cannot be initialized.
-  final CameraInitilizeError? onCameraInitializeError;
+  final ValueChanged<PlatformException>? onCameraInitializeError;
 
   /// Callback inform when change state of camera flash.
   ///
@@ -32,7 +30,7 @@ class BarcodeScanner extends StatefulWidget {
   /// Initial torch state.
   final bool initialFlashEnabled;
 
-  /// Optional recognition area applied during camera initialization.
+  /// Optional recognition area retained for this scanner view.
   final CropRect? initialCropRect;
 
   /// Optional camera used during initialization on iOS.
@@ -60,6 +58,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   StreamSubscription<Barcode>? _scanStreamSubscription;
   StreamSubscription<bool>? _toggleFlashStreamSubscription;
   int? _viewId;
+  bool _isCameraVisible = false;
 
   @override
   void initState() {
@@ -76,25 +75,34 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
       initialFlashEnabled: widget.initialFlashEnabled,
       initialCropRect: widget.initialCropRect,
       initialCamera: widget.initialCamera,
-      onCameraInitializeError: widget.onCameraInitializeError,
       onCameraInitialized: _onCameraInitialized,
     );
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _setCameraVisible(ModalRoute.isCurrentOf(context) ?? true);
+  }
+
+  @override
   void activate() {
-    _barcodeScannerController._attach(this);
     super.activate();
+    _barcodeScannerController._attach(this);
+    _setCameraVisible(ModalRoute.isCurrentOf(context) ?? true);
   }
 
   @override
   void deactivate() {
+    _setCameraVisible(false);
     _barcodeScannerController._detach();
     super.deactivate();
   }
 
   @override
   void dispose() {
+    _setCameraVisible(false);
+    _barcodeScannerController._detach();
     _scanStreamSubscription?.cancel();
     _scanStreamSubscription = null;
     _toggleFlashStreamSubscription?.cancel();
@@ -114,7 +122,31 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     _toggleFlashStreamSubscription = _channel
         .torchToggleStream(viewId)
         .listen((event) => widget.onChangeFlashState?.call(event));
-    widget.onScannerInitialized(_barcodeScannerController);
+
+    try {
+      if (_isCameraVisible) {
+        await _barcodeScannerController._captureCamera();
+      }
+      if (!mounted) return;
+      widget.onScannerInitialized(_barcodeScannerController);
+    } on PlatformException catch (e) {
+      if (widget.onCameraInitializeError != null) {
+        widget.onCameraInitializeError!.call(e);
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  void _setCameraVisible(bool isVisible) {
+    if (_isCameraVisible == isVisible) return;
+
+    _isCameraVisible = isVisible;
+    if (_isCameraVisible) {
+      unawaited(_barcodeScannerController._captureCamera());
+    } else {
+      unawaited(_barcodeScannerController._releaseCamera());
+    }
   }
 
   Future<void> _toggleFlash() {
@@ -179,6 +211,22 @@ class BarcodeScannerController {
 
   BarcodeScannerController._();
 
+  Future<void> _captureCamera() {
+    final state = _barcodeScannerState;
+    if (state == null) return Future<void>.value();
+    final viewId = state._viewId;
+    if (viewId == null) return Future<void>.value();
+    return state._channel.captureCamera(viewId: viewId);
+  }
+
+  Future<void> _releaseCamera() {
+    final state = _barcodeScannerState;
+    if (state == null) return Future<void>.value();
+    final viewId = state._viewId;
+    if (viewId == null) return Future<void>.value();
+    return state._channel.releaseCamera(viewId: viewId);
+  }
+
   /// Toggle flash of the device.
   ///
   /// Can throw a [PlatformException] if doesn't have flash.
@@ -227,8 +275,8 @@ class BarcodeScannerController {
   /// Value can only be in the range from 0 to 1
   Future<void> setZoom(double value) async {
     assert(
-      value >= 0 && value <= 1,
-      "Value can only be in the range from 0 to 1",
+    value >= 0 && value <= 1,
+    "Value can only be in the range from 0 to 1",
     );
     return _barcodeScannerState?._setZoom(value);
   }

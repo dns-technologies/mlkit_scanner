@@ -82,39 +82,6 @@ internal class MlkitScannerPluginTest {
     }
 
     @Test
-    fun `dispose command removes only referenced platform view`() {
-        val fixture = Fixture()
-
-        fixture.plugin.onMethodCall(
-            MethodCall(
-                PluginConstants.disposeCameraMethod,
-                mapOf(PluginConstants.viewIdArgument to VIEW_ID),
-            ),
-            fixture.result,
-        )
-
-        verify(fixture.session).disposeView(VIEW_ID)
-        verify(fixture.result).success(true)
-    }
-
-    @Test
-    fun `dispose command rejects legacy payload without view identity`() {
-        val fixture = Fixture()
-
-        fixture.plugin.onMethodCall(
-            MethodCall(PluginConstants.disposeCameraMethod, null),
-            fixture.result,
-        )
-
-        verify(fixture.session, never()).disposeView(VIEW_ID)
-        verify(fixture.result).error(
-            PluginError.InvalidArguments.errorCode,
-            PluginError.InvalidArguments.message,
-            null,
-        )
-    }
-
-    @Test
     fun `scan result event contains addressed barcode payload`() {
         val fixture = Fixture()
 

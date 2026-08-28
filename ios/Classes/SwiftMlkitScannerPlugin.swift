@@ -28,6 +28,9 @@ public class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
+        case PluginConstants.captureCameraMethod,
+             PluginConstants.releaseCameraMethod:
+            result(nil)
         case PluginConstants.initCameraMethod:
             initCamera(arguments: call.arguments, result: result)
         case PluginConstants.disposeMethod:

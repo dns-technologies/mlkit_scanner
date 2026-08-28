@@ -83,7 +83,7 @@ internal class ScannerCommandStateTest {
     }
 
     @Test
-    fun `stop and dispose commands remain idempotent without a session`() {
+    fun `stop commands remain idempotent without a session`() {
         val executions = listOf<(MethodChannel.Result) -> Unit>(
             { result ->
                 PauseCameraCommand { null }.execute(
@@ -94,12 +94,6 @@ internal class ScannerCommandStateTest {
             { result ->
                 CancelScanCommand { null }.execute(
                     MethodCall("cancel", mapOf("viewId" to VIEW_ID)),
-                    result,
-                )
-            },
-            { result ->
-                DisposeCameraCommand { null }.execute(
-                    MethodCall("dispose", mapOf("viewId" to 42)),
                     result,
                 )
             },
@@ -171,15 +165,19 @@ internal class ScannerCommandStateTest {
         var torchViewId: Int? = null
             private set
 
-        override fun createView(context: Context, viewId: Int): ScannerView =
-            mock(ScannerView::class.java)
-
-        override suspend fun startCamera(
+        override fun createView(
+            context: Context,
             viewId: Int,
             initialZoom: Double?,
             initialCropRect: RecognizeVisorCropRect?,
             initialFlashEnabled: Boolean?,
+        ): ScannerView = mock(ScannerView::class.java)
+
+        override suspend fun captureCamera(
+            viewId: Int,
+            requestCameraPermission: suspend () -> Boolean,
         ) = Unit
+        override fun releaseCamera(viewId: Int) = Unit
 
         override fun resumeCamera(viewId: Int) = Unit
         override fun pauseCamera(viewId: Int) = Unit
@@ -197,7 +195,6 @@ internal class ScannerCommandStateTest {
             zoomResult.await()
         }
         override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) = Unit
-        override fun disposeView(viewId: Int) = Unit
         override fun release() = Unit
     }
 

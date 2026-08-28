@@ -7,18 +7,25 @@ import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 
 /** Operations available for the single scanner session shared by platform views. */
 internal interface ScannerSession {
-    /** Creates and registers a platform view. */
-    fun createView(context: Context, viewId: Int): ScannerView
-
-    /** Starts the shared camera and records initial controls owned by this platform view. */
-    suspend fun startCamera(
+    /** Creates the native platform view without assigning camera ownership. */
+    fun createView(
+        context: Context,
         viewId: Int,
         initialZoom: Double?,
         initialCropRect: RecognizeVisorCropRect?,
         initialFlashEnabled: Boolean?,
+    ): ScannerView
+
+    /** Selects one view, requests permission, and starts/restores it while ownership remains valid. */
+    suspend fun captureCamera(
+        viewId: Int,
+        requestCameraPermission: suspend () -> Boolean,
     )
 
-    /** Selects one registered platform view and resumes its retained camera and scan state. */
+    /** Releases camera ownership only when it is still held by the referenced view. */
+    fun releaseCamera(viewId: Int)
+
+    /** Resumes retained camera intent without changing which view owns the camera. */
     fun resumeCamera(viewId: Int)
 
     /** Pauses camera work requested by one platform view without releasing the shared camera. */
@@ -47,9 +54,6 @@ internal interface ScannerSession {
 
     /** Updates the requesting view's barcode recognition region. */
     fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect)
-
-    /** Removes one platform view registration. */
-    fun disposeView(viewId: Int)
 
     /** Cancels subscriptions and releases all shared scanner resources. */
     fun release()

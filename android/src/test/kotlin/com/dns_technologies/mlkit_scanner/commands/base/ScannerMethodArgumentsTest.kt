@@ -9,8 +9,8 @@ import org.junit.Test
 
 internal class ScannerMethodArgumentsTest {
     @Test
-    fun `camera initialization parses optional typed controls`() {
-        val arguments = ScannerMethodArguments.cameraInitialization(
+    fun `view creation parses optional typed controls`() {
+        val arguments = ScannerMethodArguments.viewRegistration(
             mapOf(
                 "viewId" to 42L,
                 "initialZoom" to 0.75F,
@@ -34,14 +34,14 @@ internal class ScannerMethodArgumentsTest {
     }
 
     @Test
-    fun `camera initialization preserves absent optional controls`() {
-        val arguments = ScannerMethodArguments.cameraInitialization(mapOf("viewId" to 1))
+    fun `view creation preserves absent optional controls`() {
+        val arguments = ScannerMethodArguments.viewRegistration(mapOf("viewId" to 1))
 
         assertNull(arguments.initialZoom)
         assertNull(arguments.initialCropRect)
         assertNull(arguments.initialFlashEnabled)
         assertInvalid {
-            ScannerMethodArguments.cameraInitialization(
+            ScannerMethodArguments.viewRegistration(
                 mapOf("viewId" to 1, "initialFlashEnabled" to 1),
             )
         }

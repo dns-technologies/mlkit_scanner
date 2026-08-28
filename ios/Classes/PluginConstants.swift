@@ -27,6 +27,10 @@ class PluginConstants {
     static let cropRectArgument = "cropRect"
     /// Method name for camera initialization.
     static let initCameraMethod = "initCameraPreview"
+    /// Android camera ownership capture.
+    static let captureCameraMethod = "captureCamera"
+    /// Android camera ownership release.
+    static let releaseCameraMethod = "releaseCamera"
     /// Method name for cleaning camera resources.
     static let disposeMethod = "dispose"
     /// Method name for toggling flash of the device.

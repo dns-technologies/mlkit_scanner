@@ -41,6 +41,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(controller, isNotNull);
+      expect(
+        calls.firstWhere((call) => call.method == 'captureCamera').arguments,
+        {'viewId': 17},
+      );
     });
 
     testWidgets('disposing a widget does not cancel the shared scan',
@@ -71,6 +75,10 @@ void main() {
       await tester.pump();
 
       expect(calls.map((call) => call.method), isNot(contains('cancelScan')));
+      expect(
+        calls.firstWhere((call) => call.method == 'releaseCamera').arguments,
+        {'viewId': 17},
+      );
     });
 
     testWidgets('controller addresses lifecycle commands to its preview',
@@ -103,6 +111,41 @@ void main() {
           containsPair('viewId', 17),
         );
       }
+    });
+
+    testWidgets('route visibility releases and recaptures the camera',
+        (tester) async {
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (_) {},
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized(17);
+      await tester.pumpAndSettle();
+      calls.clear();
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push<void>(
+        MaterialPageRoute<void>(builder: (_) => const SizedBox.shrink()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        calls.where((call) => call.method == 'releaseCamera').single.arguments,
+        {'viewId': 17},
+      );
+
+      calls.clear();
+      navigator.pop();
+      await tester.pumpAndSettle();
+
+      expect(
+        calls.where((call) => call.method == 'captureCamera').single.arguments,
+        {'viewId': 17},
+      );
     });
   });
 }
