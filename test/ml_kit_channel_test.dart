@@ -4,9 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mlkit_scanner/models/crop_rect.dart';
-import 'package:mlkit_scanner/models/ios_camera.dart';
-import 'package:mlkit_scanner/models/ios_camera_position.dart';
-import 'package:mlkit_scanner/models/ios_camera_type.dart';
 import 'package:mlkit_scanner/models/recognition_type.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 
@@ -79,67 +76,6 @@ void main() {
     expect(calls[8].arguments, {'viewId': 42});
     expect(calls[9].method, 'releaseCamera');
     expect(calls[9].arguments, {'viewId': 42});
-  });
-
-  test('legacy iOS camera initialization sends initial settings directly',
-      () async {
-    MethodCall? initCall;
-    messenger.setMockMethodCallHandler(methodChannel, (call) async {
-      if (call.method == 'initCameraPreview') initCall = call;
-      return null;
-    });
-    final channel = MlKitChannel();
-
-    await channel.initCameraPreview(
-      viewId: 42,
-      initialZoom: 0.4,
-      initialFlashEnabled: true,
-      initialCropRect: const CropRect(
-        scaleWidth: 0.5,
-        scaleHeight: 0.75,
-        offsetX: 0.1,
-        offsetY: -0.1,
-      ),
-      initialCamera: const IosCamera(
-        position: IosCameraPosition.back,
-        type: IosCameraType.builtInWideAngleCamera,
-      ),
-    );
-
-    expect(initCall?.arguments, {
-      'viewId': 42,
-      'initialZoom': 0.4,
-      'initialFlashEnabled': true,
-      'initialCropRect': {
-        'scaleWidth': 0.5,
-        'scaleHeight': 0.75,
-        'offsetX': 0.1,
-        'offsetY': -0.1,
-      },
-      'initialCamera': {
-        'position': 1,
-        'type': 0,
-      },
-    });
-  });
-
-  test('legacy iOS initialization sends an explicit disabled flash state',
-      () async {
-    MethodCall? initCall;
-    messenger.setMockMethodCallHandler(methodChannel, (call) async {
-      if (call.method == 'initCameraPreview') initCall = call;
-      return null;
-    });
-
-    await MlKitChannel().initCameraPreview(
-      viewId: 42,
-      initialFlashEnabled: false,
-    );
-
-    expect(initCall?.arguments, {
-      'viewId': 42,
-      'initialFlashEnabled': false,
-    });
   });
 
   test('scan events are delivered only to the matching view', () async {

@@ -5,6 +5,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/models/crop_rect.dart';
 import 'package:mlkit_scanner/models/ios_camera.dart';
+import 'package:mlkit_scanner/models/ios_camera_position.dart';
+import 'package:mlkit_scanner/models/ios_camera_type.dart';
 
 /// Signature for a platform view that is ready to capture the camera.
 typedef CameraInitialized = void Function(int viewId);
@@ -54,8 +56,7 @@ class _CameraPreviewState extends State<CameraPreview> {
             creationParams: {
               'width': constraints.maxWidth,
               'height': constraints.maxHeight,
-              if (widget.initialZoom != null)
-                'initialZoom': widget.initialZoom,
+              if (widget.initialZoom != null) 'initialZoom': widget.initialZoom,
               'initialFlashEnabled': widget.initialFlashEnabled,
               if (widget.initialCropRect != null)
                 'initialCropRect': widget.initialCropRect!.toJson(),
