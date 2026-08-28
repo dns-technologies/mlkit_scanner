@@ -147,6 +147,41 @@ void main() {
         {'viewId': 17},
       );
     });
+
+    testWidgets('popup routes keep the camera captured', (tester) async {
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (_) {},
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized(17);
+      await tester.pumpAndSettle();
+      calls.clear();
+
+      final scannerContext = tester.element(find.byType(BarcodeScanner));
+      final navigator = Navigator.of(scannerContext);
+      showDialog<void>(
+        context: scannerContext,
+        builder: (_) => const AlertDialog(content: Text('Dialog')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        calls.where((call) => call.method == 'releaseCamera'),
+        isEmpty,
+      );
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+
+      expect(
+        calls.where((call) => call.method == 'captureCamera'),
+        isEmpty,
+      );
+    });
   });
 }
 

@@ -13,8 +13,7 @@ class BarcodeScanner extends StatefulWidget {
   final ValueChanged<Barcode> onScan;
 
   /// Called after this visible scanner has captured the camera successfully.
-  final void Function(
-      BarcodeScannerController controller) onScannerInitialized;
+  final void Function(BarcodeScannerController controller) onScannerInitialized;
 
   /// Callback if camera cannot be initialized.
   final ValueChanged<PlatformException>? onCameraInitializeError;
@@ -82,14 +81,14 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _setCameraVisible(ModalRoute.isCurrentOf(context) ?? true);
+    _syncCameraVisibility();
   }
 
   @override
   void activate() {
     super.activate();
     _barcodeScannerController._attach(this);
-    _setCameraVisible(ModalRoute.isCurrentOf(context) ?? true);
+    _syncCameraVisibility();
   }
 
   @override
@@ -136,6 +135,14 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
       }
       rethrow;
     }
+  }
+
+  void _syncCameraVisibility() {
+    // Popup routes keep the underlying route onstage, while an opaque page
+    // route disables tickers in the covered subtree.
+    // TickerMode.valuesOf is unavailable in the minimum supported Flutter.
+    // ignore: deprecated_member_use
+    _setCameraVisible(TickerMode.of(context));
   }
 
   void _setCameraVisible(bool isVisible) {
@@ -275,8 +282,8 @@ class BarcodeScannerController {
   /// Value can only be in the range from 0 to 1
   Future<void> setZoom(double value) async {
     assert(
-    value >= 0 && value <= 1,
-    "Value can only be in the range from 0 to 1",
+      value >= 0 && value <= 1,
+      "Value can only be in the range from 0 to 1",
     );
     return _barcodeScannerState?._setZoom(value);
   }
