@@ -33,7 +33,7 @@ internal class VisorControllerTest {
     }
 
     @Test
-    fun `reapplying unchanged crop invalidates retained visor`() {
+    fun `redraw invalidates retained visor`() {
         val boundsView = mock(FrameLayout::class.java)
         doReturn(mock(Context::class.java)).`when`(boundsView).context
         doReturn(200).`when`(boundsView).width
@@ -50,7 +50,7 @@ internal class VisorControllerTest {
             val visor = construction.constructed().single()
             clearInvocations(visor)
 
-            controller.setCropArea(cropArea, isScanActive = false)
+            controller.redraw()
 
             verify(visor).invalidate()
         }

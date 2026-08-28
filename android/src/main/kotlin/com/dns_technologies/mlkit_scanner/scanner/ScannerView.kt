@@ -67,6 +67,9 @@ class ScannerView(
         overlayController.renderCropArea(cropRect)
     }
 
+    /** Redraws the retained crop overlay after the platform view render target is restored. */
+    fun redrawCropArea() = overlayController.redrawCropArea()
+
     /** Unregisters this platform view without releasing shared camera resources. */
     override fun dispose() {
         if (isDisposed) return

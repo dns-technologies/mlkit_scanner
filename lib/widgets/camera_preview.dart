@@ -5,7 +5,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/models/crop_rect.dart';
 import 'package:mlkit_scanner/models/ios_camera.dart';
-import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 
 /// Signature for a platform view that is ready to capture the camera.
 typedef CameraInitialized = void Function(int viewId);
@@ -43,19 +42,10 @@ class CameraPreview extends StatefulWidget {
 }
 
 class _CameraPreviewState extends State<CameraPreview> {
-  late MlKitChannel _channel;
-
-  @override
-  void initState() {
-    super.initState();
-    _channel = MlKitChannel();
-  }
-
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        _channel.updateConstraints(constraints.maxWidth, constraints.maxHeight);
         if (defaultTargetPlatform == TargetPlatform.iOS) {
           return UiKitView(
             viewType: 'mlkit/camera_preview',
@@ -64,6 +54,16 @@ class _CameraPreviewState extends State<CameraPreview> {
             creationParams: {
               'width': constraints.maxWidth,
               'height': constraints.maxHeight,
+              if (widget.initialZoom != null)
+                'initialZoom': widget.initialZoom,
+              'initialFlashEnabled': widget.initialFlashEnabled,
+              if (widget.initialCropRect != null)
+                'initialCropRect': widget.initialCropRect!.toJson(),
+              if (widget.initialCamera != null)
+                'initialCamera': {
+                  'position': widget.initialCamera!.position.code,
+                  'type': widget.initialCamera!.type.code,
+                },
             },
           );
         }

@@ -31,6 +31,11 @@ internal class VisorController(
         applyBounds()
     }
 
+    /** Redraws the retained visor after its platform render target becomes available again. */
+    fun redraw() {
+        visor?.invalidate()
+    }
+
     /** Updates the visual active state of the current visor overlay. */
     fun setScanActive(isActive: Boolean) {
         isScanActive = isActive
@@ -74,8 +79,6 @@ internal class VisorController(
             appliedHeight == containerHeight &&
             appliedCropArea == currentCropArea
         ) {
-            // Flutter may recreate the PlatformView render target without changing its geometry.
-            activeVisor.invalidate()
             return
         }
 

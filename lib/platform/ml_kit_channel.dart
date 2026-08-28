@@ -6,8 +6,6 @@ import 'package:mlkit_scanner/models/recognition_type.dart';
 
 /// Platform channel of the MLkit plugin
 class MlKitChannel {
-  static const _initCameraMethod = 'initCameraPreview';
-  static const _disposeMethod = 'dispose';
   static const _captureCameraMethod = 'captureCamera';
   static const _releaseCameraMethod = 'releaseCamera';
   static const _toggleFlashMethod = 'toggleFlash';
@@ -15,7 +13,6 @@ class MlKitChannel {
   static const _cancelScanMethod = 'cancelScan';
   static const _setScanDelayMethod = 'setScanDelay';
   static const _scanResultMethod = 'onScanResult';
-  static const _updateConstraintsMethod = 'updateConstraints';
   static const _pauseCameraMethod = 'pauseCameraMethod';
   static const _resumeCameraMethod = 'resumeCameraMethod';
   static const _changeTorchStateMethod = 'changeTorchStateMethod';
@@ -72,45 +69,14 @@ class MlKitChannel {
     }
   }
 
-  /// Initialize camera preview.
-  ///
-  /// Can throw a [PlatformException] if device has problem with camera, or doesn't have one.
-  /// Plugin ask permission to use camera, if user doesn't grant permission also throw a [PlatformException].
-  Future<void> initCameraPreview({
-    required int viewId,
-    double? initialZoom,
-    bool? initialFlashEnabled,
-    CropRect? initialCropRect,
-    IosCamera? initialCamera,
-  }) {
-    final arguments = <String, Object?>{
-      'viewId': viewId,
-      if (initialZoom != null) 'initialZoom': initialZoom,
-      if (initialFlashEnabled != null)
-        'initialFlashEnabled': initialFlashEnabled,
-      if (initialCropRect != null) 'initialCropRect': initialCropRect.toJson(),
-      if (initialCamera != null)
-        'initialCamera': {
-          'position': initialCamera.position.code,
-          'type': initialCamera.type.code,
-        },
-    };
-    return _channel.invokeMethod(_initCameraMethod, arguments);
-  }
-
-  /// Transfers Android camera ownership to [viewId] and restores its state.
+  /// Transfers camera ownership to [viewId] and restores its retained state.
   Future<void> captureCamera({required int viewId}) {
     return _channel.invokeMethod(_captureCameraMethod, {'viewId': viewId});
   }
 
-  /// Releases Android camera ownership if [viewId] still owns it.
+  /// Releases camera ownership if [viewId] still owns it.
   Future<void> releaseCamera({required int viewId}) {
     return _channel.invokeMethod(_releaseCameraMethod, {'viewId': viewId});
-  }
-
-  /// Removes one platform view from the shared native scanner session.
-  Future<void> dispose({required int viewId}) {
-    return _channel.invokeMethod(_disposeMethod, {'viewId': viewId});
   }
 
   /// Toggles flash configuration owned by the platform view identified by [viewId].
@@ -170,17 +136,6 @@ class MlKitChannel {
     });
   }
 
-  /// Update frame constraints for native platform view.
-  ///
-  /// Must call when Flutter widget [AndroidView] or [UIkitView] changes size.
-  Future<void> updateConstraints(double width, double height) {
-    final arg = {
-      'width': width,
-      'height': height,
-    };
-    return _channel.invokeMethod(_updateConstraintsMethod, arg);
-  }
-
   /// Pauses camera.
   ///
   /// Other registered scanner views keep their independent lifecycle intent.
@@ -226,10 +181,12 @@ class MlKitChannel {
 
   /// Sets iOS camera with [position] and [type].
   Future<void> setIosCamera({
+    required int viewId,
     required IosCameraPosition position,
     required IosCameraType type,
   }) {
     return _channel.invokeMethod(_setIosCamera, {
+      'viewId': viewId,
       'position': position.code,
       'type': type.code,
     });

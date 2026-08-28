@@ -255,6 +255,12 @@ internal class ScannerSessionImpl(
         viewState.cropArea?.let(viewState.view::renderCropArea)
     }
 
+    private fun restoreCropAreaIfActive(viewState: ScannerViewState) {
+        if (viewState !== capturedViewState()) return
+        scanner.setCropArea(viewState.cropArea)
+        viewState.view.redrawCropArea()
+    }
+
     private fun applyScanPeriodIfActive(viewState: ScannerViewState) {
         if (viewState !== capturedViewState()) return
         viewState.scanPeriodMs?.let(scanner::updateScanPeriod)
@@ -390,7 +396,12 @@ internal class ScannerSessionImpl(
         }
         updateCameraLifecycle()
         applyScanState()
-        if (!isPaused) capturedViewState()?.let(::restoreCameraControlsIfActive)
+        if (!isPaused) {
+            capturedViewState()?.let { viewState ->
+                restoreCropAreaIfActive(viewState)
+                restoreCameraControlsIfActive(viewState)
+            }
+        }
     }
 
     private fun applyViewStateIfCaptured(viewState: ScannerViewState) {

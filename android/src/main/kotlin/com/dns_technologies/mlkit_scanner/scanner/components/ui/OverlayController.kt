@@ -43,6 +43,12 @@ internal class OverlayController(
         visorController.setCropArea(cropRect, scanner.isScanActive)
     }
 
+    /** Redraws retained crop UI after the platform view render target is restored. */
+    fun redrawCropArea() {
+        if (isDisposed) return
+        visorController.redraw()
+    }
+
     /** Updates the visual active state of the current visor overlay. */
     fun setScanActive(isActive: Boolean) {
         if (isDisposed) return

@@ -913,6 +913,24 @@ internal class ScannerSessionImplTest {
         }
 
     @Test
+    fun `host resume restores and redraws crop area of captured view`() = runSessionTest {
+        val fixture = Fixture(hostLifecycleState = Lifecycle.State.STARTED)
+        val cropRect = RecognizeVisorCropRect(scaleWidth = 0.5)
+        val initialization = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.captureCamera(FIRST_VIEW_ID, null, cropRect)
+        }
+        fixture.completeInitialization()
+        withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+        clearInvocations(fixture.scanner, fixture.view(FIRST_VIEW_ID))
+
+        fixture.hostLifecycleOwner.moveTo(Lifecycle.State.RESUMED)
+
+        verify(fixture.scanner).setCropArea(cropRect)
+        verify(fixture.view(FIRST_VIEW_ID)).redrawCropArea()
+        verify(fixture.view(FIRST_VIEW_ID), never()).renderCropArea(cropRect)
+    }
+
+    @Test
     fun `host lifecycle replacement pauses during detach and ignores old host afterwards`() =
         runSessionTest {
             val fixture = Fixture()
