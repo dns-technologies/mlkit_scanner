@@ -13,7 +13,6 @@ import com.dns_technologies.mlkit_scanner.commands.SetScanDelayCommand
 import com.dns_technologies.mlkit_scanner.commands.SetZoomCommand
 import com.dns_technologies.mlkit_scanner.commands.StartScanCommand
 import com.dns_technologies.mlkit_scanner.commands.ToggleFlashCommand
-import com.dns_technologies.mlkit_scanner.commands.UpdateConstraintsCommand
 import com.dns_technologies.mlkit_scanner.commands.base.ScannerMethodArguments
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.models.ScannerSessionImpl
@@ -125,7 +124,6 @@ class MlkitScannerPlugin internal constructor(
             PluginConstants.startScanMethod -> StartScanCommand(::scannerSession).execute(call, result)
             PluginConstants.cancelScanMethod -> CancelScanCommand(::scannerSession).execute(call, result)
             PluginConstants.setScanDelayMethod -> SetScanDelayCommand(::scannerSession).execute(call, result)
-            PluginConstants.updateConstraintsMethod -> UpdateConstraintsCommand().execute(call, result)
             PluginConstants.setZoomMethod -> SetZoomCommand(
                 scannerSessionProvider = ::scannerSession,
                 commandScope = commandScope,

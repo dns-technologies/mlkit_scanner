@@ -41,9 +41,6 @@ internal object PluginConstants {
     /** Method name used to select and resume a platform view's camera preview. */
     const val resumeCameraMethod = "resumeCameraMethod"
 
-    /** Method name used to update scanner layout constraints from Dart. */
-    const val updateConstraintsMethod = "updateConstraints"
-
     /** Method name used to pause the camera preview lifecycle. */
     const val pauseCameraMethod = "pauseCameraMethod"
 

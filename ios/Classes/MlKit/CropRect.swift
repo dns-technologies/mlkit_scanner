@@ -34,16 +34,26 @@ struct CropRect {
     
     /// Initialize `CropRect` from Flutter Platform Channel side arguments.
     /// Returns nil if has error in arguments.
-    init?(arguments: Dictionary<String, CGFloat>) {
-        guard let scaleHeight = arguments["scaleHeight"],
-              let scaleWidth = arguments["scaleWidth"],
-              let offsetX = arguments["offsetX"],
-              let offsetY = arguments["offsetY"] else {
-            return nil
+    init(arguments: [String: Any]) throws {
+        func finiteValue(_ key: String) throws -> CGFloat {
+            guard
+                !(arguments[key] is Bool),
+                let number = arguments[key] as? NSNumber,
+                number.doubleValue.isFinite
+            else {
+                throw MlKitPluginError.invalidArguments
+            }
+            return CGFloat(number.doubleValue)
+        }
+
+        let scaleWidth = try finiteValue("scaleWidth")
+        let scaleHeight = try finiteValue("scaleHeight")
+        guard scaleWidth > 0, scaleHeight > 0 else {
+            throw MlKitPluginError.invalidArguments
         }
         self.scaleWidth = scaleWidth
         self.scaleHeight = scaleHeight
-        self.offsetY = offsetY
-        self.offsetX = offsetX
+        self.offsetX = try finiteValue("offsetX")
+        self.offsetY = try finiteValue("offsetY")
     }
 }

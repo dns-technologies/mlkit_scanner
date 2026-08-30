@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mlkit_scanner/models/crop_rect.dart';
+import 'package:mlkit_scanner/models/ios_camera_position.dart';
+import 'package:mlkit_scanner/models/ios_camera_type.dart';
 import 'package:mlkit_scanner/models/recognition_type.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 
@@ -51,6 +53,11 @@ void main() {
     await channel.resumeCamera(viewId: 42);
     await channel.captureCamera(viewId: 42);
     await channel.releaseCamera(viewId: 42);
+    await channel.setIosCamera(
+      viewId: 42,
+      position: IosCameraPosition.back,
+      type: IosCameraType.builtInWideAngleCamera,
+    );
 
     expect(calls[0].arguments, {'viewId': 42, 'value': 0.5});
     expect(calls[1].arguments, {'viewId': 42});
@@ -76,6 +83,12 @@ void main() {
     expect(calls[8].arguments, {'viewId': 42});
     expect(calls[9].method, 'releaseCamera');
     expect(calls[9].arguments, {'viewId': 42});
+    expect(calls[10].method, 'setIosCamera');
+    expect(calls[10].arguments, {
+      'viewId': 42,
+      'position': 1,
+      'type': 0,
+    });
   });
 
   test('scan events are delivered only to the matching view', () async {
@@ -121,7 +134,7 @@ void main() {
     await secondSubscription.cancel();
   });
 
-  test('legacy scan payload without viewId is ignored', () async {
+  test('scan payload without viewId is ignored', () async {
     final channel = MlKitChannel();
     final results = <String>[];
     final stream = channel.scanResults(11);
@@ -132,8 +145,8 @@ void main() {
     await sendNativeCall(
       codec,
       const MethodCall('onScanResult', {
-        'raw_value': 'legacy',
-        'display_value': 'legacy',
+        'raw_value': 'missing-view-id',
+        'display_value': 'missing-view-id',
         'format': 1,
         'value_type': 7,
       }),
