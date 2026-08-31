@@ -4,6 +4,7 @@ import android.os.Handler
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
@@ -1002,6 +1003,92 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
+    fun `camera open failure includes operation cause view and CameraX state code`() =
+        runSessionTest {
+            val fixture = Fixture()
+            val cause = IllegalStateException("camera device disconnected")
+            val cameraOpen = CompletableDeferred<Unit>()
+            cameraOpen.completeExceptionally(
+                PluginError.CameraControlError(
+                    operation = CameraControlOperation.AWAIT_OPEN,
+                    cause = cause,
+                    cameraStateErrorCode = 4,
+                ),
+            )
+            fixture.enqueueOpenResult(cameraOpen)
+
+            val initialization = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.captureCamera(FIRST_VIEW_ID, null, null)
+            }
+            fixture.completeInitialization()
+
+            val error = runCatching {
+                withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+            }.exceptionOrNull()
+
+            assertTrue(error is PluginError.CameraControlError)
+            error as PluginError.CameraControlError
+            assertEquals(CameraControlOperation.AWAIT_OPEN, error.operation)
+            assertEquals(FIRST_VIEW_ID, error.viewId)
+            assertEquals(4, error.cameraStateErrorCode)
+            assertSame(cause, error.cause)
+        }
+
+    @Test
+    fun `zoom failure includes operation cause and view`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        val cause = IllegalArgumentException("zoom is unavailable")
+        fixture.enqueueZoomResult(
+            CompletableDeferred<Unit>().also {
+                it.completeExceptionally(
+                    PluginError.CameraControlError(
+                        CameraControlOperation.ZOOM,
+                        cause = cause,
+                    ),
+                )
+            },
+        )
+
+        val error = runCatching {
+            fixture.session.setZoom(FIRST_VIEW_ID, 0.5F)
+        }.exceptionOrNull()
+
+        assertTrue(error is PluginError.CameraControlError)
+        error as PluginError.CameraControlError
+        assertEquals(CameraControlOperation.ZOOM, error.operation)
+        assertEquals(FIRST_VIEW_ID, error.viewId)
+        assertSame(cause, error.cause)
+    }
+
+    @Test
+    fun `torch failure includes operation cause and view`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        val cause = IllegalStateException("torch is unavailable")
+        fixture.enqueueTorchResult(
+            CompletableDeferred<Unit>().also {
+                it.completeExceptionally(
+                    PluginError.CameraControlError(
+                        CameraControlOperation.TORCH,
+                        cause = cause,
+                    ),
+                )
+            },
+        )
+
+        val error = runCatching {
+            fixture.session.toggleFlashLight(FIRST_VIEW_ID)
+        }.exceptionOrNull()
+
+        assertTrue(error is PluginError.CameraControlError)
+        error as PluginError.CameraControlError
+        assertEquals(CameraControlOperation.TORCH, error.operation)
+        assertEquals(FIRST_VIEW_ID, error.viewId)
+        assertSame(cause, error.cause)
+    }
+
+    @Test
     fun `parallel starts use only first initial zoom and crop`() = runSessionTest {
         val fixture = Fixture()
         val firstCrop = RecognizeVisorCropRect(scaleWidth = 0.25)
@@ -1110,7 +1197,7 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `initial zoom error keeps preview hidden and fails initialization`() = runSessionTest {
+    fun `initial zoom error is typed and keeps preview hidden`() = runSessionTest {
         val fixture = Fixture()
         val zoomCompletion = CompletableDeferred<Unit>()
         fixture.enqueueZoomResult(zoomCompletion)
@@ -1125,7 +1212,12 @@ internal class ScannerSessionImplTest {
         val error = runCatching {
             withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
         }.exceptionOrNull()
-        assertEquals(expectedError.message, error?.message)
+        assertTrue(error is PluginError.CameraControlError)
+        error as PluginError.CameraControlError
+        assertEquals(CameraControlOperation.ZOOM, error.operation)
+        assertEquals(FIRST_VIEW_ID, error.viewId)
+        assertTrue(error.cause is IllegalStateException)
+        assertEquals(expectedError.message, error.cause?.message)
         verify(fixture.scanner, never()).showPreview()
         verify(fixture.scanner).dispose()
     }

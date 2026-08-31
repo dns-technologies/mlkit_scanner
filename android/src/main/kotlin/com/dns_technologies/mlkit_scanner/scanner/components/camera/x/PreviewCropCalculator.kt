@@ -3,7 +3,7 @@ package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import kotlin.math.roundToInt
 
-/** Maps the CameraX viewport crop onto a resized FILL_CENTER preview without rebinding use cases. */
+/** Maps the source viewport crop onto a resized fill-center preview without rebinding. */
 internal object PreviewCropCalculator {
     /** Returns the centered source region currently visible inside the preview bounds. */
     fun calculate(

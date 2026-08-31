@@ -10,7 +10,7 @@ import AVFoundation
 import MLKitBarcodeScanning
 import MLKitVision
 
-/// Barcode recognizer backed by the ML Kit Barcode Scanning API.
+/// Barcode recognizer used by the native scanner.
 class MlkitBarcodeScanner: NSObject, RecognitionHandler {
     private let scanner: BarcodeScanner
     private var delay: Int

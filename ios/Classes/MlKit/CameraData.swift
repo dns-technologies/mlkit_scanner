@@ -8,7 +8,7 @@
 import AVFoundation
 import Foundation
 
-/// AVFoundation camera selection exchanged with Flutter.
+/// Camera selection exchanged with Flutter.
 struct CameraData {
     /// Camera type.
     let type: AVCaptureDevice.DeviceType
@@ -34,7 +34,7 @@ struct CameraData {
         self.position = position
     }
     
-    /// Creates a camera selection from an AVFoundation type and position.
+    /// Creates a camera selection from a native type and position.
     init(type: AVCaptureDevice.DeviceType, position: AVCaptureDevice.Position) {
         self.type = type
         self.position = position

@@ -1,3 +1,4 @@
+export 'exceptions/camera_control_exception.dart';
 export 'models/barcode.dart';
 export 'models/barcode_format.dart';
 export 'models/barcode_value_type.dart';

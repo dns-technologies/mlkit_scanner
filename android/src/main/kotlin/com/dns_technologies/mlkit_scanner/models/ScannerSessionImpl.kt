@@ -7,6 +7,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
@@ -16,6 +17,7 @@ import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -23,7 +25,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Owns one CameraX/scanner pipeline shared by every registered platform view.
+ * Owns one camera and scanner pipeline shared by every registered platform view.
  *
  * Runtime intent and configuration belong to each registered platform view. Camera ownership is an
  * explicit view-id claim: capture moves the preview and release drops ownership without
@@ -203,7 +205,9 @@ internal class ScannerSessionImpl(
             val viewState = requireViewCameraReady(viewId)
             val enabled = viewState.torchEnabled != true
             if (viewState === capturedViewState()) {
-                scanner.setTorch(enabled).await()
+                awaitCameraControl(viewId, CameraControlOperation.TORCH) {
+                    scanner.setTorch(enabled)
+                }
                 if (isReleased) throw PluginError.CameraSessionDisposed
             } else if (enabled && !scanner.isFlashSupported()) {
                 throw PluginError.DeviceHasNotFlash
@@ -236,7 +240,9 @@ internal class ScannerSessionImpl(
         cameraControlMutex.withLock {
             val viewState = requireViewCameraReady(viewId)
             if (viewState === capturedViewState()) {
-                scanner.setZoom(value).await()
+                awaitCameraControl(viewId, CameraControlOperation.ZOOM) {
+                    scanner.setZoom(value)
+                }
                 if (isReleased) throw PluginError.CameraSessionDisposed
             }
             viewState.zoom = value
@@ -382,7 +388,7 @@ internal class ScannerSessionImpl(
         capturedViewState()?.view?.setScanActive(shouldScan)
     }
 
-    /** Drives the synthetic CameraX lifecycle from active-view and host state. */
+    /** Drives the camera lifecycle from active-view and host state. */
     private fun updateCameraLifecycle() {
         if (isReleased) return
         val shouldRun = capturedViewState()?.let { viewState ->
@@ -480,11 +486,17 @@ internal class ScannerSessionImpl(
     private suspend fun applyCameraControlsIfActive(viewState: ScannerViewState) {
         cameraControlMutex.withLock {
             if (!canApplyCameraControls(viewState)) return
-            scanner.awaitCameraOpen().await()
+            awaitCameraControl(viewState.viewId, CameraControlOperation.AWAIT_OPEN) {
+                scanner.awaitCameraOpen()
+            }
             if (!canApplyCameraControls(viewState)) return
-            scanner.setZoom(viewState.zoom ?: DEFAULT_ZOOM).await()
+            awaitCameraControl(viewState.viewId, CameraControlOperation.ZOOM) {
+                scanner.setZoom(viewState.zoom ?: DEFAULT_ZOOM)
+            }
             if (!canApplyCameraControls(viewState)) return
-            scanner.setTorch(viewState.torchEnabled == true).await()
+            awaitCameraControl(viewState.viewId, CameraControlOperation.TORCH) {
+                scanner.setTorch(viewState.torchEnabled == true)
+            }
             if (!canApplyCameraControls(viewState)) return
             viewState.configurationApplied = true
             scanner.showPreview()
@@ -522,6 +534,25 @@ internal class ScannerSessionImpl(
             }
             viewState.torchEnabled = false
             applyCameraControlsIfActive(viewState)
+        }
+    }
+
+    /** Awaits one camera operation and attaches its exact operation and platform-view identity. */
+    private suspend fun awaitCameraControl(
+        viewId: Int,
+        operation: CameraControlOperation,
+        execute: () -> Deferred<Unit>,
+    ) {
+        try {
+            execute().await()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: PluginError.CameraControlError) {
+            throw error.contextualize(operation, viewId)
+        } catch (error: PluginError) {
+            throw error
+        } catch (error: Exception) {
+            throw PluginError.CameraControlError(operation, viewId, error)
         }
     }
 

@@ -7,7 +7,7 @@ import 'package:mlkit_scanner/models/recognition_type.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
-/// Displays a native camera preview and recognizes barcodes with ML Kit.
+/// Displays a native camera preview and recognizes barcodes.
 class BarcodeScanner extends StatefulWidget {
   /// Called for each barcode recognized while scanning is active.
   final ValueChanged<Barcode> onScan;
@@ -16,6 +16,8 @@ class BarcodeScanner extends StatefulWidget {
   final void Function(BarcodeScannerController controller) onScannerInitialized;
 
   /// Called when camera capture or initialization fails.
+  ///
+  /// Native camera control failures are reported as [CameraControlException].
   final ValueChanged<PlatformException>? onCameraInitializeError;
 
   /// Called when the native torch state changes.
@@ -257,7 +259,8 @@ class BarcodeScannerController {
 
   /// Toggles the selected camera's torch.
   ///
-  /// Throws a [PlatformException] when the selected camera has no flash.
+  /// Throws a [PlatformException] when the selected camera has no flash and a
+  /// [CameraControlException] when the torch operation fails.
   Future<void> toggleFlash() async {
     return _barcodeScannerState?._toggleFlash();
   }
@@ -303,6 +306,7 @@ class BarcodeScannerController {
   /// Sets the camera zoom.
   ///
   /// [value] must be in the inclusive range from `0` to `1`.
+  /// Throws [CameraControlException] when the zoom operation fails.
   Future<void> setZoom(double value) async {
     assert(
       value >= 0 && value <= 1,

@@ -33,7 +33,7 @@ interface Camera {
     /** Returns true when the camera has an active binding. */
     fun isActive(): Boolean
 
-    /** Completes when the lifecycle-bound camera device reaches CameraX OPEN state. */
+    /** Completes when the lifecycle-bound camera device reaches its open state. */
     fun awaitOpen(): Deferred<Unit>
 
     /** Returns whether the active camera exposes a flash unit usable as a torch. */

@@ -146,7 +146,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
 
-    /// Builds and starts an AVFoundation session for the requested initial state.
+    /// Builds and starts a camera session for the requested initial state.
     private func configureCamera(
         initialZoom: Double?,
         initialCamera: CameraData?,
@@ -372,7 +372,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         previewLayer?.connection?.videoOrientation = getVideoOrieitation()
     }
 
-    /// Maps the current status-bar orientation to AVFoundation video orientation.
+    /// Maps the current status-bar orientation to camera output orientation.
     private func getVideoOrieitation() -> AVCaptureVideoOrientation{
         switch UIApplication.shared.statusBarOrientation {
         case .landscapeRight:

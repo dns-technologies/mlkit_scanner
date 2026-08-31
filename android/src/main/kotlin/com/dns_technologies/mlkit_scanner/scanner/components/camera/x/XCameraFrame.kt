@@ -5,7 +5,7 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
 
-/** CameraX-backed frame that materializes full or cropped images as scoped NV21 buffers. */
+/** Camera frame that materializes full or cropped images as scoped NV21 buffers. */
 internal class XCameraFrame(
     private val imageProxy: ImageProxy,
     private val nv21Converter: ImageProxyNv21Converter,

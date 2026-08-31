@@ -16,7 +16,11 @@ internal abstract class BaseScannerCommand(
         scannerSessionProvider() ?: throw PluginError.CameraIsNotInitialized
 
     /** Sends a typed plugin error response. */
-    protected fun reportError(result: Result, error: PluginError, details: Any? = null) {
+    protected fun reportError(
+        result: Result,
+        error: PluginError,
+        details: Any? = error.details,
+    ) {
         result.error(error.errorCode, error.message, details)
     }
 

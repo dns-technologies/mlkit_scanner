@@ -1,21 +1,21 @@
 /// Hardware type of an iOS camera.
 enum IosCameraType {
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/2361449-builtinwideanglecamera.
+  /// Single wide-angle camera.
   builtInWideAngleCamera,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/2361478-builtintelephotocamera.
+  /// Single telephoto camera.
   builtInTelephotoCamera,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/2727142-builtindualcamera.
+  /// Combined dual-camera device.
   builtInDualCamera,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/3377622-builtinultrawidecamera.
+  /// Single ultra-wide camera.
   builtInUltraWideCamera,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/3377620-builtindualwidecamera.
+  /// Combined wide and ultra-wide camera device.
   builtInDualWideCamera,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/3377621-builtintriplecamera.
+  /// Combined wide, ultra-wide, and telephoto camera device.
   builtInTripleCamera,
 }
 

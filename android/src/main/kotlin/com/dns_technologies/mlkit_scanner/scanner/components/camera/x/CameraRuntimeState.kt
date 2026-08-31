@@ -19,7 +19,7 @@ internal class CameraRuntimeState {
     private var cameraOpenRevision = 0L
 
     /**
-     * Returns a deferred that completes when the current CameraX camera reaches the open state.
+     * Returns a deferred that completes when the current camera reaches the open state.
      *
      * The result is already completed when the camera is open and fails with
      * [PluginError.CameraSessionDisposed] after this state has been disposed.
@@ -130,7 +130,7 @@ internal class CameraRuntimeState {
         pending.forEach { it.completeExceptionally(PluginError.CameraSessionDisposed) }
     }
 
-    /** One CameraX control operation associated with a specific camera opening. */
+    /** One control operation associated with a specific camera opening. */
     class Operation<T : Any> internal constructor(
         val value: T,
         internal val userInitiated: Boolean,
@@ -138,7 +138,7 @@ internal class CameraRuntimeState {
         internal val cameraOpenRevision: Long,
     )
 
-    /** Follow-up policy produced when a CameraX operation completes. */
+    /** Follow-up policy produced when a camera operation completes. */
     data class Completion(
         val shouldRestore: Boolean = false,
         val restorationFailed: Boolean = false,

@@ -1,6 +1,6 @@
 import Flutter
 
-/// Returns supported cameras exposed by AVFoundation.
+/// Returns cameras supported by the native scanner.
 final class GetIosAvailableCamerasCommand: ScannerCommand {
     private let cameraUtil: CameraUtil
 

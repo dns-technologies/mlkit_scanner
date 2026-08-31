@@ -24,6 +24,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.Observer
+import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
@@ -36,9 +37,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 
 /**
- * CameraX adapter that hides CameraX APIs behind [Camera].
+ * Native camera adapter exposed through [Camera].
  *
- * @property context Android context used to create PreviewView and obtain CameraX services.
+ * @property context Android context used to create the preview and obtain camera services.
  */
 class XCamera(
     private val context: Context,
@@ -48,7 +49,7 @@ class XCamera(
     private val mainExecutor = ContextCompat.getMainExecutor(context)
     private val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
 
-    /** CameraX preview view rendered inside the scanner platform view. */
+    /** Native preview rendered inside the scanner platform view. */
     private val cameraPreviewView = PreviewView(context).apply {
         layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -60,7 +61,7 @@ class XCamera(
 
     override val previewView: View = cameraPreviewView
 
-    /** CameraX provider used to bind and unbind. */
+    /** Camera provider used to bind and unbind resources. */
     private var cameraProvider: ProcessCameraProvider? = null
 
     /** Current lifecycle state and resources owned by this adapter. */
@@ -90,7 +91,7 @@ class XCamera(
         displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
     }
 
-    /** Starts CameraX use cases while keeping preview hidden until [showPreview] is called. */
+    /** Starts preview and analysis while keeping preview hidden until [showPreview] is called. */
     override fun start(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
@@ -123,22 +124,22 @@ class XCamera(
         }
     }
 
-    /** Returns true when a CameraX camera is currently bound. */
+    /** Returns true when a camera is currently bound. */
     override fun isActive(): Boolean = bindingState is BoundCamera
 
-    /** Completes when the currently bound CameraX camera reaches OPEN state. */
+    /** Completes when the currently bound camera reaches its open state. */
     override fun awaitOpen(): Deferred<Unit> {
         val current = bindingState as? BoundCamera
             ?: throw PluginError.CameraIsNotInitialized
         return current.runtimeState.awaitOpen()
     }
 
-    /** Returns whether the active CameraX camera exposes a flash unit. */
+    /** Returns whether the active camera exposes a flash unit. */
     override fun isFlashSupported(): Boolean = isFlashSupported(
         bindingState as? BoundCamera ?: throw PluginError.CameraIsNotInitialized,
     )
 
-    /** Applies an absolute torch state for the active CameraX camera. */
+    /** Applies an absolute torch state for the active camera. */
     override fun setTorch(enabled: Boolean): Deferred<Unit> {
         val current = bindingState as? BoundCamera
             ?: throw PluginError.CameraIsNotInitialized
@@ -150,7 +151,7 @@ class XCamera(
         return executeTorchOperation(current, current.runtimeState.beginTorch(enabled))
     }
 
-    /** Starts CameraX focus and metering around the provided preview offsets. */
+    /** Starts focus and metering around the provided preview offsets. */
     override fun focusOnCenter(
         resetDelayMs: Long,
         offsetX: Float,
@@ -174,10 +175,10 @@ class XCamera(
         }
 
         return activeCamera.cameraControl.startFocusAndMetering(focusActionBuilder.build())
-            .asCameraControlDeferred(mainExecutor)
+            .asCameraControlDeferred(mainExecutor, CameraControlOperation.FOCUS)
     }
 
-    /** Applies normalized linear zoom and completes after CameraX accepts the value. */
+    /** Applies normalized linear zoom and completes after the camera accepts the value. */
     override fun setZoom(value: Float): Deferred<Unit> {
         val current = bindingState as? BoundCamera
             ?: throw PluginError.CameraIsNotInitialized
@@ -194,12 +195,12 @@ class XCamera(
         previewView.alpha = 1.0F
     }
 
-    /** Hides preview without changing CameraX bindings or analysis resources. */
+    /** Hides preview without changing camera bindings or analysis resources. */
     override fun hidePreview() {
         previewView.alpha = 0.0F
     }
 
-    /** Releases CameraX bindings owned by this adapter. */
+    /** Releases camera bindings owned by this adapter. */
     override fun dispose() {
         if (bindingState === BindingState.Disposed) return
         val current = bindingState as? BoundCamera
@@ -294,7 +295,7 @@ class XCamera(
         }
     }
 
-    /** Rebinds for a new viewport and restores the prior group if CameraX rejects the change. */
+    /** Rebinds for a new viewport and restores the prior group if the change fails. */
     private fun rebindCamera(
         provider: ProcessCameraProvider,
         current: BoundCamera,
@@ -348,7 +349,7 @@ class XCamera(
         }
     }
 
-    /** Creates the CameraX preview. */
+    /** Creates the preview pipeline. */
     private fun createPreview(targetRotation: Int): Preview = Preview.Builder()
         .setTargetRotation(targetRotation)
         .setResolutionSelector(DEFAULT_RESOLUTION_SELECTOR)
@@ -357,7 +358,7 @@ class XCamera(
             it.surfaceProvider = cameraPreviewView.surfaceProvider
         }
 
-    /** Creates the CameraX image analysis. */
+    /** Creates the image-analysis pipeline. */
     private fun createImageAnalysis(
         analysisExecutor: ExecutorService,
         onFrame: OnCameraFrame,
@@ -440,8 +441,15 @@ class XCamera(
         if (state?.type == AndroidXCameraState.Type.OPEN) {
             if (runtimeState.onCameraOpened()) restoreCameraControls(current, force = true)
         } else {
+            val stateError = state?.error
             runtimeState.onCameraUnavailable(
-                PluginError.CameraControlError.takeIf { state?.error != null },
+                stateError?.let { error ->
+                    PluginError.CameraControlError(
+                        operation = CameraControlOperation.AWAIT_OPEN,
+                        cause = error.cause,
+                        cameraStateErrorCode = error.code,
+                    )
+                },
             )
         }
     }
@@ -483,7 +491,7 @@ class XCamera(
         operation: CameraRuntimeState.Operation<Float>,
     ): Deferred<Unit> = try {
         current.camera.cameraControl.setLinearZoom(operation.value)
-            .asCameraControlDeferred(mainExecutor)
+            .asCameraControlDeferred(mainExecutor, CameraControlOperation.ZOOM)
             .also { result ->
                 result.invokeOnCompletion { error ->
                     handleZoomCompletion(current.runtimeState, operation, error)
@@ -511,7 +519,7 @@ class XCamera(
         operation: CameraRuntimeState.Operation<Boolean>,
     ): Deferred<Unit> = try {
         current.camera.cameraControl.enableTorch(operation.value)
-            .asCameraControlDeferred(mainExecutor)
+            .asCameraControlDeferred(mainExecutor, CameraControlOperation.TORCH)
             .also { result ->
                 result.invokeOnCompletion { error ->
                     handleTorchCompletion(current.runtimeState, operation, error)
@@ -567,7 +575,7 @@ class XCamera(
         val cameraStateObserver: Observer<AndroidXCameraState>,
     ) : BindingState
 
-    /** PreviewView handles size changes; only transform changes require a disruptive rebind. */
+    /** Preview size changes are handled in place; transform changes require a rebind. */
     private fun ViewPort.requiresRebind(other: ViewPort): Boolean =
         rotation != other.rotation ||
             scaleType != other.scaleType ||
@@ -583,7 +591,7 @@ class XCamera(
         const val MAX_LINEAR_ZOOM = 1.0F
         const val TAG = "MlkitScannerCamera"
 
-        /** Default CameraX target resolution used by preview and analysis. */
+        /** Default target resolution used by preview and analysis. */
         private val DEFAULT_TARGET_RESOLUTION = Size(720, 1280)
         private val DEFAULT_RESOLUTION_SELECTOR = ResolutionSelector.Builder()
             .setResolutionStrategy(

@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// Errors of the MLkit Scanner Plugin
+/// Errors exposed by the scanner plugin.
 enum MlKitPluginError: String, Error {
     /// Can't initialize camera preview.
     case initCameraError = "1"

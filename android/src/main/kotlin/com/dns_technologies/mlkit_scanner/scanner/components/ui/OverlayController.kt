@@ -83,7 +83,7 @@ internal class OverlayController(
         boundsView.addView(focusView)
     }
 
-    /** Focus gestures have no Dart result channel, so CameraX rejection is best-effort by contract. */
+    /** Focus gestures have no Dart result channel, so failures are best-effort by contract. */
     private fun requestFocus(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
         try {
             scanner.focusOnCenter(resetDelayMs, offsetX, offsetY).invokeOnCompletion { error ->

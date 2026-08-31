@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mlkit_scanner/exceptions/camera_control_exception.dart';
 import 'package:mlkit_scanner/models/crop_rect.dart';
 import 'package:mlkit_scanner/models/ios_camera_position.dart';
 import 'package:mlkit_scanner/models/ios_camera_type.dart';
@@ -89,6 +90,55 @@ void main() {
       'position': 1,
       'type': 0,
     });
+  });
+
+  test('camera error code 9 is exposed as a typed exception', () async {
+    messenger.setMockMethodCallHandler(methodChannel, (call) async {
+      throw PlatformException(
+        code: '9',
+        message: 'Camera control operation failed',
+        details: {
+          'operation': 'awaitOpen',
+          'viewId': 42,
+          'cameraStateErrorCode': 4,
+          'cause': {
+            'type': 'java.lang.IllegalStateException',
+            'message': 'camera device disconnected',
+            'stackTrace': 'native stack trace',
+          },
+        },
+      );
+    });
+
+    final error = await _captureError(
+      () => MlKitChannel().captureCamera(viewId: 42),
+    );
+
+    expect(error, isA<CameraControlException>());
+    final cameraError = error as CameraControlException;
+    expect(cameraError.code, '9');
+    expect(cameraError.operation, CameraControlOperation.awaitOpen);
+    expect(cameraError.viewId, 42);
+    expect(cameraError.cameraStateErrorCode, 4);
+    expect(cameraError.cause?.type, 'java.lang.IllegalStateException');
+    expect(cameraError.cause?.message, 'camera device disconnected');
+    expect(cameraError.cause?.stackTrace, 'native stack trace');
+    expect(cameraError.toString(), contains('operation: awaitOpen'));
+    expect(cameraError.toString(), contains('viewId: 42'));
+  });
+
+  test('other platform error codes remain PlatformException', () async {
+    messenger.setMockMethodCallHandler(methodChannel, (call) async {
+      throw PlatformException(code: '4', message: 'Device has no flash');
+    });
+
+    final error = await _captureError(
+      () => MlKitChannel().toggleFlash(viewId: 42),
+    );
+
+    expect(error, isA<PlatformException>());
+    expect(error, isNot(isA<CameraControlException>()));
+    expect((error as PlatformException).code, '4');
   });
 
   test('scan events are delivered only to the matching view', () async {
@@ -180,6 +230,15 @@ void main() {
     await firstSubscription.cancel();
     await secondSubscription.cancel();
   });
+}
+
+Future<Object> _captureError(Future<void> Function() callback) async {
+  try {
+    await callback();
+  } on Object catch (error) {
+    return error;
+  }
+  throw StateError('Expected callback to throw');
 }
 
 Future<void> sendNativeCall(

@@ -32,7 +32,7 @@ protocol ScannerSession: AnyObject {
     func setZoom(viewId: Int64, value: Double) throws
     /// Updates normalized recognition geometry retained by a view.
     func setCropArea(viewId: Int64, cropRect: CropRect) throws
-    /// Updates the AVFoundation camera retained by a view.
+    /// Updates the camera retained by a view.
     func setCamera(viewId: Int64, camera: CameraData) throws
     /// Releases all views, recognition handlers, and camera resources.
     func release()

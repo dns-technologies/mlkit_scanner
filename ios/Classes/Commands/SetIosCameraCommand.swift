@@ -1,8 +1,8 @@
 import Flutter
 
-/// Updates the AVFoundation camera retained by one platform view.
+/// Updates the camera retained by one platform view.
 final class SetIosCameraCommand: ScannerCommand {
-    /// Parses and applies an AVFoundation camera selection for the target view.
+    /// Parses and applies a camera selection for the target view.
     override func executeCommand(
         _ call: FlutterMethodCall,
         result: @escaping FlutterResult

@@ -11,7 +11,7 @@ struct ScannerViewRegistration {
     let initialFlashEnabled: Bool?
     /// Initial retained recognition rectangle.
     let initialCropRect: CropRect?
-    /// Initial retained AVFoundation camera selection.
+    /// Initial retained camera selection.
     let initialCamera: CameraData?
 
     /// Registration with no explicit initial configuration.

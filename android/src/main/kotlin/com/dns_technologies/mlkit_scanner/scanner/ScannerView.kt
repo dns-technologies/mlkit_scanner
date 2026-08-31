@@ -56,7 +56,7 @@ class ScannerView(
     /** Returns whether the hosted preview has completed a non-zero layout in this container. */
     fun isPreviewReady(): Boolean = hasPreview() && previewReady
 
-    /** Connects focus UI to the shared camera after CameraX is ready. */
+    /** Connects focus UI to the shared camera after it is ready. */
     fun bindFocus() = overlayController.bindFocus()
 
     /** Updates the scan overlay state in this preview container. */

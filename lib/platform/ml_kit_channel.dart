@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 import 'package:mlkit_scanner/models/recognition_type.dart';
 
-/// Typed access to the ML Kit scanner platform channel.
+/// Typed access to the scanner platform channel.
 class MlKitChannel {
   static const _captureCameraMethod = 'captureCamera';
   static const _releaseCameraMethod = 'releaseCamera';
@@ -72,21 +72,40 @@ class MlKitChannel {
     }
   }
 
+  /// Invokes a native command and maps camera error code 9 to its typed form.
+  Future<void> _invokeVoidMethod(String method, Object? arguments) async {
+    try {
+      await _channel.invokeMethod<void>(method, arguments);
+    } on PlatformException catch (error, stackTrace) {
+      if (error.code == CameraControlException.errorCode) {
+        Error.throwWithStackTrace(
+          CameraControlException.fromPlatformException(error),
+          stackTrace,
+        );
+      }
+      rethrow;
+    }
+  }
+
   /// Transfers camera ownership to [viewId] and restores its retained state.
+  ///
+  /// Throws [CameraControlException] when opening the camera or applying its
+  /// retained zoom or torch state fails.
   Future<void> captureCamera({required int viewId}) {
-    return _channel.invokeMethod(_captureCameraMethod, {'viewId': viewId});
+    return _invokeVoidMethod(_captureCameraMethod, {'viewId': viewId});
   }
 
   /// Releases camera ownership if [viewId] still owns it.
   Future<void> releaseCamera({required int viewId}) {
-    return _channel.invokeMethod(_releaseCameraMethod, {'viewId': viewId});
+    return _invokeVoidMethod(_releaseCameraMethod, {'viewId': viewId});
   }
 
   /// Toggles flash configuration owned by the platform view identified by [viewId].
   ///
-  /// Throws a [PlatformException] when the selected camera has no flash.
+  /// Throws a [PlatformException] when the selected camera has no flash and a
+  /// [CameraControlException] when the torch operation fails.
   Future<void> toggleFlash({required int viewId}) {
-    return _channel.invokeMethod(_toggleFlashMethod, {'viewId': viewId});
+    return _invokeVoidMethod(_toggleFlashMethod, {'viewId': viewId});
   }
 
   /// Starts recognition requested by the platform view identified by [viewId].
@@ -108,7 +127,7 @@ class MlKitChannel {
       'type': type.rawValue,
       'delay': delay,
     };
-    return _channel.invokeMethod(_startScanMethod, args);
+    return _invokeVoidMethod(_startScanMethod, args);
   }
 
   /// Reports recognized barcodes for one platform view.
@@ -127,14 +146,14 @@ class MlKitChannel {
 
   /// Stops recognition requested by the platform view identified by [viewId].
   Future<void> cancelScan({required int viewId}) {
-    return _channel.invokeMethod(_cancelScanMethod, {'viewId': viewId});
+    return _invokeVoidMethod(_cancelScanMethod, {'viewId': viewId});
   }
 
   /// Sets the successful-recognition cooldown owned by [viewId].
   ///
   /// Failed recognition does not start this timer.
   Future<void> setScanDelay(int delay, {required int viewId}) {
-    return _channel.invokeMethod(_setScanDelayMethod, {
+    return _invokeVoidMethod(_setScanDelayMethod, {
       'viewId': viewId,
       'delay': delay,
     });
@@ -144,7 +163,7 @@ class MlKitChannel {
   ///
   /// Other registered scanner views keep their independent lifecycle intent.
   Future<void> pauseCamera({required int viewId}) {
-    return _channel.invokeMethod(_pauseCameraMethod, {'viewId': viewId});
+    return _invokeVoidMethod(_pauseCameraMethod, {'viewId': viewId});
   }
 
   /// Resumes camera work requested by [viewId].
@@ -153,14 +172,15 @@ class MlKitChannel {
   /// resumes if [startScan] was previously requested by this view.
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> resumeCamera({required int viewId}) {
-    return _channel.invokeMethod(_resumeCameraMethod, {'viewId': viewId});
+    return _invokeVoidMethod(_resumeCameraMethod, {'viewId': viewId});
   }
 
   /// Sets normalized zoom owned by [viewId].
   ///
   /// [value] must be in the inclusive range from `0` to `1`.
+  /// Throws [CameraControlException] when the zoom operation fails.
   Future<void> setZoom(double value, {required int viewId}) {
-    return _channel.invokeMethod(_setZoomMethod, {
+    return _invokeVoidMethod(_setZoomMethod, {
       'viewId': viewId,
       'value': value,
     });
@@ -170,7 +190,7 @@ class MlKitChannel {
   ///
   /// [rect] is normalized relative to the camera preview.
   Future<void> setCropArea(CropRect rect, {required int viewId}) {
-    return _channel.invokeMethod(_setCropAreaMethod, {
+    return _invokeVoidMethod(_setCropAreaMethod, {
       'viewId': viewId,
       'cropRect': rect.toJson(),
     });
@@ -191,7 +211,7 @@ class MlKitChannel {
     required IosCameraPosition position,
     required IosCameraType type,
   }) {
-    return _channel.invokeMethod(_setIosCamera, {
+    return _invokeVoidMethod(_setIosCamera, {
       'viewId': viewId,
       'position': position.code,
       'type': type.code,

@@ -3,7 +3,7 @@ package com.dns_technologies.mlkit_scanner.scanner.utils
 import androidx.camera.core.ImageProxy
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 
-/** Copies only the requested CameraX image region into reusable NV21 storage. */
+/** Copies only the requested camera image region into reusable NV21 storage. */
 internal class ImageProxyNv21Converter(
     private val bufferPool: ReusableByteArrayPool = ReusableByteArrayPool(),
 ) {

@@ -2,6 +2,7 @@ package com.dns_technologies.mlkit_scanner.commands
 
 import android.content.Context
 import androidx.lifecycle.Lifecycle
+import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
@@ -142,17 +143,23 @@ internal class ScannerCommandStateTest {
     fun `camera control failure is returned with stable error`() {
         val session = ControlSession()
         val result = mock(MethodChannel.Result::class.java)
+        val cause = IllegalStateException("CameraX rejected zoom")
+        val error = PluginError.CameraControlError(
+            operation = CameraControlOperation.ZOOM,
+            viewId = VIEW_ID,
+            cause = cause,
+        )
 
         SetZoomCommand({ session }, commandScope).execute(
             MethodCall("zoom", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
             result,
         )
-        session.zoomResult.completeExceptionally(PluginError.CameraControlError)
+        session.zoomResult.completeExceptionally(error)
 
         verify(result).error(
-            PluginError.CameraControlError.errorCode,
-            PluginError.CameraControlError.message,
-            null,
+            PluginError.CameraControlError.ERROR_CODE,
+            PluginError.CameraControlError.ERROR_MESSAGE,
+            error.details,
         )
         verify(result, never()).success(anyValue())
     }

@@ -38,7 +38,7 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry
 
-/** Android plugin entry point for the ML Kit scanner. */
+/** Android scanner plugin entry point. */
 class MlkitScannerPlugin internal constructor(
     private val mainHandler: Handler,
 ) : FlutterPlugin, ActivityAware, MethodCallHandler {

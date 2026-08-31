@@ -10,12 +10,9 @@ import AVFoundation
 
 extension UIImage {
     
-    /// Initialization of `UIImage?` by `CIImage` from `AVCaptureVideoOutput` with cropping by scale:
-    ///  `scaleX` scale by coordinate X
-    ///  `scaleY` scale by coordinate Y
-    ///  `orientation` orientation of `AVCaptureVideoOutput`. 
-    ///  `cropRect` optional `CropRect?`, if not nil crops the image by this `CropRect`
-    /// Return `nil` if it can't create `UIImage` with this scales and `CropRect` 
+    /// Creates an image from a camera frame with optional scale-based cropping.
+    ///
+    /// Returns `nil` when the requested crop cannot produce an image.
     convenience init?(ciImage: CIImage, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation, cropRect: CropRect?) {
         var height: CGFloat
         var width: CGFloat

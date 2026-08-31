@@ -9,7 +9,9 @@ package com.dns_technologies.mlkit_scanner
 internal sealed class PluginError(
     val errorCode: String,
     override val message: String,
-) : Exception(message) {
+    cause: Throwable? = null,
+    val details: Any? = null,
+) : Exception(message, cause) {
     /** Camera initialization failed due to an internal camera error. */
     object InitCameraError : PluginError("1", "Internal camera initialisation error")
 
@@ -34,6 +36,50 @@ internal sealed class PluginError(
     /** The scanner session was released before the requested operation completed. */
     object CameraSessionDisposed : PluginError("8", "Camera session has been disposed")
 
-    /** CameraX rejected an asynchronous zoom, torch or focus operation. */
-    object CameraControlError : PluginError("9", "Camera control operation failed")
+    /** An asynchronous camera control operation failed. */
+    class CameraControlError(
+        val operation: CameraControlOperation,
+        val viewId: Int? = null,
+        cause: Throwable? = null,
+        val cameraStateErrorCode: Int? = null,
+    ) : PluginError(
+        errorCode = ERROR_CODE,
+        message = ERROR_MESSAGE,
+        cause = cause,
+        details = mapOf(
+            "operation" to operation.wireValue,
+            "viewId" to viewId,
+            "cause" to cause?.toChannelDetails(),
+            "cameraStateErrorCode" to cameraStateErrorCode,
+        ),
+    ) {
+        /** Adds session context without losing the original native failure. */
+        fun contextualize(operation: CameraControlOperation, viewId: Int): CameraControlError =
+            CameraControlError(
+                operation = operation,
+                viewId = viewId,
+                cause = cause,
+                cameraStateErrorCode = cameraStateErrorCode,
+            )
+
+        internal companion object {
+            const val ERROR_CODE = "9"
+            const val ERROR_MESSAGE = "Camera control operation failed"
+        }
+    }
 }
+
+/** Camera operation attached to error code 9 and sent to Dart. */
+internal enum class CameraControlOperation(val wireValue: String) {
+    AWAIT_OPEN("awaitOpen"),
+    ZOOM("zoom"),
+    TORCH("torch"),
+    FOCUS("focus"),
+}
+
+/** Converts an original native failure to StandardMessageCodec-compatible details. */
+private fun Throwable.toChannelDetails(): Map<String, String?> = mapOf(
+    "type" to javaClass.name,
+    "message" to message,
+    "stackTrace" to stackTraceToString(),
+)

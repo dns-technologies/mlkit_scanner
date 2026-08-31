@@ -180,7 +180,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
-    /// Updates the AVFoundation camera retained by a view.
+    /// Updates the camera retained by a view.
     func setCamera(viewId: Int64, camera: CameraData) throws {
         let viewState = try requireReadyView(viewId)
         viewState.camera = camera

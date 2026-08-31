@@ -1,11 +1,13 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
+import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.google.common.util.concurrent.ListenableFuture
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -15,7 +17,10 @@ internal class ListenableFutureExtensionsTest {
     @Test
     fun `camera control deferred completes with future`() = runBlocking {
         val future = TestListenableFuture()
-        val result = future.asCameraControlDeferred(Runnable::run)
+        val result = future.asCameraControlDeferred(
+            Runnable::run,
+            CameraControlOperation.ZOOM,
+        )
 
         assertFalse(result.isCompleted)
         future.complete()
@@ -25,22 +30,30 @@ internal class ListenableFutureExtensionsTest {
     }
 
     @Test
-    fun `camera control failure maps to stable plugin error`() = runBlocking {
+    fun `camera control failure preserves operation and original cause`() = runBlocking {
         val future = TestListenableFuture()
-        val result = future.asCameraControlDeferred(Runnable::run)
-
-        future.completeExceptionally(IllegalStateException("camera rejected operation"))
-
-        assertSame(
-            PluginError.CameraControlError,
-            runCatching { result.await() }.exceptionOrNull(),
+        val result = future.asCameraControlDeferred(
+            Runnable::run,
+            CameraControlOperation.TORCH,
         )
+        val cause = IllegalStateException("camera rejected operation")
+
+        future.completeExceptionally(cause)
+
+        val error = runCatching { result.await() }.exceptionOrNull()
+        assertTrue(error is PluginError.CameraControlError)
+        error as PluginError.CameraControlError
+        assertEquals(CameraControlOperation.TORCH, error.operation)
+        assertSame(cause, error.cause)
     }
 
     @Test
     fun `cancelling deferred cancels camera control future`() {
         val future = TestListenableFuture()
-        val result = future.asCameraControlDeferred(Runnable::run)
+        val result = future.asCameraControlDeferred(
+            Runnable::run,
+            CameraControlOperation.FOCUS,
+        )
 
         result.cancel()
 

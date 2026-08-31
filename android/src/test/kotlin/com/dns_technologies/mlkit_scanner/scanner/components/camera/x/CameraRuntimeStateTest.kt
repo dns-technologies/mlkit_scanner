@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
+import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -197,11 +198,15 @@ internal class CameraRuntimeStateTest {
     fun `camera error fails current waiters but allows a later opening`() = runBlocking {
         val state = CameraRuntimeState()
         val failedWaiter = state.awaitOpen()
+        val cameraError = PluginError.CameraControlError(
+            CameraControlOperation.AWAIT_OPEN,
+            cameraStateErrorCode = 4,
+        )
 
-        state.onCameraUnavailable(PluginError.CameraControlError)
+        state.onCameraUnavailable(cameraError)
 
         assertSame(
-            PluginError.CameraControlError,
+            cameraError,
             runCatching { failedWaiter.await() }.exceptionOrNull(),
         )
         val recoveredWaiter = state.awaitOpen()

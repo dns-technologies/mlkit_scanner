@@ -1,12 +1,12 @@
 /// Physical position of an iOS camera.
 enum IosCameraPosition {
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/position/unspecified.
+  /// Camera position is not specified.
   unspecified,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/position/back.
+  /// Camera faces away from the user.
   back,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/position/front.
+  /// Camera faces the user.
   front,
 }
 
