@@ -45,6 +45,7 @@ class ScannerView(
     /** Removes the shared preview without disposing the shared camera pipeline. */
     fun detachPreview() {
         overlayController.setScanActive(false)
+        overlayController.unbindFocus()
         clearPreviewReadiness()
         val preview = scanner.previewView
         if (preview.parent === this) removeView(preview)
@@ -58,6 +59,9 @@ class ScannerView(
 
     /** Connects focus UI to the shared camera after it is ready. */
     fun bindFocus() = overlayController.bindFocus()
+
+    /** Disconnects focus UI while this view does not own an active camera. */
+    fun unbindFocus() = overlayController.unbindFocus()
 
     /** Updates the scan overlay state in this preview container. */
     fun setScanActive(isActive: Boolean) = overlayController.setScanActive(isActive)

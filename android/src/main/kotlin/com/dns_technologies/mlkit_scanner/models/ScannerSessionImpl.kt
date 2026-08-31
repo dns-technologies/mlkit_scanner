@@ -72,16 +72,13 @@ internal class ScannerSessionImpl(
         initialCropRect: RecognizeVisorCropRect?,
         initialFlashEnabled: Boolean?,
     ): ScannerView {
-        check(!isReleased) { "Cannot add a scanner view to a released session" }
-        check(viewId !in views) { "Scanner platform view $viewId already exists" }
-        cancelDeferredRelease()
         val view = ScannerView(context, scanner) { disposePlatformView(viewId) }
-        views[viewId] = ScannerViewState(
+        registerView(
             viewId = viewId,
             view = view,
-            zoom = initialZoom?.toFloat(),
-            torchEnabled = initialFlashEnabled,
-            cropArea = initialCropRect,
+            initialZoom = initialZoom,
+            initialCropRect = initialCropRect,
+            initialFlashEnabled = initialFlashEnabled,
         )
         return view
     }
@@ -93,6 +90,23 @@ internal class ScannerSessionImpl(
         initialZoom: Double? = null,
         initialCropRect: RecognizeVisorCropRect? = null,
         initialFlashEnabled: Boolean? = null,
+    ) {
+        registerView(
+            viewId = viewId,
+            view = view,
+            initialZoom = initialZoom,
+            initialCropRect = initialCropRect,
+            initialFlashEnabled = initialFlashEnabled,
+        )
+    }
+
+    /** Registers retained state for one production or test platform view. */
+    private fun registerView(
+        viewId: Int,
+        view: ScannerView,
+        initialZoom: Double?,
+        initialCropRect: RecognizeVisorCropRect?,
+        initialFlashEnabled: Boolean?,
     ) {
         check(!isReleased) { "Cannot add a scanner view to a released session" }
         check(viewId !in views) { "Scanner platform view $viewId already exists" }
@@ -112,28 +126,27 @@ internal class ScannerSessionImpl(
     ) {
         if (isReleased) throw PluginError.CameraSessionDisposed
         val viewState = requireView(viewId)
+        val wasInitialized = viewState.cameraInitialized
         val previousCapture = capturedViewState()
         views.values.forEach { it.isCameraOwner = it === viewState }
         moveCamera(previousCapture, viewState)
 
-        if (!requestCameraPermission()) {
-            if (isCurrentCapture(viewId)) releaseCapturedCamera()
-            throw PluginError.AuthorizationCameraError
+        viewState.awaitInitialization {
+            if (!requestCameraPermission()) throw PluginError.AuthorizationCameraError
+            if (isReleased) throw PluginError.CameraSessionDisposed
+            viewState.cameraStarted = true
+            updateCameraLifecycle()
+            if (!scanner.isActive()) initializeCamera().await()
         }
-        if (!isCurrentCapture(viewId)) return
-        if (!viewState.cameraRequested) return
-        val isRestoring = viewState.cameraStarted
-        viewState.cameraStarted = true
+        if (viewState !== capturedViewState() || !viewState.cameraRequested) return
         updateCameraLifecycle()
 
-        if (scanner.isActive()) {
-            if (isRestoring) {
-                applyRestoredCameraControls(viewState)
-            } else {
-                applyCameraControlsIfActive(viewState)
-            }
+        if (!scanner.isActive()) initializeCamera().await()
+        if (viewState !== capturedViewState() || !viewState.cameraRequested) return
+        if (wasInitialized) {
+            applyRestoredCameraControls(viewState)
         } else {
-            initializeCamera().await()
+            applyCameraControlsIfActive(viewState)
         }
     }
 
@@ -155,6 +168,9 @@ internal class ScannerSessionImpl(
             initializationScope.launch {
                 try {
                     initializeCamera().await()
+                    if (viewState === capturedViewState() && viewState.cameraRequested) {
+                        applyRestoredCameraControls(viewState)
+                    }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -169,7 +185,10 @@ internal class ScannerSessionImpl(
     override fun pauseCamera(viewId: Int) {
         val viewState = views[viewId] ?: return
         viewState.cameraRequested = false
-        if (viewState.view.hasPreview()) viewState.configurationApplied = false
+        if (viewState.view.hasPreview()) {
+            viewState.configurationApplied = false
+            viewState.view.unbindFocus()
+        }
         applyViewStateIfCaptured(viewState)
     }
 
@@ -202,25 +221,23 @@ internal class ScannerSessionImpl(
 
     override suspend fun toggleFlashLight(viewId: Int) {
         cameraControlMutex.withLock {
-            val viewState = requireViewCameraReady(viewId)
+            val viewState = requireView(viewId)
             val enabled = viewState.torchEnabled != true
-            if (viewState === capturedViewState()) {
+            if (canApplyCameraControls(viewState)) {
                 awaitCameraControl(viewId, CameraControlOperation.TORCH) {
                     scanner.setTorch(enabled)
                 }
                 if (isReleased) throw PluginError.CameraSessionDisposed
-            } else if (enabled && !scanner.isFlashSupported()) {
-                throw PluginError.DeviceHasNotFlash
             }
             viewState.torchEnabled = enabled
         }
     }
 
     override fun startScan(viewId: Int, periodMs: Int) {
-        val viewState = requireViewCameraReady(viewId)
+        val viewState = requireView(viewId)
         viewState.scanPeriodMs = periodMs
         viewState.scanRequestedByView = true
-        applyScanPeriodIfActive(viewState)
+        if (canApplyCameraControls(viewState)) applyScanPeriodIfActive(viewState)
         applyViewStateIfCaptured(viewState)
     }
 
@@ -231,15 +248,15 @@ internal class ScannerSessionImpl(
     }
 
     override fun updateScanPeriod(viewId: Int, periodMs: Int) {
-        val viewState = requireViewCameraReady(viewId)
+        val viewState = requireView(viewId)
         viewState.scanPeriodMs = periodMs
-        applyScanPeriodIfActive(viewState)
+        if (canApplyCameraControls(viewState)) applyScanPeriodIfActive(viewState)
     }
 
     override suspend fun setZoom(viewId: Int, value: Float) {
         cameraControlMutex.withLock {
-            val viewState = requireViewCameraReady(viewId)
-            if (viewState === capturedViewState()) {
+            val viewState = requireView(viewId)
+            if (canApplyCameraControls(viewState)) {
                 awaitCameraControl(viewId, CameraControlOperation.ZOOM) {
                     scanner.setZoom(value)
                 }
@@ -250,28 +267,28 @@ internal class ScannerSessionImpl(
     }
 
     override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) {
-        val viewState = requireViewCameraReady(viewId)
+        val viewState = requireView(viewId)
         viewState.cropArea = cropRect
-        applyCropAreaIfActive(viewState)
+        if (canApplyCameraControls(viewState)) applyCropAreaIfActive(viewState)
     }
 
     /** Applies retained crop geometry when [viewState] currently owns the camera. */
     private fun applyCropAreaIfActive(viewState: ScannerViewState) {
-        if (viewState !== capturedViewState()) return
+        if (!canApplyCameraControls(viewState)) return
         scanner.setCropArea(viewState.cropArea)
         viewState.cropArea?.let(viewState.view::renderCropArea)
     }
 
     /** Restores crop processing and redraws its overlay for the active view. */
     private fun restoreCropAreaIfActive(viewState: ScannerViewState) {
-        if (viewState !== capturedViewState()) return
+        if (!canApplyCameraControls(viewState)) return
         scanner.setCropArea(viewState.cropArea)
         viewState.view.redrawCropArea()
     }
 
     /** Applies the retained recognition cooldown for the active view. */
     private fun applyScanPeriodIfActive(viewState: ScannerViewState) {
-        if (viewState !== capturedViewState()) return
+        if (!canApplyCameraControls(viewState)) return
         viewState.scanPeriodMs?.let(scanner::updateScanPeriod)
     }
 
@@ -297,6 +314,9 @@ internal class ScannerSessionImpl(
 
         cameraInitialization?.completeExceptionally(PluginError.CameraSessionDisposed)
         cameraInitialization = null
+        views.values.forEach { viewState ->
+            viewState.failInitialization(PluginError.CameraSessionDisposed)
+        }
         initializationScope.cancel()
         scanSubscription?.cancel()
         scanSubscription = null
@@ -323,8 +343,6 @@ internal class ScannerSessionImpl(
             // A repeated capture is an explicit request to restore this view's retained state.
             // Invalidate the applied marker so captureCamera reapplies zoom and torch too.
             viewState.configurationApplied = false
-            applyCropAreaIfActive(viewState)
-            applyScanPeriodIfActive(viewState)
             viewState.view.setScanActive(false)
             if (scanner.isActive()) scanner.hidePreview()
         }
@@ -351,20 +369,13 @@ internal class ScannerSessionImpl(
         applyScanState()
     }
 
-    /** Returns whether [viewId] still owns the camera after asynchronous work. */
-    private fun isCurrentCapture(viewId: Int): Boolean =
-        !isReleased && views[viewId]?.isCameraOwner == true
-
-    /** Attaches the shared preview to a view and prepares its retained crop state. */
+    /** Attaches the shared preview to a view without applying state before initialization. */
     private fun attachPreview(viewState: ScannerViewState) {
         viewState.configurationApplied = false
         viewState.view.attachPreview(::applyScanState)
-        applyCropAreaIfActive(viewState)
-        applyScanPeriodIfActive(viewState)
         viewState.view.setScanActive(false)
         if (scanner.isActive()) {
             scanner.hidePreview()
-            viewState.view.bindFocus()
         }
     }
 
@@ -408,6 +419,7 @@ internal class ScannerSessionImpl(
         if (isPaused && scanner.isActive()) {
             capturedViewState()?.let { viewState ->
                 viewState.configurationApplied = false
+                viewState.view.unbindFocus()
                 scanner.hidePreview()
             }
         }
@@ -415,8 +427,7 @@ internal class ScannerSessionImpl(
         applyScanState()
         if (!isPaused) {
             capturedViewState()?.let { viewState ->
-                restoreCropAreaIfActive(viewState)
-                restoreCameraControlsIfActive(viewState)
+                restoreCameraControlsIfActive(viewState, redrawCropArea = true)
             }
         }
     }
@@ -442,13 +453,16 @@ internal class ScannerSessionImpl(
 
         /** Completes this initialization exceptionally and releases an unusable session. */
         fun fail(error: Throwable) {
-            if (initialization.completeExceptionally(error)) release()
+            if (!initialization.completeExceptionally(error)) return
+            // Preserve the actual camera error for every per-view initialization before release
+            // marks unfinished work as disposed.
+            views.values.forEach { it.failInitialization(error) }
+            release()
         }
 
-        /** Completes this initialization after focus and scan state have been attached. */
+        /** Completes shared camera initialization; per-view controls are applied afterwards. */
         fun complete() {
             if (isReleased || initialization.isCompleted) return
-            capturedViewState()?.view?.bindFocus()
             applyScanState()
             initialization.complete(Unit)
         }
@@ -459,14 +473,7 @@ internal class ScannerSessionImpl(
                 onInit = {
                     if (isReleased) return@startCamera
                     initializationScope.launch {
-                        try {
-                            capturedViewState()?.let { viewState ->
-                                applyCameraControlsIfActive(viewState)
-                            }
-                            complete()
-                        } catch (error: Exception) {
-                            fail(error)
-                        }
+                        complete()
                     }
                 },
                 onError = ::fail,
@@ -483,33 +490,65 @@ internal class ScannerSessionImpl(
         CompletableDeferred<Unit>().also { it.completeExceptionally(error) }
 
     /** Applies zoom and torch atomically before revealing the active preview. */
-    private suspend fun applyCameraControlsIfActive(viewState: ScannerViewState) {
+    private suspend fun applyCameraControlsIfActive(
+        viewState: ScannerViewState,
+        redrawCropArea: Boolean = false,
+    ) {
         cameraControlMutex.withLock {
-            if (!canApplyCameraControls(viewState)) return
-            awaitCameraControl(viewState.viewId, CameraControlOperation.AWAIT_OPEN) {
-                scanner.awaitCameraOpen()
+            if (viewState.configurationApplied) return
+            if (
+                !awaitCameraControlIfActive(
+                    viewState,
+                    CameraControlOperation.AWAIT_OPEN,
+                    scanner::awaitCameraOpen,
+                )
+            ) return
+            if (
+                !awaitCameraControlIfActive(
+                    viewState,
+                    CameraControlOperation.FOCUS,
+                    scanner::resetFocus,
+                )
+            ) return
+            if (redrawCropArea) {
+                restoreCropAreaIfActive(viewState)
+            } else {
+                applyCropAreaIfActive(viewState)
             }
-            if (!canApplyCameraControls(viewState)) return
-            awaitCameraControl(viewState.viewId, CameraControlOperation.ZOOM) {
-                scanner.setZoom(viewState.zoom ?: DEFAULT_ZOOM)
-            }
-            if (!canApplyCameraControls(viewState)) return
-            awaitCameraControl(viewState.viewId, CameraControlOperation.TORCH) {
-                scanner.setTorch(viewState.torchEnabled == true)
-            }
+            applyScanPeriodIfActive(viewState)
+            if (
+                !awaitCameraControlIfActive(
+                    viewState,
+                    CameraControlOperation.ZOOM,
+                ) {
+                    scanner.setZoom(viewState.zoom ?: DEFAULT_ZOOM)
+                }
+            ) return
+            if (
+                !awaitCameraControlIfActive(
+                    viewState,
+                    CameraControlOperation.TORCH,
+                ) {
+                    scanner.setTorch(viewState.torchEnabled == true)
+                }
+            ) return
             if (!canApplyCameraControls(viewState)) return
             viewState.configurationApplied = true
+            viewState.view.bindFocus()
             scanner.showPreview()
             applyScanState()
         }
     }
 
     /** Starts asynchronous control restoration when an active view needs it. */
-    private fun restoreCameraControlsIfActive(viewState: ScannerViewState) {
+    private fun restoreCameraControlsIfActive(
+        viewState: ScannerViewState,
+        redrawCropArea: Boolean = false,
+    ) {
         if (viewState.configurationApplied || !canApplyCameraControls(viewState)) return
         initializationScope.launch {
             try {
-                applyRestoredCameraControls(viewState)
+                applyRestoredCameraControls(viewState, redrawCropArea)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -521,9 +560,12 @@ internal class ScannerSessionImpl(
     }
 
     /** Restores controls, disabling a retained torch request if flash is unavailable. */
-    private suspend fun applyRestoredCameraControls(viewState: ScannerViewState) {
+    private suspend fun applyRestoredCameraControls(
+        viewState: ScannerViewState,
+        redrawCropArea: Boolean = false,
+    ) {
         try {
-            applyCameraControlsIfActive(viewState)
+            applyCameraControlsIfActive(viewState, redrawCropArea)
         } catch (error: PluginError) {
             if (
                 error !== PluginError.DeviceHasNotFlash ||
@@ -533,7 +575,7 @@ internal class ScannerSessionImpl(
                 throw error
             }
             viewState.torchEnabled = false
-            applyCameraControlsIfActive(viewState)
+            applyCameraControlsIfActive(viewState, redrawCropArea)
         }
     }
 
@@ -556,10 +598,30 @@ internal class ScannerSessionImpl(
         }
     }
 
+    /**
+     * Runs one startup control only while [viewState] owns the camera.
+     *
+     * A navigation transition can replace the target while an asynchronous operation is in
+     * progress. A successful obsolete operation stops the remaining configuration from being
+     * applied to the new target; a real camera error is still reported to the original caller.
+     */
+    private suspend fun awaitCameraControlIfActive(
+        viewState: ScannerViewState,
+        operation: CameraControlOperation,
+        execute: () -> Deferred<Unit>,
+    ): Boolean {
+        if (isReleased) throw PluginError.CameraSessionDisposed
+        if (!canApplyCameraControls(viewState)) return false
+        awaitCameraControl(viewState.viewId, operation, execute)
+        if (isReleased) throw PluginError.CameraSessionDisposed
+        return canApplyCameraControls(viewState)
+    }
+
     /** Returns whether camera controls may still be applied to [viewState]. */
     private fun canApplyCameraControls(viewState: ScannerViewState): Boolean =
+        scanner.isActive() &&
         !isReleased &&
-            scanner.isActive() &&
+            viewState.cameraInitialized &&
             viewState.cameraStarted &&
             viewState.cameraRequested &&
             !hostPaused &&
@@ -594,21 +656,6 @@ internal class ScannerSessionImpl(
     /** Returns a registered view or reports that its camera is unavailable. */
     private fun requireView(viewId: Int): ScannerViewState =
         views[viewId] ?: throw PluginError.CameraIsNotInitialized
-
-    /** Returns a registered, started view after validating shared camera readiness. */
-    private fun requireViewCameraReady(viewId: Int): ScannerViewState =
-        requireView(viewId).also { viewState ->
-            requireCameraReady()
-            if (!viewState.cameraStarted) throw PluginError.CameraIsNotInitialized
-        }
-
-    /** Rejects commands while the session is released, initializing, or inactive. */
-    private fun requireCameraReady() {
-        if (isReleased) throw PluginError.CameraSessionDisposed
-        if (cameraInitialization != null || !scanner.isActive()) {
-            throw PluginError.CameraIsNotInitialized
-        }
-    }
 
     /** Removes scan-result callbacks that have not yet reached Flutter. */
     private fun cancelPendingResultDeliveries() {
@@ -646,12 +693,13 @@ internal class ScannerSessionImpl(
         private const val TAG = "MlkitScannerSession"
     }
 
-    private data class ScannerViewState(
+    private class ScannerViewState(
         val viewId: Int,
         val view: ScannerView,
         /** True only for the one registered view that currently owns the shared camera preview. */
         var isCameraOwner: Boolean = false,
         var cameraStarted: Boolean = false,
+        var cameraInitialized: Boolean = false,
         var cameraRequested: Boolean = true,
         /** User scan intent retained across capture, host-lifecycle, and preview system pauses. */
         var scanRequestedByView: Boolean = false,
@@ -660,5 +708,39 @@ internal class ScannerSessionImpl(
         var torchEnabled: Boolean? = null,
         var cropArea: RecognizeVisorCropRect? = null,
         var configurationApplied: Boolean = false,
-    )
+    ) {
+        private val initializationMutex = Mutex()
+        private var initialization: CompletableDeferred<Unit>? = null
+
+        /** Starts this view's initialization once and shares its result with later captures. */
+        suspend fun awaitInitialization(initialize: suspend () -> Unit) {
+            var shouldInitialize = false
+            val currentInitialization = initializationMutex.withLock {
+                initialization ?: CompletableDeferred<Unit>().also {
+                    initialization = it
+                    shouldInitialize = true
+                }
+            }
+
+            if (shouldInitialize) {
+                try {
+                    initialize()
+                    cameraInitialized = true
+                    currentInitialization.complete(Unit)
+                } catch (error: CancellationException) {
+                    currentInitialization.completeExceptionally(error)
+                    throw error
+                } catch (error: Throwable) {
+                    currentInitialization.completeExceptionally(error)
+                }
+            }
+
+            currentInitialization.await()
+        }
+
+        /** Fails pending initialization when the owning scanner session is released. */
+        fun failInitialization(error: Throwable) {
+            initialization?.completeExceptionally(error)
+        }
+    }
 }

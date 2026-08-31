@@ -324,8 +324,6 @@ internal class ScannerTest {
 
         override fun awaitOpen(): Deferred<Unit> = CompletableDeferred(Unit)
 
-        override fun isFlashSupported(): Boolean = true
-
         override fun setTorch(enabled: Boolean): Deferred<Unit> = CompletableDeferred(Unit)
 
         override fun focusOnCenter(
@@ -333,6 +331,8 @@ internal class ScannerTest {
             offsetX: Float,
             offsetY: Float,
         ): Deferred<Unit> = CompletableDeferred(Unit)
+
+        override fun resetFocus(): Deferred<Unit> = CompletableDeferred(Unit)
 
         override fun setZoom(value: Float): Deferred<Unit> {
             if (!isActive()) throw PluginError.CameraIsNotInitialized

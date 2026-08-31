@@ -21,13 +21,13 @@ class PluginConstants {
     static let heightArgument = "height"
     /// Event key containing a recognized barcode.
     static let barcodeArgument = "barcode"
-    /// Optional camera-initialization argument containing normalized zoom.
+    /// Optional platform-view registration argument containing retained zoom.
     static let initialZoomArgument = "initialZoom"
-    /// Optional camera-initialization argument containing the initial torch state.
+    /// Optional platform-view registration argument containing retained torch state.
     static let initialFlashEnabledArgument = "initialFlashEnabled"
-    /// Optional camera-initialization argument containing the recognition area.
+    /// Optional platform-view registration argument containing a retained recognition area.
     static let initialCropRectArgument = "initialCropRect"
-    /// Optional camera-initialization argument containing an iOS camera.
+    /// Optional platform-view registration argument containing a retained iOS camera.
     static let initialCameraArgument = "initialCamera"
     /// Event key containing a scalar event value.
     static let valueArgument = "value"

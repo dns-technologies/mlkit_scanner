@@ -128,6 +128,15 @@ class FocusView(
         }
     }
 
+    /** Clears the visual lock when camera ownership leaves this preview. */
+    fun resetIndicator() {
+        if (isDisposed) return
+        clearAnimation()
+        lock.clearAnimation()
+        circle.clearAnimation()
+        lock.visibility = View.INVISIBLE
+    }
+
     /** Cancels focus callbacks, layout listeners and animations owned by this overlay. */
     fun dispose() {
         if (isDisposed) return

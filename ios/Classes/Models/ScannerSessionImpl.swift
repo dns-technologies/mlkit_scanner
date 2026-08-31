@@ -2,7 +2,7 @@ import Foundation
 import MLKitBarcodeScanning
 
 /// Owns all iOS scanner platform-view state and one explicit camera binding.
-final class ScannerSessionImpl: NSObject, ScannerSession {
+final class ScannerSessionImpl: ScannerSession {
     private var views: [Int64: ScannerViewState] = [:]
     private let onScanResult: (Int64, Barcode) -> Void
     private let onTorchChanged: (Int64, Bool) -> Void
@@ -15,7 +15,6 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
     ) {
         self.onScanResult = onScanResult
         self.onTorchChanged = onTorchChanged
-        super.init()
     }
 
     /// Creates and registers a native preview without capturing the camera.
@@ -41,13 +40,20 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         return view
     }
 
-    /// Transfers camera ownership to a view and restores its retained state.
+    /// Transfers ownership, awaits that view's initialization, and restores retained state.
     func captureCamera(viewId: Int64, completion: @escaping ScannerSessionCompletion) {
         do {
             let viewState = try requireView(viewId)
             let previousCapture = capturedViewState()
+            let previousView = previousCapture !== viewState ? previousCapture?.view : nil
 
-            views.values.forEach { $0.isCameraOwner = $0 === viewState }
+            views.values.forEach { state in
+                state.isCameraOwner = state === viewState
+                if state !== viewState {
+                    state.cameraTransitionReady = false
+                }
+            }
+            viewState.cameraTransitionReady = previousView == nil
             if previousCapture !== viewState {
                 if let previousCapture = previousCapture {
                     deactivateView(previousCapture)
@@ -57,15 +63,21 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
                 applyScanState(viewState)
             }
 
-            let activate = { [weak self] in
-                self?.activateView(viewState, completion: completion)
-            }
-            if let previousView = previousCapture?.view, previousCapture !== viewState {
-                previousView.pauseCamera {
-                    self.onMain(activate)
+            // Dependency initialization is independent from the physical hand-off. It may
+            // continue while the previous session stops, but resume is gated by the exact
+            // transition state stored on this view.
+            activateView(viewState, completion: completion)
+            previousView?.pauseCamera { [weak self, weak view = viewState.view] in
+                guard let self = self else { return }
+                self.onMain {
+                    guard let view = view else { return }
+                    if self.isCurrentCapture(viewState.viewId) {
+                        viewState.cameraTransitionReady = true
+                    }
+                    if viewState.cameraInitialized {
+                        self.resumeInitializedView(viewState, view: view)
+                    }
                 }
-            } else {
-                activate()
             }
         } catch {
             complete(completion, error: error)
@@ -80,7 +92,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
 
         viewState.isCameraOwner = false
-        viewState.configurationApplied = false
+        viewState.cameraTransitionReady = false
         deactivateView(viewState)
         guard let view = viewState.view else {
             complete(completion)
@@ -98,15 +110,26 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
             return
         }
         viewState.cameraRequested = false
-        viewState.configurationApplied = false
-        applyScanState(viewState)
+        viewState.cameraTransitionReady = false
+        deactivateView(viewState)
 
         guard viewState.isCameraOwner, let view = viewState.view else {
             complete(completion)
             return
         }
-        view.pauseCamera { [weak self] in
-            self?.complete(completion)
+        view.pauseCamera { [weak self, weak view] in
+            guard let self = self else { return }
+            self.onMain {
+                if self.isCurrentCapture(viewState.viewId) {
+                    viewState.cameraTransitionReady = true
+                }
+                if viewState.cameraRequested,
+                   viewState.cameraInitialized,
+                   let view = view {
+                    self.resumeInitializedView(viewState, view: view)
+                }
+                self.complete(completion)
+            }
         }
     }
 
@@ -127,20 +150,18 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
 
     /// Toggles retained torch state and applies it when the view is active.
     func toggleFlash(viewId: Int64) throws {
-        let viewState = try requireReadyView(viewId)
+        let viewState = try requireView(viewId)
         let enabled = viewState.torchEnabled != true
 
         if canApplyControls(viewState) {
             try viewState.view?.setFlash(enabled)
-        } else if enabled, viewState.view?.hasFlash == false {
-            throw MlKitPluginError.deviceHasNotFlash
         }
         viewState.torchEnabled = enabled
     }
 
     /// Starts recognition with the iOS initial and successful-result cooldown.
     func startScan(viewId: Int64, type: RecognitionType, delay: Int) throws {
-        let viewState = try requireReadyView(viewId)
+        let viewState = try requireView(viewId)
         viewState.recognitionType = type
         viewState.scanDelay = delay
         viewState.scanRequestedByView = true
@@ -156,14 +177,16 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
 
     /// Updates the successful-recognition cooldown retained by a view.
     func updateScanPeriod(viewId: Int64, delay: Int) throws {
-        let viewState = try requireReadyView(viewId)
+        let viewState = try requireView(viewId)
         viewState.scanDelay = delay
-        viewState.recognitionHandler?.setDelay(delay: delay)
+        if canApplyControls(viewState) {
+            viewState.recognitionHandler?.setDelay(delay: delay)
+        }
     }
 
     /// Updates normalized zoom retained by a view.
     func setZoom(viewId: Int64, value: Double) throws {
-        let viewState = try requireReadyView(viewId)
+        let viewState = try requireView(viewId)
         if canApplyControls(viewState) {
             try viewState.view?.setZoom(value)
         }
@@ -172,17 +195,17 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
 
     /// Updates normalized recognition geometry retained by a view.
     func setCropArea(viewId: Int64, cropRect: CropRect) throws {
-        let viewState = try requireReadyView(viewId)
+        let viewState = try requireView(viewId)
         viewState.cropArea = cropRect
-        viewState.recognitionHandler?.updateCropRect(cropRect: cropRect)
         if canApplyControls(viewState) {
+            viewState.recognitionHandler?.updateCropRect(cropRect: cropRect)
             applyCropArea(viewState)
         }
     }
 
     /// Updates the camera retained by a view.
     func setCamera(viewId: Int64, camera: CameraData) throws {
-        let viewState = try requireReadyView(viewId)
+        let viewState = try requireView(viewId)
         viewState.camera = camera
         viewState.configurationApplied = false
         guard canApplyControls(viewState, requireConfiguration: false) else { return }
@@ -227,38 +250,15 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
 
         view.cameraPreviewDelegate = self
-        if viewState.cameraStarted {
-            view.resumeCamera { [weak self, weak view] error in
-                guard let self = self else { return }
-                self.onMain {
-                    guard let view = view else {
-                        self.complete(completion, error: MlKitPluginError.cameraIsNotInitialized)
-                        return
-                    }
-                    self.finishActivation(
-                        viewState,
-                        view: view,
-                        applyCameraSelection: true,
-                        error: error,
-                        completions: [completion]
-                    )
-                }
-            }
+        viewState.captureCompletions.append(completion)
+        if viewState.cameraInitialized {
+            resumeInitializedView(viewState, view: view)
             return
         }
 
-        viewState.captureCompletions.append(completion)
         guard !viewState.cameraInitializing else { return }
         viewState.cameraInitializing = true
-        view.initCamera(
-            initialZoom: viewState.zoom,
-            initialCamera: viewState.camera,
-            shouldStart: { [weak self] in
-                guard let self = self else { return false }
-                return self.isCurrentCapture(viewState.viewId)
-                    && viewState.cameraRequested
-            }
-        ) { [weak self, weak view] error in
+        view.initCamera { [weak self, weak view] error in
             guard let self = self else { return }
             self.onMain {
                 viewState.cameraInitializing = false
@@ -271,14 +271,56 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
                     return
                 }
                 if error == nil {
-                    viewState.cameraStarted = true
+                    viewState.cameraInitialized = true
                 }
+                if let error = error {
+                    let completions = viewState.captureCompletions
+                    viewState.captureCompletions.removeAll()
+                    self.finishActivation(
+                        viewState,
+                        view: view,
+                        applyCameraSelection: true,
+                        error: error,
+                        completions: completions
+                    )
+                } else {
+                    self.resumeInitializedView(viewState, view: view)
+                }
+            }
+        }
+    }
+
+    /// Shares one resume operation and starts capture only for the current owner.
+    private func resumeInitializedView(
+        _ viewState: ScannerViewState,
+        view: CameraPreview
+    ) {
+        guard !viewState.cameraResuming else { return }
+        guard isCurrentCapture(viewState.viewId), viewState.cameraRequested else {
+            let completions = viewState.captureCompletions
+            viewState.captureCompletions.removeAll()
+            completions.forEach { complete($0, error: nil) }
+            return
+        }
+        guard viewState.cameraTransitionReady else { return }
+
+        viewState.cameraResuming = true
+        view.resumeCamera { [weak self, weak view] error in
+            guard let self = self else { return }
+            self.onMain {
+                viewState.cameraResuming = false
                 let completions = viewState.captureCompletions
                 viewState.captureCompletions.removeAll()
+                guard let view = view else {
+                    completions.forEach {
+                        self.complete($0, error: MlKitPluginError.cameraIsNotInitialized)
+                    }
+                    return
+                }
                 self.finishActivation(
                     viewState,
                     view: view,
-                    applyCameraSelection: false,
+                    applyCameraSelection: true,
                     error: error,
                     completions: completions
                 )
@@ -294,18 +336,19 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         error: Error?,
         completions: [ScannerSessionCompletion]
     ) {
-        guard isCurrentCapture(viewState.viewId), viewState.cameraRequested else {
-            view.pauseCamera {}
-            completions.forEach { complete($0, error: nil) }
-            return
-        }
         if let error = error {
-            if viewState.isCameraOwner {
-                viewState.isCameraOwner = false
-            }
+            viewState.isCameraOwner = false
+            viewState.cameraTransitionReady = false
             deactivateView(viewState)
             view.pauseCamera {}
             completions.forEach { complete($0, error: error) }
+            return
+        }
+        guard isCurrentCapture(viewState.viewId),
+              viewState.cameraRequested,
+              viewState.cameraTransitionReady else {
+            view.pauseCamera {}
+            completions.forEach { complete($0, error: nil) }
             return
         }
 
@@ -317,8 +360,8 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
             completions.forEach { complete($0, error: nil) }
         } catch {
             viewState.isCameraOwner = false
-            viewState.configurationApplied = false
-            applyScanState(viewState)
+            viewState.cameraTransitionReady = false
+            deactivateView(viewState)
             view.pauseCamera {}
             completions.forEach { complete($0, error: error) }
         }
@@ -337,6 +380,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         if applyCameraSelection, let camera = viewState.camera {
             try view.setCamera(camera)
         }
+        view.resetFocus()
         if let zoom = viewState.zoom {
             try view.setZoom(zoom)
         }
@@ -413,9 +457,8 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
             guard let self = self, let viewState = self.views.removeValue(forKey: viewId) else {
                 return
             }
-            if viewState.isCameraOwner {
-                viewState.isCameraOwner = false
-            }
+            viewState.isCameraOwner = false
+            viewState.cameraTransitionReady = false
             viewState.captureCompletions.forEach {
                 self.complete($0, error: MlKitPluginError.cameraIsNotInitialized)
             }
@@ -428,15 +471,6 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
     /// Returns a registered live view or throws a camera-not-initialized error.
     private func requireView(_ viewId: Int64) throws -> ScannerViewState {
         guard !isReleased, let viewState = views[viewId], viewState.view != nil else {
-            throw MlKitPluginError.cameraIsNotInitialized
-        }
-        return viewState
-    }
-
-    /// Returns a registered view whose camera has completed initialization.
-    private func requireReadyView(_ viewId: Int64) throws -> ScannerViewState {
-        let viewState = try requireView(viewId)
-        guard viewState.cameraStarted, !viewState.cameraInitializing else {
             throw MlKitPluginError.cameraIsNotInitialized
         }
         return viewState
@@ -459,7 +493,8 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
     ) -> Bool {
         return !isReleased
             && viewState.isCameraOwner
-            && viewState.cameraStarted
+            && viewState.cameraTransitionReady
+            && viewState.cameraInitialized
             && viewState.cameraRequested
             && (!requireConfiguration || viewState.configurationApplied)
     }
@@ -512,14 +547,24 @@ extension ScannerSessionImpl: RecognitionResultDelegate {
 }
 
 extension ScannerSessionImpl: CameraPreviewDelegate {
+    /// Allows focus gestures only from the fully active camera owner.
+    func canApplyFocus(viewId: Int64) -> Bool {
+        guard let viewState = views[viewId] else { return false }
+        return canApplyControls(viewState)
+    }
+
     /// Retains native torch state and reports changes for the active owner.
     func onToggleTorch(value: Bool, viewId: Int64) {
         onMain { [weak self] in
-            guard let self = self, let viewState = self.views[viewId] else { return }
-            viewState.torchEnabled = value
-            if viewState.isCameraOwner {
-                self.onTorchChanged(viewId, value)
+            guard
+                let self = self,
+                let viewState = self.views[viewId],
+                self.canApplyControls(viewState)
+            else {
+                return
             }
+            viewState.torchEnabled = value
+            self.onTorchChanged(viewId, value)
         }
     }
 }

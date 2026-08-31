@@ -13,6 +13,8 @@ import UIKit
 protocol CameraPreviewDelegate: AnyObject {
     /// Reports a native torch-state change for one platform view.
     func onToggleTorch(value: Bool, viewId: Int64)
+    /// Returns whether a focus gesture still belongs to the active camera owner.
+    func canApplyFocus(viewId: Int64) -> Bool
 }
 
 /// Native iOS camera preview owned by one Flutter platform view.
@@ -27,7 +29,11 @@ class CameraPreview: NSObject, FlutterPlatformView {
     private var camera: AVCaptureDevice?
     private var videoOutput: AVCaptureVideoDataOutput?
     private var previewLayer: AVCaptureVideoPreviewLayer?
-    private let sessionQueue = DispatchQueue(
+    /// Serializes physical camera-session work across every Flutter preview.
+    ///
+    /// Separate queues allow `stopRunning` for a released route and
+    /// `startRunning` for its replacement to overlap on the same device.
+    private static let sessionQueue = DispatchQueue(
         label: "mlkit_scanner.camera_session",
         qos: .userInitiated
     )
@@ -39,11 +45,6 @@ class CameraPreview: NSObject, FlutterPlatformView {
     weak var recognitionHandler: RecognitionHandler?
     weak var cameraPreviewDelegate: CameraPreviewDelegate?
     
-    /// Whether the selected camera exposes a torch.
-    var hasFlash: Bool {
-        return camera?.hasTorch == true
-    }
-
     /// Creates a native preview without starting camera capture.
     init(
         frame: CGRect,
@@ -70,21 +71,6 @@ class CameraPreview: NSObject, FlutterPlatformView {
         onDispose(viewId)
     }
     
-    /// Subscribes to session startup so focus lock can be reset after resume.
-    private func subscribeCaptureSessionStopNotification() {
-        guard let captureSession = captureSession else { return }
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(self.onCaptureSessionStart),
-            name: .AVCaptureSessionDidStartRunning,
-            object: captureSession)
-    }
-    
-    /// Restores continuous focus after the capture session starts.
-    @objc private func onCaptureSessionStart() {
-        clearFocusLock()
-    }
-    
     /// Clears camera and overlay focus-lock state.
     private func clearFocusLock() {
         focusOnCenter(needLock: false)
@@ -98,27 +84,17 @@ class CameraPreview: NSObject, FlutterPlatformView {
         return preview
     }
     
-    /// Requests permission, configures the selected camera, and starts capture.
+    /// Requests permission and prepares a capture session without starting it.
     ///
     /// Camera work runs off the main thread. `completion` receives an error when
-    /// authorization, device selection, or session configuration fails.
+    /// authorization or session initialization fails. View-owned configuration
+    /// is applied later only while this preview is the active camera owner.
     func initCamera(
-        initialZoom: Double?,
-        initialCamera: CameraData?,
-        shouldStart: @escaping () -> Bool,
         completion: @escaping (Error?) -> ()
     ) {
-        guard shouldStart() else {
-            completion(MlKitPluginError.cameraIsNotInitialized)
-            return
-        }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            configureCamera(
-                initialZoom: initialZoom,
-                initialCamera: initialCamera,
-                completion: completion
-            )
+            configureCamera(completion: completion)
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 DispatchQueue.main.async {
@@ -130,15 +106,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
                         completion(MlKitPluginError.authorizationCameraError)
                         return
                     }
-                    guard shouldStart() else {
-                        completion(MlKitPluginError.cameraIsNotInitialized)
-                        return
-                    }
-                    self.configureCamera(
-                        initialZoom: initialZoom,
-                        initialCamera: initialCamera,
-                        completion: completion
-                    )
+                    self.configureCamera(completion: completion)
                 }
             }
         default:
@@ -146,22 +114,12 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
 
-    /// Builds and starts a camera session for the requested initial state.
+    /// Builds a camera session without acquiring the camera for frame capture.
     private func configureCamera(
-        initialZoom: Double?,
-        initialCamera: CameraData?,
         completion: @escaping (Error?) -> ()
     ) {
         do {
-            if let initialCamera = initialCamera {
-                camera = AVCaptureDevice.default(
-                    initialCamera.type,
-                    for: .video,
-                    position: initialCamera.position
-                )
-            } else {
-                camera = createWideAngleCamera()
-            }
+            camera = createWideAngleCamera()
             guard let camera = camera else {
                 completion(MlKitPluginError.initCameraError)
                 return
@@ -175,11 +133,6 @@ class CameraPreview: NSObject, FlutterPlatformView {
                 return
             }
             captureSession?.addInput(input)
-            subscribeCaptureSessionStopNotification()
-
-            if let initialZoom = initialZoom {
-                try setZoom(initialZoom)
-            }
         } catch {
             completion(error)
             return
@@ -192,14 +145,14 @@ class CameraPreview: NSObject, FlutterPlatformView {
         let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
         self.previewLayer = previewLayer
         previewLayer.videoGravity = .resizeAspectFill
-        previewLayer.connection?.videoOrientation = getVideoOrieitation()
+        previewLayer.connection?.videoOrientation = getVideoOrientation()
         previewLayer.frame = preview.frame
         preview.layer.insertSublayer(previewLayer, at: 0)
         addFocusView()
 
         subscribeOrientationChanges()
         self.observeTorchToggle()
-        sessionQueue.async {  [weak self] in
+        CameraPreview.sessionQueue.async { [weak self] in
             guard let self = self, let session = self.captureSession else {
                 completion(MlKitPluginError.cameraIsNotInitialized)
                 return
@@ -219,7 +172,6 @@ class CameraPreview: NSObject, FlutterPlatformView {
             }
             self.videoOutput = videoOutput
             session.addOutput(videoOutput)
-            session.startRunning()
             completion(nil)
         }
     }
@@ -239,7 +191,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
 
         let newInput = try AVCaptureDeviceInput.init(device: newCamera)
 
-        try sessionQueue.sync {
+        try CameraPreview.sessionQueue.sync {
             let currentInputs = session.inputs
             session.beginConfiguration()
             defer { session.commitConfiguration() }
@@ -258,8 +210,6 @@ class CameraPreview: NSObject, FlutterPlatformView {
 
         torchObserver?.invalidate()
         observeTorchToggle()
-
-        clearFocusLock()
     }    
 
     /// Returns the default back wide-angle camera.
@@ -304,9 +254,14 @@ class CameraPreview: NSObject, FlutterPlatformView {
         camera.unlockForConfiguration()
     }
 
+    /// Clears focus state retained by a previous camera owner.
+    func resetFocus() {
+        clearFocusLock()
+    }
+
     /// Stops the capture session asynchronously without releasing its resources.
     func pauseCamera(completion: @escaping () -> ()) {
-        sessionQueue.async { [weak self] in
+        CameraPreview.sessionQueue.async { [weak self] in
             guard let self = self else {
                 completion()
                 return
@@ -322,12 +277,12 @@ class CameraPreview: NSObject, FlutterPlatformView {
     ///
     /// `completion` receives an error when the camera is not initialized.
     func resumeCamera(completion: @escaping (Error?) -> ()) {
-        sessionQueue.async { [weak self] in
+        CameraPreview.sessionQueue.async { [weak self] in
             guard let session = self?.captureSession, let camera = self?.camera, camera.isConnected else {
                 completion(MlKitPluginError.cameraIsNotInitialized)
                 return
             }
-            if (!session.isRunning) {
+            if !session.isRunning {
                 session.startRunning()
             }
             completion(nil)
@@ -350,7 +305,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         captureSession = nil
         camera = nil
         videoOutput = nil
-        sessionQueue.async {
+        CameraPreview.sessionQueue.async {
             if let session = session, session.isRunning {
                 session.stopRunning()
             }
@@ -369,11 +324,11 @@ class CameraPreview: NSObject, FlutterPlatformView {
 
     /// Updates the preview connection after interface orientation changes.
     @objc private func onOrientationChanges() {
-        previewLayer?.connection?.videoOrientation = getVideoOrieitation()
+        previewLayer?.connection?.videoOrientation = getVideoOrientation()
     }
 
     /// Maps the current status-bar orientation to camera output orientation.
-    private func getVideoOrieitation() -> AVCaptureVideoOrientation{
+    private func getVideoOrientation() -> AVCaptureVideoOrientation {
         switch UIApplication.shared.statusBarOrientation {
         case .landscapeRight:
             return .landscapeRight
@@ -420,11 +375,13 @@ extension CameraPreview: AVCaptureVideoDataOutputSampleBufferDelegate {
 extension CameraPreview: FocusViewDelegate {
     /// Requests continuous focus at the current overlay center.
     func onFocus() {
+        guard cameraPreviewDelegate?.canApplyFocus(viewId: viewId) == true else { return }
         focusOnCenter(needLock: false)
     }
     
     /// Requests a one-shot focus lock at the current overlay center.
     func onLockFocus() {
+        guard cameraPreviewDelegate?.canApplyFocus(viewId: viewId) == true else { return }
         focusOnCenter(needLock: true)
     }
     
@@ -505,6 +462,6 @@ fileprivate class FocusPoint {
     
     /// Returns the normalized focus point.
     func normalized() -> CGPoint {
-        return point;
+        return point
     }
 }

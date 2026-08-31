@@ -12,7 +12,7 @@ protocol ScannerSession: AnyObject {
         registration: ScannerViewRegistration
     ) -> CameraPreview
 
-    /// Transfers camera ownership to a registered view and restores its state.
+    /// Transfers ownership, awaits that view's in-flight initialization, and restores its state.
     func captureCamera(viewId: Int64, completion: @escaping ScannerSessionCompletion)
     /// Releases ownership only when it is still held by the referenced view.
     func releaseCamera(viewId: Int64, completion: @escaping () -> Void)
@@ -20,7 +20,7 @@ protocol ScannerSession: AnyObject {
     func pauseCamera(viewId: Int64, completion: @escaping () -> Void)
     /// Resumes retained camera and recognition intent for the owning view.
     func resumeCamera(viewId: Int64, completion: @escaping ScannerSessionCompletion)
-    /// Toggles the retained torch state of a ready view.
+    /// Toggles retained torch state and touches hardware only while the view is active.
     func toggleFlash(viewId: Int64) throws
     /// Starts recognition with the platform-specific initial and result cooldown.
     func startScan(viewId: Int64, type: RecognitionType, delay: Int) throws

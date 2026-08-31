@@ -71,15 +71,15 @@ class Scanner(
     /** Waits until the lifecycle-bound camera device is actually open. */
     fun awaitCameraOpen() = camera.awaitOpen()
 
-    /** Returns whether the active camera exposes a flash unit. */
-    fun isFlashSupported(): Boolean = camera.isFlashSupported()
-
     /** Applies torch state through the active camera component. */
     fun setTorch(enabled: Boolean) = camera.setTorch(enabled)
 
     /** Starts camera focus and metering around the visual scanner focus point. */
     fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) =
         camera.focusOnCenter(resetDelayMs, offsetX, offsetY)
+
+    /** Clears focus and metering state before another platform view becomes active. */
+    fun resetFocus() = camera.resetFocus()
 
     /** Starts analysis with the configured analyzer component. */
     fun startScan(periodMs: Int) {

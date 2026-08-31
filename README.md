@@ -45,6 +45,36 @@ Change the minimum Android sdk version to 21 (or higher) in your `android/app/bu
 ```
 minSdkVersion 21
 ```
+
+### Navigation and initialization
+
+Each `BarcodeScanner` owns independent retained configuration. Its first camera
+capture starts one per-view initialization; a later capture of the same view
+waits for that same in-flight work. Covering the scanner with another route does
+not cancel initialization. While the scanner is inactive, controller commands
+update only its retained state and never reconfigure the active scanner. When
+the route becomes active again, initialization is awaited before the latest
+retained state is applied.
+
+During a rapid `A → B → A` transition, closing scanner B recaptures the
+existing scanner A even if Flutter has not disabled A's `TickerMode` yet. It
+does not create another A route. Native commands and events remain scoped to
+their platform-view id, so late work from A cannot update B's retained state or
+deliver B's events. Focus gestures are detached with their old owner and focus
+regions are reset before the next preview is revealed. On iOS, physical
+capture-session start, stop, and reconfiguration are serialized across all
+scanner previews.
+
+`onScannerInitialized` means that the controller is safe to use, not that its
+camera is necessarily active. If native registration finishes while the route
+is hidden, the callback can be delivered immediately and controller commands
+only update retained state. A visible scanner receives the callback after a
+successful capture. If an in-flight capture fails after its route is covered,
+the original initialization or retained-control error is still delivered to
+`onCameraInitializeError`; it is never converted into a successful
+`onScannerInitialized` callback. Errors from later controller commands remain
+errors of the returned `Future`.
+
 ### Example 
 
 ```
@@ -56,15 +86,15 @@ return SizedBox(
   height: 200.0                                 // CameraPreview needs height constraints, if you use widget 
                                                 // in Column use SizedBox or Container with height.
   child: BarcodeScanner(
-    initialZoom: 0.0,                           // Each Android scanner widget owns and restores
+    initialZoom: 0.0,                           // Each scanner widget owns and restores
     initialFlashEnabled: false,                 // its own zoom, torch and crop configuration.
     cropOverlay: ScannerCropOverlay             // you can use default ScannerOverlay, create custom, or do not 
                                                 // use it at all
 
-    onScannerInitialized: _onScannerInitialized // callback with BarcodeScannerController for control camera 
-                                                // and detection when camera preview initialize.
+    onScannerInitialized: _onScannerInitialized // Called once the controller can safely retain
+                                                // state; visible scanners first need a successful capture.
     
-    onCameraInitializeError: (error) {          // Handling error if camera can't initialize on device.
+    onCameraInitializeError: (error) {          // Handles capture-time initialization/configuration errors.
       // handleError.
     }
     onScan: (barcode) {                         // Calls on success barcode recognition
@@ -88,8 +118,8 @@ Future<void> _onScannerInitialized(BarcodeScannerController controller) async {
 
     await controller.pauseCamera()              // Pause camera preview, detection also stops.
 
-    await controller.resumeCamera()             // Select this scanner preview, restore its settings,
-                                                // and resume detection if startScan was called before.
+    await controller.resumeCamera()             // Resume camera intent for the active scanner.
+                                                // A hidden scanner retains the request until it returns.
 
     await controller.setZoom(0.5)               // Set camera zoom. Values must be in range 0...1                            
 }
@@ -97,4 +127,3 @@ Future<void> _onScannerInitialized(BarcodeScannerController controller) async {
 ## Contributing:
 
 Contributions are welcome.
-

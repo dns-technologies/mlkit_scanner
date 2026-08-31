@@ -134,11 +134,6 @@ class XCamera(
         return current.runtimeState.awaitOpen()
     }
 
-    /** Returns whether the active camera exposes a flash unit. */
-    override fun isFlashSupported(): Boolean = isFlashSupported(
-        bindingState as? BoundCamera ?: throw PluginError.CameraIsNotInitialized,
-    )
-
     /** Applies an absolute torch state for the active camera. */
     override fun setTorch(enabled: Boolean): Deferred<Unit> {
         val current = bindingState as? BoundCamera
@@ -175,6 +170,14 @@ class XCamera(
         }
 
         return activeCamera.cameraControl.startFocusAndMetering(focusActionBuilder.build())
+            .asCameraControlDeferred(mainExecutor, CameraControlOperation.FOCUS)
+    }
+
+    /** Clears focus state left by the previous platform-view owner. */
+    override fun resetFocus(): Deferred<Unit> {
+        val activeCamera = (bindingState as? BoundCamera)?.camera
+            ?: throw PluginError.CameraIsNotInitialized
+        return activeCamera.cameraControl.cancelFocusAndMetering()
             .asCameraControlDeferred(mainExecutor, CameraControlOperation.FOCUS)
     }
 

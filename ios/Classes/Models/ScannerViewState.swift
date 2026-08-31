@@ -5,8 +5,11 @@ final class ScannerViewState {
     let viewId: Int64
     weak var view: CameraPreview?
     var isCameraOwner = false
-    var cameraStarted = false
+    var cameraInitialized = false
     var cameraInitializing = false
+    var cameraResuming = false
+    /// True after the previously active capture session has actually stopped.
+    var cameraTransitionReady = false
     var cameraRequested = true
     var scanRequestedByView = false
     var recognitionType: RecognitionType?

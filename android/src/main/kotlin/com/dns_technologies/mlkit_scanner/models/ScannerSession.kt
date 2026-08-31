@@ -16,7 +16,10 @@ internal interface ScannerSession {
         initialFlashEnabled: Boolean?,
     ): ScannerView
 
-    /** Selects one view, requests permission, and starts/restores it while ownership remains valid. */
+    /**
+     * Selects one view, awaits that view's reusable initialization, then applies its retained state
+     * only if it still owns the camera.
+     */
     suspend fun captureCamera(
         viewId: Int,
         requestCameraPermission: suspend () -> Boolean,

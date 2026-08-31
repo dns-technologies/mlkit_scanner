@@ -36,6 +36,12 @@ internal class FocusController(
         this.onLockedFocusRequest = onLockedFocusRequest
     }
 
+    /** Stops forwarding focus gestures until this preview becomes active again. */
+    fun unbind() {
+        onAutoFocusRequest = null
+        onLockedFocusRequest = null
+    }
+
     /** Applies the already-resolved visor center to visual and camera focus requests. */
     fun updateCenter(offsetX: Float, offsetY: Float) {
         if (isDisposed) return
@@ -54,8 +60,7 @@ internal class FocusController(
     fun dispose() {
         if (isDisposed) return
         isDisposed = true
-        onAutoFocusRequest = null
-        onLockedFocusRequest = null
+        unbind()
         focusView.onAutoFocusRequested = null
         focusView.onLockFocusRequested = null
     }

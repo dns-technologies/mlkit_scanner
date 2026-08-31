@@ -22,6 +22,7 @@ internal class OverlayController(
         focusController::updateCenter,
     )
     private var isDisposed = false
+    private var focusBindingRevision = 0
 
     /** Connects focus UI callbacks to the active camera component. */
     fun bindFocus() {
@@ -35,6 +36,14 @@ internal class OverlayController(
                 requestFocus(LOCKED_FOCUS_RESET_DELAY_MS, offsetX, offsetY)
             },
         )
+    }
+
+    /** Invalidates focus work started while this preview owned the camera. */
+    fun unbindFocus() {
+        if (isDisposed) return
+        focusBindingRevision += 1
+        focusController.unbind()
+        focusView.resetIndicator()
     }
 
     /** Renders focus and visor UI for the scanner's current crop area. */
@@ -85,9 +94,16 @@ internal class OverlayController(
 
     /** Focus gestures have no Dart result channel, so failures are best-effort by contract. */
     private fun requestFocus(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
+        val bindingRevision = focusBindingRevision
         try {
             scanner.focusOnCenter(resetDelayMs, offsetX, offsetY).invokeOnCompletion { error ->
-                if (error != null) Log.w(TAG, "Camera focus request failed", error)
+                if (
+                    error != null &&
+                    !isDisposed &&
+                    bindingRevision == focusBindingRevision
+                ) {
+                    Log.w(TAG, "Camera focus request failed", error)
+                }
             }
         } catch (error: Exception) {
             Log.w(TAG, "Camera focus request failed", error)

@@ -89,6 +89,10 @@ class MlKitChannel {
 
   /// Transfers camera ownership to [viewId] and restores its retained state.
   ///
+  /// The first call starts initialization owned by that view. A later call for
+  /// the same view awaits the same in-flight initialization. Losing ownership
+  /// does not cancel it, but prevents its state from being applied to another
+  /// active view.
   /// Throws [CameraControlException] when opening the camera or applying its
   /// retained zoom or torch state fails.
   Future<void> captureCamera({required int viewId}) {
@@ -102,6 +106,7 @@ class MlKitChannel {
 
   /// Toggles flash configuration owned by the platform view identified by [viewId].
   ///
+  /// Inactive views retain the requested state until their next camera capture.
   /// Throws a [PlatformException] when the selected camera has no flash and a
   /// [CameraControlException] when the torch operation fails.
   Future<void> toggleFlash({required int viewId}) {
@@ -116,7 +121,7 @@ class MlKitChannel {
   /// restart this timer. On Android, failed attempts wait one second before
   /// analyzing the next available camera frame.
   /// Only the current scanner view receives native scan events.
-  /// Can throw [PlatformException] if camera is not initialized.
+  /// Inactive views retain the request without changing the active scanner.
   Future<void> startScan(
     RecognitionType type,
     int delay, {
@@ -151,7 +156,8 @@ class MlKitChannel {
 
   /// Sets the successful-recognition cooldown owned by [viewId].
   ///
-  /// Failed recognition does not start this timer.
+  /// Failed recognition does not start this timer. Inactive views retain the
+  /// value without changing the active scanner.
   Future<void> setScanDelay(int delay, {required int viewId}) {
     return _invokeVoidMethod(_setScanDelayMethod, {
       'viewId': viewId,
@@ -178,6 +184,7 @@ class MlKitChannel {
   /// Sets normalized zoom owned by [viewId].
   ///
   /// [value] must be in the inclusive range from `0` to `1`.
+  /// Inactive views retain the value until their next camera capture.
   /// Throws [CameraControlException] when the zoom operation fails.
   Future<void> setZoom(double value, {required int viewId}) {
     return _invokeVoidMethod(_setZoomMethod, {
@@ -188,7 +195,8 @@ class MlKitChannel {
 
   /// Sets the recognition area owned by the platform view identified by [viewId].
   ///
-  /// [rect] is normalized relative to the camera preview.
+  /// [rect] is normalized relative to the camera preview. Inactive views retain
+  /// the area without changing the active scanner.
   Future<void> setCropArea(CropRect rect, {required int viewId}) {
     return _invokeVoidMethod(_setCropAreaMethod, {
       'viewId': viewId,
@@ -206,6 +214,8 @@ class MlKitChannel {
   }
 
   /// Selects the iOS camera with [position] and [type] for [viewId].
+  ///
+  /// Inactive views retain the selection until their next camera capture.
   Future<void> setIosCamera({
     required int viewId,
     required IosCameraPosition position,

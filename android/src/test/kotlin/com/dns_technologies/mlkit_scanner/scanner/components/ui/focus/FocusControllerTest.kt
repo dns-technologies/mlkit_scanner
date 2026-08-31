@@ -44,6 +44,27 @@ internal class FocusControllerTest {
     }
 
     @Test
+    fun `unbind ignores gestures from a covered preview`() {
+        val focusView = mock(FocusView::class.java)
+        var autoFocusCallback: (() -> Unit)? = null
+        doAnswer { invocation ->
+            autoFocusCallback = invocation.getArgument(0)
+            null
+        }.`when`(focusView).onAutoFocusRequested = any()
+        val controller = FocusController(focusView)
+        var focusRequestCount = 0
+        controller.bind(
+            onAutoFocusRequest = { _, _ -> focusRequestCount += 1 },
+            onLockedFocusRequest = { _, _ -> focusRequestCount += 1 },
+        )
+
+        controller.unbind()
+        autoFocusCallback?.invoke()
+
+        assertEquals(0, focusRequestCount)
+    }
+
+    @Test
     fun `dispose removes focus callbacks`() {
         val focusView = mock(FocusView::class.java)
         val controller = FocusController(focusView)

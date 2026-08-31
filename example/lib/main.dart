@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 
-void main() => runApp(MyApp());
+void main() => runApp(const MyApp());
 
 class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+
   @override
   _MyAppState createState() => _MyAppState();
 }
@@ -29,10 +31,14 @@ class _MyAppState extends State<MyApp> {
   var _cameraPosition = '';
 
   void _setNextIosCamera() {
+    final controller = _controller;
+    if (_iosCameras.isEmpty || controller == null) return;
+
     _cameraIndex = (_cameraIndex + 1) % _iosCameras.length;
-    _controller!.setIosCamera(
-        position: _iosCameras[_cameraIndex].position,
-        type: _iosCameras[_cameraIndex].type);
+    controller.setIosCamera(
+      position: _iosCameras[_cameraIndex].position,
+      type: _iosCameras[_cameraIndex].type,
+    );
     _resetZoom();
     setState(() {
       _cameraType = _iosCameras[_cameraIndex].type.name;
@@ -58,7 +64,7 @@ class _MyAppState extends State<MyApp> {
           children: [
             Stack(
               children: [
-                Container(
+                SizedBox(
                   height: 200,
                   child: BarcodeScanner(
                     initialCropRect: const CropRect(
@@ -73,9 +79,11 @@ class _MyAppState extends State<MyApp> {
                     onScannerInitialized: (controller) async {
                       _controller = controller;
                       if (defaultTargetPlatform == TargetPlatform.iOS) {
-                        _iosCameras =
+                        final cameras =
                             await MLKitUtils().getIosAvailableCameras();
-                        _setNextIosCamera();
+                        if (!mounted) return;
+                        _iosCameras = cameras;
+                        if (_iosCameras.isNotEmpty) _setNextIosCamera();
                       }
                     },
                   ),

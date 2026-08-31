@@ -36,14 +36,14 @@ interface Camera {
     /** Completes when the lifecycle-bound camera device reaches its open state. */
     fun awaitOpen(): Deferred<Unit>
 
-    /** Returns whether the active camera exposes a flash unit usable as a torch. */
-    fun isFlashSupported(): Boolean
-
     /** Applies the camera torch state and completes after the camera accepts the change. */
     fun setTorch(enabled: Boolean): Deferred<Unit>
 
     /** Starts focus and metering and completes after the camera accepts the action. */
     fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float): Deferred<Unit>
+
+    /** Cancels active focus/metering regions and restores continuous focus when supported. */
+    fun resetFocus(): Deferred<Unit>
 
     /** Applies normalized zoom and completes after the camera accepts the new value. */
     fun setZoom(value: Float): Deferred<Unit>
