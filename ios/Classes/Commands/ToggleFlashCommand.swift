@@ -2,6 +2,7 @@ import Flutter
 
 /// Toggles the torch state retained by one platform view.
 final class ToggleFlashCommand: ScannerCommand {
+    /// Parses the target view and toggles its retained torch state.
     override func executeCommand(
         _ call: FlutterMethodCall,
         result: @escaping FlutterResult

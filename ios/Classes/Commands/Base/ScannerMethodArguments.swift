@@ -3,12 +3,18 @@ import Foundation
 
 /// Typed configuration registered together with one Flutter platform view.
 struct ScannerViewRegistration {
+    /// Optional native preview size supplied by Flutter.
     let size: CGSize?
+    /// Normalized zoom to apply before showing the preview.
     let initialZoom: Double?
+    /// Initial retained torch request.
     let initialFlashEnabled: Bool?
+    /// Initial retained recognition rectangle.
     let initialCropRect: CropRect?
+    /// Initial retained AVFoundation camera selection.
     let initialCamera: CameraData?
 
+    /// Registration with no explicit initial configuration.
     static let empty = ScannerViewRegistration(
         size: nil,
         initialZoom: nil,
@@ -20,17 +26,20 @@ struct ScannerViewRegistration {
 
 /// Validates untyped Flutter values once, before they reach scanner state.
 enum ScannerMethodArguments {
+    /// One parsed value addressed to a platform view.
     struct ViewValue<T> {
         let viewId: Int64
         let value: T
     }
 
+    /// Parsed recognition configuration for a scan start.
     struct ScanOptions {
         let viewId: Int64
         let type: RecognitionType
         let delay: Int
     }
 
+    /// Parses platform-view creation arguments and optional initial controls.
     static func viewRegistration(_ arguments: Any?) throws -> ScannerViewRegistration {
         guard let arguments = arguments else { return .empty }
         let values = try map(arguments)
@@ -64,11 +73,13 @@ enum ScannerMethodArguments {
         )
     }
 
+    /// Parses the platform-view identifier required by view-scoped commands.
     static func viewId(_ arguments: Any?) throws -> Int64 {
         let values = try map(arguments)
         return try nonNegativeInt64(values[PluginConstants.viewIdArgument])
     }
 
+    /// Parses the target view, recognition mode, and nonnegative cooldown.
     static func scanOptions(_ arguments: Any?) throws -> ScanOptions {
         let values = try map(arguments)
         let rawType = try nonNegativeInt(values[PluginConstants.typeArgument])
@@ -82,6 +93,7 @@ enum ScannerMethodArguments {
         )
     }
 
+    /// Parses a nonnegative recognition cooldown addressed to one view.
     static func scanDelay(_ arguments: Any?) throws -> ViewValue<Int> {
         let values = try map(arguments)
         return ViewValue(
@@ -90,6 +102,7 @@ enum ScannerMethodArguments {
         )
     }
 
+    /// Parses normalized zoom addressed to one view.
     static func zoom(_ arguments: Any?) throws -> ViewValue<Double> {
         let values = try map(arguments)
         let zoom = try finiteDouble(values[PluginConstants.valueArgument])
@@ -102,6 +115,7 @@ enum ScannerMethodArguments {
         )
     }
 
+    /// Parses normalized crop geometry addressed to one view.
     static func cropRect(_ arguments: Any?) throws -> ViewValue<CropRect> {
         let values = try map(arguments)
         let cropValues = try map(values[PluginConstants.cropRectArgument])
@@ -111,6 +125,7 @@ enum ScannerMethodArguments {
         )
     }
 
+    /// Parses an iOS camera selection addressed to one view.
     static func camera(_ arguments: Any?) throws -> ViewValue<CameraData> {
         let values = try map(arguments)
         return ViewValue(
@@ -119,6 +134,7 @@ enum ScannerMethodArguments {
         )
     }
 
+    /// Returns an untyped channel value as a string-keyed map.
     private static func map(_ value: Any?) throws -> [String: Any] {
         guard let map = value as? [String: Any] else {
             throw MlKitPluginError.invalidArguments
@@ -126,11 +142,13 @@ enum ScannerMethodArguments {
         return map
     }
 
+    /// Parses an optional nested map while rejecting another value type.
     private static func optionalMap(_ value: Any?) throws -> [String: Any]? {
         guard let value = value, !(value is NSNull) else { return nil }
         return try map(value)
     }
 
+    /// Parses an optional Boolean channel value.
     private static func optionalBool(_ value: Any?) throws -> Bool? {
         guard let value = value, !(value is NSNull) else { return nil }
         guard let value = value as? Bool else {
@@ -139,11 +157,13 @@ enum ScannerMethodArguments {
         return value
     }
 
+    /// Parses an optional finite numeric channel value.
     private static func optionalDouble(_ value: Any?) throws -> Double? {
         guard let value = value, !(value is NSNull) else { return nil }
         return try finiteDouble(value)
     }
 
+    /// Converts a numeric channel value to a finite double.
     private static func finiteDouble(_ value: Any?) throws -> Double {
         guard !(value is Bool), let number = value as? NSNumber else {
             throw MlKitPluginError.invalidArguments
@@ -155,6 +175,7 @@ enum ScannerMethodArguments {
         return result
     }
 
+    /// Converts an exact, nonnegative channel number to `Int`.
     private static func nonNegativeInt(_ value: Any?) throws -> Int {
         let number = try nonNegativeInt64(value)
         guard number <= Int64(Int.max) else {
@@ -163,6 +184,7 @@ enum ScannerMethodArguments {
         return Int(number)
     }
 
+    /// Converts an exact, nonnegative channel number to `Int64`.
     private static func nonNegativeInt64(_ value: Any?) throws -> Int64 {
         guard !(value is Bool), let number = value as? NSNumber else {
             throw MlKitPluginError.invalidArguments

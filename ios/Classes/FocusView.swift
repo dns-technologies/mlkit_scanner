@@ -7,16 +7,16 @@
 
 import UIKit
 
-/// Delegate of CenterFocusView
+/// Receives focus gestures from the scanner focus overlay.
 protocol FocusViewDelegate: NSObject {
-    /// Call delegate when user try focus on the center of view
+    /// Requests continuous focus at the current point.
     func onFocus()
     
-    /// Call delegate when user try lock focus on the center of view
+    /// Requests locked focus at the current point.
     func onLockFocus()
 }
 
-/// View handles animation and gestures when user try use AutoFocus or Lock Focus and call `FocusViewDelegate` methods
+/// Handles focus gestures and their focus-circle and lock animations.
 class FocusView: UIView {
     private let lockImage: UIImageView
     private var circleLayer: CAShapeLayer
@@ -25,6 +25,7 @@ class FocusView: UIView {
     private var lockInitialCenter: CGPoint
     weak var delegate: FocusViewDelegate?
     
+    /// Creates a focus overlay centered on `point`.
     init(frame: CGRect, point: CGPoint) {
         let image = UIImage.fromLibraryAssets(name: "lock")
         lockImage = UIImageView(image: image)
@@ -54,6 +55,7 @@ class FocusView: UIView {
         super.layoutSubviews()
     }
 
+    /// Moves focus visuals to a new preview coordinate.
     func changeFocusPoint(point: CGPoint) {
         circleLayer.path = FocusView.buildCirclePath(radius: circleRadius, point: point).cgPath
         lockInitialCenter = CGPoint(x: point.x - (circleRadius + lockImage.bounds.width), y: point.y)
@@ -62,6 +64,7 @@ class FocusView: UIView {
         }
     }
 
+    /// Builds the initially hidden focus-circle layer.
     private class func buildCircle(with radius: CGFloat, point: CGPoint) -> CAShapeLayer {
         let layer = CAShapeLayer()
         let path = FocusView.buildCirclePath(radius: radius, point: point)
@@ -73,6 +76,7 @@ class FocusView: UIView {
         return layer
     }
     
+    /// Builds a circular path centered on the focus point.
     private class func buildCirclePath(radius: CGFloat, point: CGPoint) -> UIBezierPath {
         return UIBezierPath(arcCenter: point, radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: true)
     }
@@ -81,26 +85,31 @@ class FocusView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
     
+    /// Hides a visible focus-lock indicator.
     func cancelLockFocus() {
         fadeOutLock()
     }
     
+    /// Adds the gesture that requests continuous focus.
     private func addTapRecognizer() {
         let tap = UITapGestureRecognizer(target: self, action: #selector(onTap(_:)))
         addGestureRecognizer(tap)
     }
     
+    /// Animates and forwards a continuous-focus tap.
     @objc private func onTap(_ sender: UITapGestureRecognizer) {
         fadeOutLock()
         animateCircle()
         delegate?.onFocus()
     }
     
+    /// Adds the gesture that requests locked focus.
     private func addLongPressRecognizer() {
         let longTap = UILongPressGestureRecognizer(target: self, action: #selector(onLongTap(_:)))
         addGestureRecognizer(longTap)
     }
     
+    /// Animates and forwards the beginning of a long-press focus lock.
     @objc private func onLongTap(_ sender: UILongPressGestureRecognizer) {
         guard sender.state == .began else {
             return
@@ -110,6 +119,7 @@ class FocusView: UIView {
         delegate?.onLockFocus()
     }
     
+    /// Briefly reveals the focus circle for gesture feedback.
     private func animateCircle() {
         let animation = CABasicAnimation(keyPath: "opacity")
         animation.autoreverses = true
@@ -120,6 +130,7 @@ class FocusView: UIView {
         circleLayer.add(animation, forKey: nil)
     }
     
+    /// Reveals and moves the focus-lock indicator into its locked position.
     private func fadeInLock() {
         UIView.animateKeyframes(withDuration: 1, delay: 0, options: .calculationModeLinear) {
             UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.25) { [weak self] in
@@ -132,6 +143,7 @@ class FocusView: UIView {
         }
     }
     
+    /// Hides and resets the focus-lock indicator.
     private func fadeOutLock() {
         UIView.animate(withDuration: fadeDuration) { [weak self] in
             self?.lockImage.alpha = 0

@@ -8,6 +8,7 @@
 import Foundation
 import AVFoundation
 
+/// Discovers AVFoundation capture devices supported by the plugin.
 class CameraUtil {
     /// Returns all available cameras on device.
     func getAvailableCameras() -> [AVCaptureDevice] {

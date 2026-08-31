@@ -41,6 +41,7 @@ extension UIImage {
         self.init(cgImage: cgImage)
     }
     
+    /// Loads an image from the plugin's bundled asset catalog.
     static func fromLibraryAssets(name: String) -> UIImage? {
         let bundlePath = Bundle(for: SwiftMlkitScannerPlugin.self)
             .path(forResource: "Assets", ofType: "bundle")
@@ -51,4 +52,3 @@ extension UIImage {
         return UIImage(named: name, in: bundle, compatibleWith: nil)
     }
 }
-

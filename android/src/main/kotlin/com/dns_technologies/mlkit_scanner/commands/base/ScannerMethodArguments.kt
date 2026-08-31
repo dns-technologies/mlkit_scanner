@@ -82,6 +82,7 @@ internal object ScannerMethodArguments {
             )
         }
 
+    /** Converts an untyped crop map into validated normalized visor geometry. */
     private fun cropRect(map: Map<*, *>): RecognizeVisorCropRect {
         val scaleWidth = map.optionalFiniteDouble(SCALE_WIDTH_ARGUMENT) ?: DEFAULT_SCALE
         val scaleHeight = map.optionalFiniteDouble(SCALE_HEIGHT_ARGUMENT) ?: DEFAULT_SCALE
@@ -94,38 +95,46 @@ internal object ScannerMethodArguments {
         )
     }
 
+    /** Returns this value as a map or rejects malformed channel arguments. */
     private fun Any?.requireMap(): Map<*, *> = this as? Map<*, *>
         ?: throw PluginError.InvalidArguments
 
+    /** Reads an optional nested map while rejecting values of another type. */
     private fun Map<*, *>.optionalMap(key: String): Map<*, *>? = when (val value = this[key]) {
         null -> null
         is Map<*, *> -> value
         else -> throw PluginError.InvalidArguments
     }
 
+    /** Reads an optional finite numeric value from this map. */
     private fun Map<*, *>.optionalFiniteDouble(key: String): Double? = when (val value = this[key]) {
         null -> null
         else -> value.requireFiniteDouble()
     }
 
+    /** Reads an optional Boolean value from this map. */
     private fun Map<*, *>.optionalBoolean(key: String): Boolean? = when (val value = this[key]) {
         null -> null
         is Boolean -> value
         else -> throw PluginError.InvalidArguments
     }
 
+    /** Reads a required nested map. */
     private fun Map<*, *>.requireMap(key: String): Map<*, *> =
         optionalMap(key) ?: throw PluginError.InvalidArguments
 
+    /** Reads a required integral number no smaller than [minimum]. */
     private fun Map<*, *>.requireInt(key: String, minimum: Int): Int =
         this[key].requireInt(minimum)
 
+    /** Converts any numeric channel value to a finite [Double]. */
     private fun Any?.requireFiniteDouble(): Double {
         val value = (this as? Number)?.toDouble() ?: throw PluginError.InvalidArguments
         if (!value.isFinite()) throw PluginError.InvalidArguments
         return value
     }
 
+    /** Converts an exact integral channel number to an [Int] no smaller than [minimum]. */
     private fun Any?.requireInt(minimum: Int): Int {
         val value = when (this) {
             is Byte -> toInt()
@@ -158,6 +167,7 @@ internal object ScannerMethodArguments {
         return value
     }
 
+    /** Returns this value when it belongs to the inclusive range. */
     private fun Double.requireInRange(minimum: Double, maximum: Double): Double {
         if (this !in minimum..maximum) throw PluginError.InvalidArguments
         return this

@@ -183,6 +183,7 @@ class MlkitScannerPlugin internal constructor(
         )
     }
 
+    /** Releases the engine's scanner session and removes it as the active command target. */
     private fun disposeScanner() {
         val activeSession = scannerSession
         scannerSession = null
@@ -203,6 +204,7 @@ class MlkitScannerPlugin internal constructor(
     private companion object {
         const val TAG = "MLKIT_SCANNER_PLUGIN"
 
+        /** Creates a main-thread supervisor scope for asynchronous method-channel commands. */
         fun createCommandScope(): CoroutineScope =
             CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     }

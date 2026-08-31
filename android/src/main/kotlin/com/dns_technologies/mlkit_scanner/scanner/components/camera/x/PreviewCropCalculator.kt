@@ -48,6 +48,7 @@ internal class PreviewCropState {
     private var input: Input? = null
     private var cropRect: Rect? = null
 
+    /** Returns a cached preview crop until source or preview geometry changes. */
     fun resolve(
         source: Rect,
         rotationDegrees: Int,

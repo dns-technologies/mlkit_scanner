@@ -14,6 +14,7 @@ internal object ScanAreaCalculator {
         scanArea: RecognizeVisorCropRect?,
     ): Rect = calculate(frame.cropRect, frame.rotationDegree, scanArea)
 
+    /** Resolves a crop inside explicit frame [bounds], primarily for cached state and tests. */
     internal fun calculate(
         bounds: Rect,
         rotationDegree: Int,
@@ -24,6 +25,7 @@ internal object ScanAreaCalculator {
         bounds = bounds,
     )
 
+    /** Maps normalized preview geometry into unbounded source-buffer coordinates. */
     private fun calculateRawCropRect(
         bounds: Rect,
         rotationDegree: Int,
@@ -64,6 +66,7 @@ internal object ScanAreaCalculator {
         )
     }
 
+    /** Intersects raw geometry with frame bounds and aligns it for YUV 4:2:0 sampling. */
     private fun normalizeCropBounds(
         rect: RawCropRect,
         bounds: Rect,
@@ -110,6 +113,7 @@ internal object ScanAreaCalculator {
         )
     }
 
+    /** Converts integer frame bounds to intermediate floating-point geometry. */
     private fun Rect.toRawCropRect(): RawCropRect = RawCropRect(
         left = left.toDouble(),
         top = top.toDouble(),
@@ -117,8 +121,10 @@ internal object ScanAreaCalculator {
         bottom = bottom.toDouble(),
     )
 
+    /** Rounds this coordinate down to the nearest YUV chroma boundary. */
     private fun Int.roundDownToEven(): Int = this and -2
 
+    /** Rounds this coordinate up to the nearest YUV chroma boundary. */
     private fun Int.roundUpToEven(): Int = (this + 1) and -2
 
     private data class RawCropRect(
@@ -137,6 +143,7 @@ internal class ScanAreaState {
     private var input: Input? = null
     private var cropRect: Rect? = null
 
+    /** Returns the cached crop unless frame geometry or crop configuration changed. */
     fun resolve(frame: CameraFrame, scanArea: RecognizeVisorCropRect?): Rect {
         val nextInput = Input(frame.cropRect, frame.rotationDegree, scanArea)
         if (input == nextInput) return requireNotNull(cropRect)

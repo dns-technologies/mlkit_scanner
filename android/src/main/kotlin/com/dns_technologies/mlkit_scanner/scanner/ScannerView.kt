@@ -88,11 +88,13 @@ class ScannerView(
         disposeLocalView()
     }
 
+    /** Clears preview attachment and overlay resources owned only by this view. */
     private fun disposeLocalView() {
         detachPreview()
         overlayController.dispose()
     }
 
+    /** Waits for a non-zero preview layout before reporting that scanning may resume. */
     private fun awaitPreviewReady(onPreviewReady: () -> Unit) {
         val preview = scanner.previewView
         previewReadyListener = OneShotPreDrawListener.add(preview) {
@@ -108,6 +110,7 @@ class ScannerView(
         }
     }
 
+    /** Cancels the pending layout callback and marks the preview as unavailable. */
     private fun clearPreviewReadiness() {
         previewReadyListener?.removeListener()
         previewReadyListener = null

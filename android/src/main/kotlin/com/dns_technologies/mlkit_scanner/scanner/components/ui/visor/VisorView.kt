@@ -63,6 +63,7 @@ class VisorView @JvmOverloads constructor(
         invalidate()
     }
 
+    /** Rebuilds the border and dimmed-background paths for [bounds]. */
     private fun createPaths(bounds: Rect, containerWidth: Int, containerHeight: Int) {
         val width = bounds.width.toFloat()
         val height = bounds.height.toFloat()

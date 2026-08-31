@@ -9,13 +9,15 @@ import AVFoundation
 import Flutter
 import UIKit
 
-/// Deleage of camera preview
+/// Receives view-scoped camera preview events.
 protocol CameraPreviewDelegate: AnyObject {
-    /// Call delegate on change torch state
+    /// Reports a native torch-state change for one platform view.
     func onToggleTorch(value: Bool, viewId: Int64)
 }
 
+/// Native iOS camera preview owned by one Flutter platform view.
 class CameraPreview: NSObject, FlutterPlatformView {
+    /// Flutter identifier of the platform view that owns this preview.
     let viewId: Int64
     private let preview: UIContainer
     private var scaleX, scaleY: CGFloat
@@ -37,10 +39,12 @@ class CameraPreview: NSObject, FlutterPlatformView {
     weak var recognitionHandler: RecognitionHandler?
     weak var cameraPreviewDelegate: CameraPreviewDelegate?
     
+    /// Whether the selected camera exposes a torch.
     var hasFlash: Bool {
         return camera?.hasTorch == true
     }
 
+    /// Creates a native preview without starting camera capture.
     init(
         frame: CGRect,
         viewId: Int64,
@@ -66,6 +70,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         onDispose(viewId)
     }
     
+    /// Subscribes to session startup so focus lock can be reset after resume.
     private func subscribeCaptureSessionStopNotification() {
         guard let captureSession = captureSession else { return }
         NotificationCenter.default.addObserver(
@@ -75,10 +80,12 @@ class CameraPreview: NSObject, FlutterPlatformView {
             object: captureSession)
     }
     
+    /// Restores continuous focus after the capture session starts.
     @objc private func onCaptureSessionStart() {
         clearFocusLock()
     }
     
+    /// Clears camera and overlay focus-lock state.
     private func clearFocusLock() {
         focusOnCenter(needLock: false)
         DispatchQueue.main.async { [weak self] in
@@ -86,13 +93,15 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
     
+    /// Returns the native view hosted by Flutter.
     func view() -> UIView {
         return preview
     }
     
-    /// Initialization of the device camera. Initialization runs in non UI thread.
-    /// Result of init caling with closure `completion`.
-    /// Can return `Error` on problem with device camera or app doesn't have permission to use camera.
+    /// Requests permission, configures the selected camera, and starts capture.
+    ///
+    /// Camera work runs off the main thread. `completion` receives an error when
+    /// authorization, device selection, or session configuration fails.
     func initCamera(
         initialZoom: Double?,
         initialCamera: CameraData?,
@@ -137,6 +146,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
 
+    /// Builds and starts an AVFoundation session for the requested initial state.
     private func configureCamera(
         initialZoom: Double?,
         initialCamera: CameraData?,
@@ -214,8 +224,10 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
 
-    /// Sets for scanning camera with `deviceType` and `position`.
-    /// Throws if called without camera initialization or can't use such camera.
+    /// Replaces the active capture device while preserving the session output.
+    ///
+    /// Throws when capture is not initialized or the requested camera cannot be
+    /// attached.
     func setCamera(_ cameraData: CameraData) throws {
         guard let session = self.captureSession else {
             throw MlKitPluginError.cameraIsNotInitialized
@@ -250,20 +262,22 @@ class CameraPreview: NSObject, FlutterPlatformView {
         clearFocusLock()
     }    
 
+    /// Returns the default back wide-angle camera.
     private func createWideAngleCamera() -> AVCaptureDevice? {
         return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
 
+    /// Places the focus gesture overlay above the native preview layer.
     private func addFocusView() {
         preview.addSubview(focusView)
     }
 
-    /// Calculates the focus point relative to center of the screen with offsets `offsetX` and `offsetY`
+    /// Calculates a focus point from normalized preview-center offsets.
     private class func calcFocusPoint(preview: UIContainer, offsetX: CGFloat, offsetY: CGFloat) -> FocusPoint {
         return FocusPoint(frame: preview.frame, offsetX: offsetX, offsetY: offsetY)
     }
 
-    /// Сhanges focus around the center
+    /// Updates the camera and overlay focus point from normalized center offsets.
     func changeFocusCenter(offsetX: CGFloat, offsetY: CGFloat) {
         (self.offsetX, self.offsetY) = (offsetX, offsetY)
         let focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
@@ -290,8 +304,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         camera.unlockForConfiguration()
     }
 
-    /// Pause a `CaptureSession`, runs in non UI thread.
-    /// Result caling by closure `completion`.
+    /// Stops the capture session asynchronously without releasing its resources.
     func pauseCamera(completion: @escaping () -> ()) {
         sessionQueue.async { [weak self] in
             guard let self = self else {
@@ -305,9 +318,9 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
 
-    /// Resume a `CaptureSession`, runs in non UI thread.
-    /// Result caling by closure `completion`.
-    /// Can return `Error` on try resume non initialized camera.
+    /// Restarts the capture session asynchronously.
+    ///
+    /// `completion` receives an error when the camera is not initialized.
     func resumeCamera(completion: @escaping (Error?) -> ()) {
         sessionQueue.async { [weak self] in
             guard let session = self?.captureSession, let camera = self?.camera, camera.isConnected else {
@@ -321,7 +334,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
 
-    /// Release device camera resources. Must call this method when camera is no longer needed.
+    /// Idempotently releases capture, observation, and preview resources.
     func dispose() {
         guard !isDisposed else { return }
         isDisposed = true
@@ -344,18 +357,22 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
 
+    /// Adds a scanner overlay below the focus gesture view.
     func addSubview(_ view: UIView) {
         preview.insertSubview(view, belowSubview: focusView)
     }
 
+    /// Subscribes to interface-orientation changes affecting preview output.
     private func subscribeOrientationChanges() {
         NotificationCenter.default.addObserver(self, selector: #selector(self.onOrientationChanges), name: UIApplication.didChangeStatusBarOrientationNotification, object: nil)
     }
 
+    /// Updates the preview connection after interface orientation changes.
     @objc private func onOrientationChanges() {
         previewLayer?.connection?.videoOrientation = getVideoOrieitation()
     }
 
+    /// Maps the current status-bar orientation to AVFoundation video orientation.
     private func getVideoOrieitation() -> AVCaptureVideoOrientation{
         switch UIApplication.shared.statusBarOrientation {
         case .landscapeRight:
@@ -371,6 +388,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
 
+    /// Applies normalized zoom in the inclusive range from `0` to `1`.
     func setZoom(_ value: Double) throws {
         guard let camera = camera else {
             throw MlKitPluginError.cameraIsNotInitialized
@@ -382,6 +400,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         camera.unlockForConfiguration()
     }
     
+    /// Observes hardware torch activity and reports it with this view's identity.
     private func observeTorchToggle() {
         torchObserver = camera?.observe(\.isTorchActive, options: .new) { [weak self] _, observable in
             guard let isActive = observable.newValue else { return }
@@ -392,22 +411,24 @@ class CameraPreview: NSObject, FlutterPlatformView {
 }
 
 extension CameraPreview: AVCaptureVideoDataOutputSampleBufferDelegate {
-    
+    /// Forwards camera frames to the currently active recognition handler.
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         recognitionHandler?.processVideoOutput(sampleBuffer: sampleBuffer, scaleX: scaleX, scaleY: scaleY, orientation: connection.videoOrientation)
     }
 }
 
 extension CameraPreview: FocusViewDelegate {
-    
+    /// Requests continuous focus at the current overlay center.
     func onFocus() {
         focusOnCenter(needLock: false)
     }
     
+    /// Requests a one-shot focus lock at the current overlay center.
     func onLockFocus() {
         focusOnCenter(needLock: true)
     }
     
+    /// Applies continuous or locked focus and exposure at the current focus point.
     private func focusOnCenter(needLock: Bool) {
         guard let camera = camera else {
             return
@@ -429,7 +450,7 @@ extension CameraPreview: FocusViewDelegate {
 }
 
 extension CameraPreview: UIContainerDelegate {
-    
+    /// Recalculates preview geometry and focus coordinates during layout.
     func viewWillLayoutSubviews() {
         self.scaleX = self.preview.frame.width / UIScreen.main.bounds.width
         self.scaleY = self.preview.frame.height / UIScreen.main.bounds.height
@@ -449,6 +470,7 @@ fileprivate protocol UIContainerDelegate: AnyObject {
 fileprivate class UIContainer : UIView {
     weak var delegate: UIContainerDelegate?
     
+    /// Creates a preview container with the supplied frame.
     override init(frame: CGRect) {
         super.init(frame: frame)
     }
@@ -457,6 +479,7 @@ fileprivate class UIContainer : UIView {
         fatalError("init(coder:) has not been implemented")
     }
     
+    /// Notifies the delegate before dependent overlays are repositioned.
     override func layoutSubviews() {
         super.layoutSubviews()
         delegate?.viewWillLayoutSubviews()
@@ -469,6 +492,7 @@ fileprivate class FocusPoint {
     private let point: CGPoint
     private let frame: CGRect
     
+    /// Creates a normalized point from preview-center offsets.
     init(frame: CGRect, offsetX: CGFloat, offsetY: CGFloat) {
         self.point = CGPoint(x: (frame.midX + frame.midX * offsetX) / frame.maxX, y: (frame.midY + frame.midY * offsetY) / frame.maxY)
         self.frame = frame

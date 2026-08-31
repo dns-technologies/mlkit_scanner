@@ -2,6 +2,7 @@ import Flutter
 
 /// Updates normalized zoom retained by one platform view.
 final class SetZoomCommand: ScannerCommand {
+    /// Parses and applies normalized zoom for the target view.
     override func executeCommand(
         _ call: FlutterMethodCall,
         result: @escaping FlutterResult

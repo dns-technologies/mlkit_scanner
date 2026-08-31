@@ -249,18 +249,21 @@ internal class ScannerSessionImpl(
         applyCropAreaIfActive(viewState)
     }
 
+    /** Applies retained crop geometry when [viewState] currently owns the camera. */
     private fun applyCropAreaIfActive(viewState: ScannerViewState) {
         if (viewState !== capturedViewState()) return
         scanner.setCropArea(viewState.cropArea)
         viewState.cropArea?.let(viewState.view::renderCropArea)
     }
 
+    /** Restores crop processing and redraws its overlay for the active view. */
     private fun restoreCropAreaIfActive(viewState: ScannerViewState) {
         if (viewState !== capturedViewState()) return
         scanner.setCropArea(viewState.cropArea)
         viewState.view.redrawCropArea()
     }
 
+    /** Applies the retained recognition cooldown for the active view. */
     private fun applyScanPeriodIfActive(viewState: ScannerViewState) {
         if (viewState !== capturedViewState()) return
         viewState.scanPeriodMs?.let(scanner::updateScanPeriod)
@@ -300,6 +303,7 @@ internal class ScannerSessionImpl(
         onReleased()
     }
 
+    /** Moves preview ownership and restores retained state for an explicit capture request. */
     private fun moveCamera(previousHost: ScannerViewState?, viewState: ScannerViewState) {
         if (previousHost !== viewState) {
             previousHost?.let {
@@ -322,10 +326,12 @@ internal class ScannerSessionImpl(
         applyScanState()
     }
 
+    /** Handles disposal initiated by Flutter's native platform-view wrapper. */
     private fun disposePlatformView(viewId: Int) {
         disposeView(viewId)
     }
 
+    /** Drops current ownership while retaining the registered view's configuration. */
     private fun releaseCapturedCamera() {
         val captured = capturedViewState()
         captured?.let { viewState ->
@@ -339,9 +345,11 @@ internal class ScannerSessionImpl(
         applyScanState()
     }
 
+    /** Returns whether [viewId] still owns the camera after asynchronous work. */
     private fun isCurrentCapture(viewId: Int): Boolean =
         !isReleased && views[viewId]?.isCameraOwner == true
 
+    /** Attaches the shared preview to a view and prepares its retained crop state. */
     private fun attachPreview(viewState: ScannerViewState) {
         viewState.configurationApplied = false
         viewState.view.attachPreview(::applyScanState)
@@ -354,6 +362,7 @@ internal class ScannerSessionImpl(
         }
     }
 
+    /** Reconciles user scan intent with ownership, lifecycle, and preview readiness. */
     private fun applyScanState() {
         val shouldScan = capturedViewState()?.let { viewState ->
             viewState.scanRequestedByView &&
@@ -373,6 +382,7 @@ internal class ScannerSessionImpl(
         capturedViewState()?.view?.setScanActive(shouldScan)
     }
 
+    /** Drives the synthetic CameraX lifecycle from active-view and host state. */
     private fun updateCameraLifecycle() {
         if (isReleased) return
         val shouldRun = capturedViewState()?.let { viewState ->
@@ -385,6 +395,7 @@ internal class ScannerSessionImpl(
         }
     }
 
+    /** Pauses or restores preview work when the Flutter Activity changes lifecycle state. */
     private fun updateHostPaused(isPaused: Boolean) {
         if (hostPaused == isPaused) return
         hostPaused = isPaused
@@ -404,12 +415,14 @@ internal class ScannerSessionImpl(
         }
     }
 
+    /** Reconciles shared state only when [viewState] owns the camera. */
     private fun applyViewStateIfCaptured(viewState: ScannerViewState) {
         if (viewState !== capturedViewState()) return
         updateCameraLifecycle()
         applyScanState()
     }
 
+    /** Starts one shared camera initialization and returns its reusable completion signal. */
     private fun initializeCamera(): CompletableDeferred<Unit> {
         if (isReleased) return failedInitialization(PluginError.CameraSessionDisposed)
         cameraInitialization?.let { return it }
@@ -421,10 +434,12 @@ internal class ScannerSessionImpl(
             if (cameraInitialization === initialization) cameraInitialization = null
         }
 
+        /** Completes this initialization exceptionally and releases an unusable session. */
         fun fail(error: Throwable) {
             if (initialization.completeExceptionally(error)) release()
         }
 
+        /** Completes this initialization after focus and scan state have been attached. */
         fun complete() {
             if (isReleased || initialization.isCompleted) return
             capturedViewState()?.view?.bindFocus()
@@ -457,9 +472,11 @@ internal class ScannerSessionImpl(
         return initialization
     }
 
+    /** Creates an already-failed initialization result. */
     private fun failedInitialization(error: Throwable): CompletableDeferred<Unit> =
         CompletableDeferred<Unit>().also { it.completeExceptionally(error) }
 
+    /** Applies zoom and torch atomically before revealing the active preview. */
     private suspend fun applyCameraControlsIfActive(viewState: ScannerViewState) {
         cameraControlMutex.withLock {
             if (!canApplyCameraControls(viewState)) return
@@ -475,6 +492,7 @@ internal class ScannerSessionImpl(
         }
     }
 
+    /** Starts asynchronous control restoration when an active view needs it. */
     private fun restoreCameraControlsIfActive(viewState: ScannerViewState) {
         if (viewState.configurationApplied || !canApplyCameraControls(viewState)) return
         initializationScope.launch {
@@ -490,6 +508,7 @@ internal class ScannerSessionImpl(
         }
     }
 
+    /** Restores controls, disabling a retained torch request if flash is unavailable. */
     private suspend fun applyRestoredCameraControls(viewState: ScannerViewState) {
         try {
             applyCameraControlsIfActive(viewState)
@@ -506,6 +525,7 @@ internal class ScannerSessionImpl(
         }
     }
 
+    /** Returns whether camera controls may still be applied to [viewState]. */
     private fun canApplyCameraControls(viewState: ScannerViewState): Boolean =
         !isReleased &&
             scanner.isActive() &&
@@ -514,9 +534,11 @@ internal class ScannerSessionImpl(
             !hostPaused &&
             viewState === capturedViewState()
 
+    /** Returns the one registered view that currently owns the camera. */
     private fun capturedViewState(): ScannerViewState? =
         views.values.firstOrNull { it.isCameraOwner }
 
+    /** Posts a result to Flutter while allowing pause or release to cancel delivery. */
     private fun enqueueScanResult(result: Barcode) {
         lateinit var delivery: Runnable
         delivery = Runnable {
@@ -538,15 +560,18 @@ internal class ScannerSessionImpl(
         }
     }
 
+    /** Returns a registered view or reports that its camera is unavailable. */
     private fun requireView(viewId: Int): ScannerViewState =
         views[viewId] ?: throw PluginError.CameraIsNotInitialized
 
+    /** Returns a registered, started view after validating shared camera readiness. */
     private fun requireViewCameraReady(viewId: Int): ScannerViewState =
         requireView(viewId).also { viewState ->
             requireCameraReady()
             if (!viewState.cameraStarted) throw PluginError.CameraIsNotInitialized
         }
 
+    /** Rejects commands while the session is released, initializing, or inactive. */
     private fun requireCameraReady() {
         if (isReleased) throw PluginError.CameraSessionDisposed
         if (cameraInitialization != null || !scanner.isActive()) {
@@ -554,6 +579,7 @@ internal class ScannerSessionImpl(
         }
     }
 
+    /** Removes scan-result callbacks that have not yet reached Flutter. */
     private fun cancelPendingResultDeliveries() {
         val callbacks = synchronized(resultDeliveryLock) {
             pendingResultDeliveries.toList().also { pendingResultDeliveries.clear() }
@@ -561,6 +587,7 @@ internal class ScannerSessionImpl(
         callbacks.forEach(mainHandler::removeCallbacks)
     }
 
+    /** Retains an empty session briefly so route replacement can reuse its camera pipeline. */
     private fun scheduleDeferredRelease() {
         if (isReleased || deferredRelease != null) return
         val releaseTask = Runnable {
@@ -574,6 +601,7 @@ internal class ScannerSessionImpl(
         }
     }
 
+    /** Cancels release when a new platform view registers within the grace period. */
     private fun cancelDeferredRelease() {
         deferredRelease?.let(mainHandler::removeCallbacks)
         deferredRelease = null

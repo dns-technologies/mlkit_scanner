@@ -11,11 +11,13 @@ import 'package:mlkit_scanner/models/ios_camera_type.dart';
 /// Signature for a platform view that is ready to capture the camera.
 typedef CameraInitialized = void Function(int viewId);
 
-/// Camera Preview of the device camera.
+/// Hosts the native camera preview used by [BarcodeScanner].
 ///
-/// Widget automatically will dispose camera when called [dispose] in state.
+/// Creation registers a platform view. Camera ownership is captured and
+/// released by the surrounding scanner widget as its route becomes visible or
+/// hidden.
 class CameraPreview extends StatefulWidget {
-  /// Callback when device camera initialize.
+  /// Called with the native platform-view identifier after creation.
   final CameraInitialized onCameraInitialized;
 
   /// Optional normalized zoom applied before the preview becomes visible.
@@ -30,6 +32,7 @@ class CameraPreview extends StatefulWidget {
   /// Optional camera used during initialization on iOS.
   final IosCamera? initialCamera;
 
+  /// Creates a native camera preview with optional retained initial controls.
   const CameraPreview({
     Key? key,
     required this.onCameraInitialized,

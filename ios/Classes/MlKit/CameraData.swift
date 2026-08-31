@@ -8,7 +8,7 @@
 import AVFoundation
 import Foundation
 
-/// Camera Information.
+/// AVFoundation camera selection exchanged with Flutter.
 struct CameraData {
     /// Camera type.
     let type: AVCaptureDevice.DeviceType
@@ -16,6 +16,7 @@ struct CameraData {
     /// Camera position.
     let position: AVCaptureDevice.Position
 
+    /// Creates a validated camera selection from platform-channel arguments.
     init(arguments: [String: Any]) throws {
         guard
             !(arguments["type"] is Bool),
@@ -33,12 +34,13 @@ struct CameraData {
         self.position = position
     }
     
+    /// Creates a camera selection from an AVFoundation type and position.
     init(type: AVCaptureDevice.DeviceType, position: AVCaptureDevice.Position) {
         self.type = type
         self.position = position
     }
     
-    /// Creates json for transmission over the platform channel.
+    /// Creates a JSON-compatible platform-channel representation.
     func toJson() -> [String: Any] {
         [
             "position": position.code,

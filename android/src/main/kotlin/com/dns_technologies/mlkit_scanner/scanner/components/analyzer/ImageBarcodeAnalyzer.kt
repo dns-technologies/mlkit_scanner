@@ -58,6 +58,7 @@ abstract class ImageBarcodeAnalyzer protected constructor(
         closeIfDisposedAndIdle()
     }
 
+    /** Closes analyzer resources after disposal once the active invocation completes. */
     private fun closeIfDisposedAndIdle() {
         if (!isDisposed.get() || !isAnalyzing.compareAndSet(false, true)) return
 

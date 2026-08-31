@@ -2,6 +2,7 @@ import Flutter
 
 /// Restores the addressed platform view's camera intent and retained controls.
 final class ResumeCameraCommand: BaseScannerCommand {
+    /// Parses the target view and completes after camera work resumes.
     func execute(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         do {
             let viewId = try ScannerMethodArguments.viewId(call.arguments)

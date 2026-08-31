@@ -5,6 +5,7 @@ import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 class MLKitUtils {
   final MlKitChannel _mLKitChannel;
 
+  /// Creates a utility facade backed by the shared platform channel.
   MLKitUtils() : _mLKitChannel = MlKitChannel();
 
   /// Gets all available iOS cameras.

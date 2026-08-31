@@ -20,6 +20,7 @@ final class ScannerViewState {
     var scannerOverlay: ScannerOverlay?
     var captureCompletions: [ScannerSessionCompletion] = []
 
+    /// Creates retained state from one registered native platform view.
     init(
         viewId: Int64,
         view: CameraPreview,

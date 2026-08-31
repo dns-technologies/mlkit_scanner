@@ -40,6 +40,7 @@ enum BarcodeValueType {
   driverLicense,
 }
 
+/// Converts between [BarcodeValueType] values and native platform codes.
 extension BarcodeValueTypeCode on BarcodeValueType {
   /// Code of type for transmission over the platform channel.
   int get code => _typeToCode[this]!;

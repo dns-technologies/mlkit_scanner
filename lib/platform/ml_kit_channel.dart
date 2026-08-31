@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 import 'package:mlkit_scanner/models/recognition_type.dart';
 
-/// Platform channel of the MLkit plugin
+/// Typed access to the ML Kit scanner platform channel.
 class MlKitChannel {
   static const _captureCameraMethod = 'captureCamera';
   static const _releaseCameraMethod = 'releaseCamera';
@@ -28,11 +28,13 @@ class MlKitChannel {
   final StreamController<_ClientEvent<bool>> _torchToggleStreamController =
       StreamController<_ClientEvent<bool>>.broadcast();
 
+  /// Returns the shared channel instance used by all scanner widgets.
   factory MlKitChannel() {
     _instance ??= MlKitChannel._();
     return _instance!;
   }
 
+  /// Creates the shared channel and registers callbacks from native platforms.
   MlKitChannel._() {
     _channel.setMethodCallHandler((call) async {
       if (call.method == _scanResultMethod) {
@@ -53,6 +55,7 @@ class MlKitChannel {
     });
   }
 
+  /// Decodes a view-scoped native event and ignores malformed payloads.
   _ClientEvent<T>? _decodeClientEvent<T>(
     Object? arguments,
     String valueKey,
@@ -81,17 +84,18 @@ class MlKitChannel {
 
   /// Toggles flash configuration owned by the platform view identified by [viewId].
   ///
-  /// Can throw a [PlatformException] if doesn't have flash.
+  /// Throws a [PlatformException] when the selected camera has no flash.
   Future<void> toggleFlash({required int viewId}) {
     return _channel.invokeMethod(_toggleFlashMethod, {'viewId': viewId});
   }
 
   /// Starts recognition requested by the platform view identified by [viewId].
   ///
-  /// `type` - [RecognitionType], plugin will use MlKit API for this type.
-  /// `delay` - minimum delay in milliseconds after successful recognition.
-  /// Failed recognition does not start this timer. On Android, failed attempts
-  /// wait one second before analyzing the next available camera frame.
+  /// [type] selects the native recognition mode. [delay] is the minimum
+  /// cooldown in milliseconds after successful recognition. On iOS, the same
+  /// delay also applies before the first attempt. Failed recognition does not
+  /// restart this timer. On Android, failed attempts wait one second before
+  /// analyzing the next available camera frame.
   /// Only the current scanner view receives native scan events.
   /// Can throw [PlatformException] if camera is not initialized.
   Future<void> startScan(
@@ -126,7 +130,7 @@ class MlKitChannel {
     return _channel.invokeMethod(_cancelScanMethod, {'viewId': viewId});
   }
 
-  /// Sets the delay owned by the platform view identified by [viewId].
+  /// Sets the successful-recognition cooldown owned by [viewId].
   ///
   /// Failed recognition does not start this timer.
   Future<void> setScanDelay(int delay, {required int viewId}) {
@@ -136,14 +140,14 @@ class MlKitChannel {
     });
   }
 
-  /// Pauses camera.
+  /// Pauses camera work requested by [viewId] without releasing ownership.
   ///
   /// Other registered scanner views keep their independent lifecycle intent.
   Future<void> pauseCamera({required int viewId}) {
     return _channel.invokeMethod(_pauseCameraMethod, {'viewId': viewId});
   }
 
-  /// Resumes camera.
+  /// Resumes camera work requested by [viewId].
   ///
   /// The view's retained camera configuration is restored. Detection also
   /// resumes if [startScan] was previously requested by this view.
@@ -152,7 +156,9 @@ class MlKitChannel {
     return _channel.invokeMethod(_resumeCameraMethod, {'viewId': viewId});
   }
 
-  /// Sets zoom owned by the platform view identified by [viewId].
+  /// Sets normalized zoom owned by [viewId].
+  ///
+  /// [value] must be in the inclusive range from `0` to `1`.
   Future<void> setZoom(double value, {required int viewId}) {
     return _channel.invokeMethod(_setZoomMethod, {
       'viewId': viewId,
@@ -162,7 +168,7 @@ class MlKitChannel {
 
   /// Sets the recognition area owned by the platform view identified by [viewId].
   ///
-  /// `rect` - Scanning area of the overlay.
+  /// [rect] is normalized relative to the camera preview.
   Future<void> setCropArea(CropRect rect, {required int viewId}) {
     return _channel.invokeMethod(_setCropAreaMethod, {
       'viewId': viewId,
@@ -170,7 +176,7 @@ class MlKitChannel {
     });
   }
 
-  /// Gets all available iOS cameras.
+  /// Returns all iOS cameras supported by the native implementation.
   Future<List<IosCamera>> getIosAvailableCameras() async {
     final availableCameras =
         (await _channel.invokeListMethod<dynamic>(_getIosAvailableCameras))!;
@@ -179,7 +185,7 @@ class MlKitChannel {
         .toList();
   }
 
-  /// Sets iOS camera with [position] and [type].
+  /// Selects the iOS camera with [position] and [type] for [viewId].
   Future<void> setIosCamera({
     required int viewId,
     required IosCameraPosition position,

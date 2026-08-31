@@ -10,7 +10,7 @@ import AVFoundation
 import MLKitBarcodeScanning
 import MLKitVision
 
-/// Barcode scanner recognizer, uses MLkit Barcode Scanning API
+/// Barcode recognizer backed by the ML Kit Barcode Scanning API.
 class MlkitBarcodeScanner: NSObject, RecognitionHandler {
     private let scanner: BarcodeScanner
     private var delay: Int
@@ -29,6 +29,7 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
         !isDelayed && !isRecognitionInProgress
     }
     
+    /// Creates a view-scoped recognizer and starts its initial cooldown.
     required init(delay: Int, cropRect: CropRect?, viewId: Int64) {
         scanner = BarcodeScanner.barcodeScanner()
         self.delay = delay
@@ -38,7 +39,7 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
         startDelay()
     }
     
-    /// Recognizes a barcode on frame [sampleBuffer].
+    /// Attempts to recognize the first barcode in `sampleBuffer`.
     func processVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation) {
         if (!canRecognize) {
             return
@@ -73,10 +74,12 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
         }
     }
 
+    /// Updates the cooldown applied after successful recognition.
     func setDelay(delay: Int) {
         self.delay = delay
     }
 
+    /// Suppresses recognition until the configured successful-result cooldown ends.
     private func startDelay() {
         isDelayed = true
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
@@ -84,6 +87,7 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
         }
     }
     
+    /// Updates normalized recognition geometry for future frames.
     func updateCropRect(cropRect: CropRect) {
         self.cropRect = cropRect
     }

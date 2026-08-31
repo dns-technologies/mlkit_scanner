@@ -401,6 +401,7 @@ class XCamera(
         }
     }
 
+    /** Subscribes to device state and immediately processes the latest available value. */
     private fun observeCameraState(current: BoundCamera) {
         current.camera.cameraInfo.cameraState.observeForever(current.cameraStateObserver)
         onCameraStateChanged(
@@ -410,14 +411,17 @@ class XCamera(
         )
     }
 
+    /** Removes the device-state observer and fails operations waiting for an open camera. */
     private fun stopObservingCameraState(current: BoundCamera) {
         current.camera.cameraInfo.cameraState.removeObserver(current.cameraStateObserver)
         current.runtimeState.onCameraUnavailable()
     }
 
+    /** Returns whether this completed camera binding exposes a flash unit. */
     private fun isFlashSupported(current: BoundCamera): Boolean =
         current.camera.cameraInfo.hasFlashUnit()
 
+    /** Creates an observer tied to one camera and its control state. */
     private fun createCameraStateObserver(
         camera: AndroidXCamera,
         runtimeState: CameraRuntimeState,
@@ -425,6 +429,7 @@ class XCamera(
         onCameraStateChanged(camera, runtimeState, state)
     }
 
+    /** Updates runtime availability only when the event belongs to the active binding. */
     private fun onCameraStateChanged(
         sourceCamera: AndroidXCamera,
         runtimeState: CameraRuntimeState,
@@ -441,6 +446,7 @@ class XCamera(
         }
     }
 
+    /** Restores retained zoom and torch values after a camera binding becomes available. */
     private fun restoreCameraControls(current: BoundCamera, force: Boolean = false) {
         if (bindingState !== current) return
         current.runtimeState.beginZoomRestoration(
@@ -465,11 +471,13 @@ class XCamera(
         }
     }
 
+    /** Continues restoration if [runtimeState] still belongs to the active binding. */
     private fun restoreCameraControls(runtimeState: CameraRuntimeState) {
         val current = bindingState as? BoundCamera ?: return
         if (current.runtimeState === runtimeState) restoreCameraControls(current)
     }
 
+    /** Submits one serialized zoom operation and records its asynchronous completion. */
     private fun executeZoomOperation(
         current: BoundCamera,
         operation: CameraRuntimeState.Operation<Float>,
@@ -486,6 +494,7 @@ class XCamera(
         throw error
     }
 
+    /** Completes a zoom operation and starts deferred restoration when required. */
     private fun handleZoomCompletion(
         runtimeState: CameraRuntimeState,
         operation: CameraRuntimeState.Operation<Float>,
@@ -496,6 +505,7 @@ class XCamera(
         if (completion.shouldRestore) restoreCameraControls(runtimeState)
     }
 
+    /** Submits one serialized torch operation and records its asynchronous completion. */
     private fun executeTorchOperation(
         current: BoundCamera,
         operation: CameraRuntimeState.Operation<Boolean>,
@@ -512,6 +522,7 @@ class XCamera(
         throw error
     }
 
+    /** Completes a torch operation and starts deferred restoration when required. */
     private fun handleTorchCompletion(
         runtimeState: CameraRuntimeState,
         operation: CameraRuntimeState.Operation<Boolean>,
@@ -522,6 +533,7 @@ class XCamera(
         if (completion.shouldRestore) restoreCameraControls(runtimeState)
     }
 
+    /** Fails a start request only while it is still the current binding state. */
     private fun failPendingStart(request: PendingStart, error: Exception) {
         if (bindingState !== request) return
         bindingState = BindingState.Idle

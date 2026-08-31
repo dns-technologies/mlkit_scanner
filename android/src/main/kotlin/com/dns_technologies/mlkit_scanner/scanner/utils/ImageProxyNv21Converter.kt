@@ -36,6 +36,7 @@ internal class ImageProxyNv21Converter(
         bufferPool.dispose()
     }
 
+    /** Clamps, orders, and chroma-aligns a requested crop to the camera buffer. */
     private fun normalizeCropRect(
         cropRect: Rect?,
         width: Int,
@@ -61,6 +62,7 @@ internal class ImageProxyNv21Converter(
         )
     }
 
+    /** Copies the cropped luminance plane into the beginning of [output]. */
     private fun copyYPlane(
         plane: ImageProxy.PlaneProxy,
         crop: Rect,
@@ -84,6 +86,7 @@ internal class ImageProxyNv21Converter(
         }
     }
 
+    /** Interleaves the cropped V and U chroma planes after the luminance bytes. */
     private fun copyUvPlanes(
         uPlane: ImageProxy.PlaneProxy,
         vPlane: ImageProxy.PlaneProxy,
@@ -115,8 +118,10 @@ internal class ImageProxyNv21Converter(
         }
     }
 
+    /** Rounds this coordinate down to the nearest YUV chroma boundary. */
     private fun Int.roundDownToEven(): Int = this and -2
 
+    /** Rounds this coordinate up to the nearest YUV chroma boundary. */
     private fun Int.roundUpToEven(): Int = (this + 1) and -2
 
     private companion object {

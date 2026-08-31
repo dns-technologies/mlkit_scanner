@@ -144,6 +144,7 @@ internal class CameraRuntimeState {
         val restorationFailed: Boolean = false,
     )
 
+    /** Creates an already-failed camera-control result. */
     private fun failedDeferred(error: Exception): Deferred<Unit> =
         CompletableDeferred<Unit>().also { it.completeExceptionally(error) }
 
@@ -156,6 +157,7 @@ internal class CameraRuntimeState {
         private var revision = 0L
         private var activeOperation: Operation<T>? = null
 
+        /** Starts a new absolute user request and invalidates older control revisions. */
         fun beginUserOperation(value: T, cameraOpenRevision: Long): Operation<T> {
             revision += 1
             return Operation(
@@ -166,6 +168,7 @@ internal class CameraRuntimeState {
             ).also { activeOperation = it }
         }
 
+        /** Starts restoration when retained and observed values still differ. */
         fun beginRestoration(
             currentValue: T?,
             force: Boolean,
@@ -186,6 +189,7 @@ internal class CameraRuntimeState {
             ).also { activeOperation = it }
         }
 
+        /** Records completion and calculates whether another restoration is necessary. */
         fun complete(
             operation: Operation<T>,
             succeeded: Boolean,
@@ -203,10 +207,12 @@ internal class CameraRuntimeState {
             )
         }
 
+        /** Invalidates the operation associated with a previous camera opening. */
         fun invalidateOperation() {
             activeOperation = null
         }
 
+        /** Drops the retained value and active operation. */
         fun clear() {
             retainedValue = null
             activeOperation = null

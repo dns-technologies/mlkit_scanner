@@ -1,4 +1,4 @@
-/// Ios camera type.
+/// Hardware type of an iOS camera.
 enum IosCameraType {
   /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/2361449-builtinwideanglecamera.
   builtInWideAngleCamera,
@@ -19,6 +19,7 @@ enum IosCameraType {
   builtInTripleCamera,
 }
 
+/// Converts between [IosCameraType] values and native platform codes.
 extension IosCameraTypeCode on IosCameraType {
   /// Code of type for transmission over the platform channel.
   int get code => _typeToCode[this]!;

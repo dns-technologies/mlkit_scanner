@@ -9,7 +9,7 @@ import Foundation
 import AVFoundation
 
 extension AVCaptureDevice.DeviceType {
-    /// Code of unsuppored types.
+    /// Code used for unsupported camera device types.
     static let unsupportedCode = -1
     
     /// Code of type for transmission over the platform channel.

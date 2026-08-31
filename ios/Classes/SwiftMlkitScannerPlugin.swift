@@ -1,10 +1,11 @@
 import Flutter
 import UIKit
 
-/// iOS plugin entry point. Camera ownership and view state live in ScannerSessionImpl.
+/// iOS plugin entry point backed by one view-scoped scanner session.
 public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     private let scannerSession: ScannerSessionImpl
 
+    /// Creates the plugin and its shared scanner session for one engine channel.
     init(channel: FlutterMethodChannel) {
         let scannerSession = ScannerSessionImpl(
             onScanResult: { viewId, barcode in
@@ -38,6 +39,7 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         scannerSession.release()
     }
 
+    /// Registers the method channel and native camera platform-view factory.
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(
             name: PluginConstants.channelName,
@@ -48,6 +50,7 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         registrar.register(instance, withId: PluginConstants.cameraPlatformViewName)
     }
 
+    /// Routes a Flutter method call to the corresponding scanner command.
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case PluginConstants.captureCameraMethod:
@@ -93,10 +96,12 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
 }
 
 extension SwiftMlkitScannerPlugin: FlutterPlatformViewFactory {
+    /// Returns the codec used for native platform-view creation arguments.
     public func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
         return FlutterStandardMessageCodec.sharedInstance()
     }
 
+    /// Creates and registers one native camera preview for `viewId`.
     public func create(
         withFrame frame: CGRect,
         viewIdentifier viewId: Int64,

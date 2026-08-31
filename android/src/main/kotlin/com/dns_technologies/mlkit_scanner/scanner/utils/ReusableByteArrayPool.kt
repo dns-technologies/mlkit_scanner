@@ -34,6 +34,7 @@ internal class ReusableByteArrayPool(
         }
     }
 
+    /** Removes and returns one retained buffer whose size exactly matches [size]. */
     private fun takeBuffer(size: Int): ByteArray? {
         val iterator = availableBuffers.iterator()
         while (iterator.hasNext()) {
@@ -46,6 +47,7 @@ internal class ReusableByteArrayPool(
         return null
     }
 
+    /** Returns a lease's buffer to the bounded pool unless pooling was disposed. */
     private fun release(buffer: ByteArray) {
         lock.withLock {
             if (isDisposed) return
@@ -64,6 +66,7 @@ internal class ByteArrayLease(
 ) : AutoCloseable {
     private val isClosed = AtomicBoolean(false)
 
+    /** Returns [data] to its owner once; subsequent calls have no effect. */
     override fun close() {
         if (isClosed.compareAndSet(false, true)) {
             release(data)

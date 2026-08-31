@@ -8,6 +8,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
     private let onTorchChanged: (Int64, Bool) -> Void
     private var isReleased = false
 
+    /// Creates a scanner session with view-scoped native event callbacks.
     init(
         onScanResult: @escaping (Int64, Barcode) -> Void,
         onTorchChanged: @escaping (Int64, Bool) -> Void
@@ -17,6 +18,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         super.init()
     }
 
+    /// Creates and registers a native preview without capturing the camera.
     func createView(
         frame: CGRect,
         viewId: Int64,
@@ -39,6 +41,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         return view
     }
 
+    /// Transfers camera ownership to a view and restores its retained state.
     func captureCamera(viewId: Int64, completion: @escaping ScannerSessionCompletion) {
         do {
             let viewState = try requireView(viewId)
@@ -69,6 +72,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Releases ownership if it is still held by the referenced view.
     func releaseCamera(viewId: Int64, completion: @escaping () -> Void) {
         guard let viewState = views[viewId], viewState.isCameraOwner else {
             complete(completion)
@@ -87,6 +91,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Pauses camera intent without deleting the referenced view's state.
     func pauseCamera(viewId: Int64, completion: @escaping () -> Void) {
         guard let viewState = views[viewId] else {
             complete(completion)
@@ -105,6 +110,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Resumes retained camera and recognition intent for the owning view.
     func resumeCamera(viewId: Int64, completion: @escaping ScannerSessionCompletion) {
         do {
             let viewState = try requireView(viewId)
@@ -119,6 +125,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Toggles retained torch state and applies it when the view is active.
     func toggleFlash(viewId: Int64) throws {
         let viewState = try requireReadyView(viewId)
         let enabled = viewState.torchEnabled != true
@@ -131,6 +138,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         viewState.torchEnabled = enabled
     }
 
+    /// Starts recognition with the iOS initial and successful-result cooldown.
     func startScan(viewId: Int64, type: RecognitionType, delay: Int) throws {
         let viewState = try requireReadyView(viewId)
         viewState.recognitionType = type
@@ -139,18 +147,21 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         applyScanState(viewState)
     }
 
+    /// Stops recognition requested by a view without pausing its camera.
     func cancelScan(viewId: Int64) {
         guard let viewState = views[viewId] else { return }
         viewState.scanRequestedByView = false
         applyScanState(viewState)
     }
 
+    /// Updates the successful-recognition cooldown retained by a view.
     func updateScanPeriod(viewId: Int64, delay: Int) throws {
         let viewState = try requireReadyView(viewId)
         viewState.scanDelay = delay
         viewState.recognitionHandler?.setDelay(delay: delay)
     }
 
+    /// Updates normalized zoom retained by a view.
     func setZoom(viewId: Int64, value: Double) throws {
         let viewState = try requireReadyView(viewId)
         if canApplyControls(viewState) {
@@ -159,6 +170,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         viewState.zoom = value
     }
 
+    /// Updates normalized recognition geometry retained by a view.
     func setCropArea(viewId: Int64, cropRect: CropRect) throws {
         let viewState = try requireReadyView(viewId)
         viewState.cropArea = cropRect
@@ -168,6 +180,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Updates the AVFoundation camera retained by a view.
     func setCamera(viewId: Int64, camera: CameraData) throws {
         let viewState = try requireReadyView(viewId)
         viewState.camera = camera
@@ -181,6 +194,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         try applyConfiguration(viewState, applyCameraSelection: false)
     }
 
+    /// Releases all registered views and scanner resources exactly once.
     func release() {
         guard !isReleased else { return }
         isReleased = true
@@ -198,6 +212,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Starts or resumes capture while the requested view still owns the camera.
     private func activateView(
         _ viewState: ScannerViewState,
         completion: @escaping ScannerSessionCompletion
@@ -271,6 +286,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Validates an asynchronous start and restores the view's retained configuration.
     private func finishActivation(
         _ viewState: ScannerViewState,
         view: CameraPreview,
@@ -308,6 +324,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Applies retained camera selection, zoom, torch, crop, and scan state.
     private func applyConfiguration(
         _ viewState: ScannerViewState,
         applyCameraSelection: Bool
@@ -337,6 +354,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         applyScanState(viewState)
     }
 
+    /// Applies retained recognition geometry to focus and visor overlays.
     private func applyCropArea(_ viewState: ScannerViewState) {
         guard let cropArea = viewState.cropArea, let view = viewState.view else { return }
         view.changeFocusCenter(offsetX: cropArea.offsetX, offsetY: cropArea.offsetY)
@@ -350,6 +368,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Reconciles scan intent with ownership and camera readiness.
     private func applyScanState(_ viewState: ScannerViewState) {
         let shouldScan = canApplyControls(viewState) && viewState.scanRequestedByView
         guard shouldScan,
@@ -381,12 +400,14 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         viewState.scannerOverlay?.isActive = true
     }
 
+    /// Stops recognition and marks controls for restoration without deleting state.
     private func deactivateView(_ viewState: ScannerViewState) {
         viewState.configurationApplied = false
         viewState.view?.recognitionHandler = nil
         viewState.scannerOverlay?.isActive = false
     }
 
+    /// Removes state and pending completions for a disposed native platform view.
     private func disposeView(_ viewId: Int64) {
         onMain { [weak self] in
             guard let self = self, let viewState = self.views.removeValue(forKey: viewId) else {
@@ -404,6 +425,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Returns a registered live view or throws a camera-not-initialized error.
     private func requireView(_ viewId: Int64) throws -> ScannerViewState {
         guard !isReleased, let viewState = views[viewId], viewState.view != nil else {
             throw MlKitPluginError.cameraIsNotInitialized
@@ -411,6 +433,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         return viewState
     }
 
+    /// Returns a registered view whose camera has completed initialization.
     private func requireReadyView(_ viewId: Int64) throws -> ScannerViewState {
         let viewState = try requireView(viewId)
         guard viewState.cameraStarted, !viewState.cameraInitializing else {
@@ -419,14 +442,17 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         return viewState
     }
 
+    /// Returns the one registered view that currently owns the camera.
     private func capturedViewState() -> ScannerViewState? {
         return views.values.first { $0.isCameraOwner }
     }
 
+    /// Checks camera ownership again after asynchronous work.
     private func isCurrentCapture(_ viewId: Int64) -> Bool {
         return !isReleased && views[viewId]?.isCameraOwner == true
     }
 
+    /// Returns whether retained controls may be applied to this view now.
     private func canApplyControls(
         _ viewState: ScannerViewState,
         requireConfiguration: Bool = true
@@ -438,6 +464,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
             && (!requireConfiguration || viewState.configurationApplied)
     }
 
+    /// Executes state mutation immediately on main or dispatches it there.
     private func onMain(_ operation: @escaping () -> Void) {
         if Thread.isMainThread {
             operation()
@@ -446,6 +473,7 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         }
     }
 
+    /// Completes an error-aware session operation on the main thread.
     private func complete(
         _ completion: @escaping ScannerSessionCompletion,
         error: Error?
@@ -453,12 +481,14 @@ final class ScannerSessionImpl: NSObject, ScannerSession {
         onMain { completion(error) }
     }
 
+    /// Completes a nonthrowing session operation on the main thread.
     private func complete(_ completion: @escaping () -> Void) {
         onMain(completion)
     }
 }
 
 extension ScannerSessionImpl: RecognitionResultDelegate {
+    /// Delivers a result only while its originating view still scans as owner.
     func onRecognition(result: Barcode, viewId: Int64) {
         onMain { [weak self] in
             guard
@@ -475,12 +505,14 @@ extension ScannerSessionImpl: RecognitionResultDelegate {
         }
     }
 
+    /// Keeps recognition intent active after a transient recognition error.
     func onError(error: Error) {
         // Recognition errors preserve the requested scan state for the next frame.
     }
 }
 
 extension ScannerSessionImpl: CameraPreviewDelegate {
+    /// Retains native torch state and reports changes for the active owner.
     func onToggleTorch(value: Bool, viewId: Int64) {
         onMain { [weak self] in
             guard let self = self, let viewState = self.views[viewId] else { return }

@@ -66,6 +66,7 @@ internal class VisorController(
         }
     }
 
+    /** Resolves and applies visor bounds after the container has a usable layout. */
     private fun applyBounds() {
         val currentCropArea = cropArea ?: return
         val containerWidth = boundsView.width
@@ -94,12 +95,14 @@ internal class VisorController(
         )
     }
 
+    /** Starts tracking container layout changes required to keep visor geometry current. */
     private fun startObservingLayout() {
         if (isObservingLayout) return
         isObservingLayout = true
         boundsView.addOnLayoutChangeListener(layoutChangeListener)
     }
 
+    /** Stops tracking container layout changes. */
     private fun stopObservingLayout() {
         if (!isObservingLayout) return
         isObservingLayout = false
