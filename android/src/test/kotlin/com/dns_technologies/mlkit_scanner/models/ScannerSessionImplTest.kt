@@ -427,7 +427,7 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `control failure is reported after preview ownership changes`() = runSessionTest {
+    fun `obsolete control failure is ignored after new owner preempts it`() = runSessionTest {
         val fixture = Fixture()
         fixture.activateCamera(FIRST_VIEW_ID)
         fixture.attach(SECOND_VIEW_ID)
@@ -454,11 +454,10 @@ internal class ScannerSessionImplTest {
             ),
         )
 
-        val error = withTimeout(TEST_TIMEOUT_MS) { firstCaptureError.await() }
         withTimeout(TEST_TIMEOUT_MS) { secondCapture.await() }
+        val error = withTimeout(TEST_TIMEOUT_MS) { firstCaptureError.await() }
 
-        assertTrue(error is PluginError.CameraControlError)
-        assertSame(cause, (error as PluginError.CameraControlError).cause)
+        assertEquals(null, error)
         assertTrue(fixture.hasPreview(SECOND_VIEW_ID))
         verify(fixture.scanner, times(1)).showPreview()
         verify(fixture.scanner, never()).dispose()
@@ -640,7 +639,7 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `failed torch update does not change retained view state`() = runSessionTest {
+    fun `failed torch update keeps requested state for the next change`() = runSessionTest {
         val fixture = Fixture()
         fixture.activateCamera(FIRST_VIEW_ID)
         val completion = CompletableDeferred<Unit>()
@@ -660,8 +659,8 @@ internal class ScannerSessionImplTest {
 
         fixture.session.toggleFlashLight(FIRST_VIEW_ID)
 
-        verify(fixture.scanner).setTorch(true)
-        verify(fixture.scanner, never()).setTorch(false)
+        verify(fixture.scanner).setTorch(false)
+        verify(fixture.scanner, never()).setTorch(true)
     }
 
     @Test
@@ -706,7 +705,7 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `pending A zoom cannot finish after B startup controls`() = runSessionTest {
+    fun `new owner preempts pending A zoom without waiting for its completion`() = runSessionTest {
         val fixture = Fixture()
         fixture.activateCamera(FIRST_VIEW_ID)
         fixture.attach(SECOND_VIEW_ID)
@@ -714,25 +713,99 @@ internal class ScannerSessionImplTest {
         fixture.enqueueZoomResult(firstZoomCompletion)
         clearInvocations(fixture.scanner)
 
-        val firstZoom = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.session.setZoom(FIRST_VIEW_ID, 0.75F)
+        val firstZoomError = async(start = CoroutineStart.UNDISPATCHED) {
+            runCatching {
+                fixture.session.setZoom(FIRST_VIEW_ID, 0.75F)
+            }.exceptionOrNull()
         }
         val secondCapture = async(start = CoroutineStart.UNDISPATCHED) {
             fixture.captureCamera(SECOND_VIEW_ID, null, null)
         }
 
         verify(fixture.scanner).setZoom(0.75F)
-        verify(fixture.scanner, never()).setZoom(0.0F)
-        assertFalse(secondCapture.isCompleted)
+        withTimeout(TEST_TIMEOUT_MS) { secondCapture.await() }
+        val error = withTimeout(TEST_TIMEOUT_MS) { firstZoomError.await() }
 
-        firstZoomCompletion.complete(Unit)
-        withTimeout(TEST_TIMEOUT_MS) { awaitAll(firstZoom, secondCapture) }
-
+        assertEquals(null, error)
+        assertFalse(firstZoomCompletion.isCompleted)
         verify(fixture.scanner).setZoom(0.0F)
+        assertTrue(fixture.hasPreview(SECOND_VIEW_ID))
+
+        firstZoomCompletion.completeExceptionally(
+            PluginError.CameraControlError(
+                CameraControlOperation.ZOOM,
+                cause = IllegalStateException("Camera is not active"),
+            ),
+        )
         clearInvocations(fixture.scanner)
         fixture.session.disposeView(SECOND_VIEW_ID)
         fixture.captureCamera(FIRST_VIEW_ID, null, null)
         verify(fixture.scanner).setZoom(0.75F)
+    }
+
+    @Test
+    fun `old A controls during B startup only update A retained state`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.attach(SECOND_VIEW_ID)
+        val secondFocus = CompletableDeferred<Unit>()
+        fixture.enqueueFocusReset(secondFocus)
+        clearInvocations(fixture.scanner)
+
+        val secondCapture = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.captureCamera(SECOND_VIEW_ID, null, null)
+        }
+        verify(fixture.scanner).resetFocus()
+        assertFalse(secondCapture.isCompleted)
+
+        fixture.session.setZoom(FIRST_VIEW_ID, 0.75F)
+        fixture.session.toggleFlashLight(FIRST_VIEW_ID)
+
+        verify(fixture.scanner, never()).setZoom(0.75F)
+        verify(fixture.scanner, never()).setTorch(true)
+
+        secondFocus.complete(Unit)
+        withTimeout(TEST_TIMEOUT_MS) { secondCapture.await() }
+        clearInvocations(fixture.scanner)
+
+        fixture.session.disposeView(SECOND_VIEW_ID)
+        fixture.captureCamera(FIRST_VIEW_ID, null, null)
+
+        verify(fixture.scanner).setZoom(0.75F)
+        verify(fixture.scanner).setTorch(true)
+    }
+
+    @Test
+    fun `latest A capture preempts both pending A and B executions`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.attach(SECOND_VIEW_ID)
+        val oldZoom = CompletableDeferred<Unit>()
+        val secondFocus = CompletableDeferred<Unit>()
+        fixture.enqueueZoomResult(oldZoom)
+        fixture.enqueueFocusReset(secondFocus)
+        clearInvocations(fixture.scanner)
+
+        val oldA = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.setZoom(FIRST_VIEW_ID, 0.75F)
+        }
+        val captureB = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.captureCamera(SECOND_VIEW_ID, null, null)
+        }
+        val latestA = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.captureCamera(FIRST_VIEW_ID, null, null)
+        }
+
+        withTimeout(TEST_TIMEOUT_MS) { awaitAll(oldA, captureB, latestA) }
+
+        assertFalse(oldZoom.isCompleted)
+        assertFalse(secondFocus.isCompleted)
+        assertTrue(fixture.hasPreview(FIRST_VIEW_ID))
+        assertFalse(fixture.hasPreview(SECOND_VIEW_ID))
+        verify(fixture.scanner, atLeastOnce()).setZoom(0.75F)
+
+        oldZoom.complete(Unit)
+        secondFocus.complete(Unit)
     }
 
     @Test
@@ -1288,7 +1361,7 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `parallel starts use only first initial zoom and crop`() = runSessionTest {
+    fun `parallel captures use first registration state and newest execution`() = runSessionTest {
         val fixture = Fixture()
         val firstCrop = RecognizeVisorCropRect(scaleWidth = 0.25)
         val secondCrop = RecognizeVisorCropRect(scaleWidth = 0.75)
@@ -1316,9 +1389,10 @@ internal class ScannerSessionImplTest {
         verify(fixture.scanner, never()).setZoom(anyFloat())
 
         fixture.completeInitialization()
+        yield()
         verify(fixture.scanner).setZoom(0.25F)
         verify(fixture.scanner, never()).showPreview()
-        assertFalse(first.isCompleted)
+        assertTrue(first.isCompleted)
         assertFalse(second.isCompleted)
 
         zoomCompletion.complete(Unit)

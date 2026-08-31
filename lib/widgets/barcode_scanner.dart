@@ -7,8 +7,6 @@ import 'package:mlkit_scanner/models/recognition_type.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
-final _cameraOwnership = _CameraOwnershipCoordinator();
-
 /// Displays a native camera preview and recognizes barcodes.
 class BarcodeScanner extends StatefulWidget {
   /// Called for each barcode recognized while scanning is active.
@@ -130,7 +128,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     await _scanStreamSubscription?.cancel();
     if (!mounted) return;
     _scanStreamSubscription = _channel.scanResults(viewId).listen((barcode) {
-      if (mounted && _viewId == viewId && _cameraOwnership.owns(this)) {
+      if (mounted && _viewId == viewId && _isCameraVisible) {
         widget.onScan(barcode);
       }
     });
@@ -139,14 +137,13 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     _toggleFlashStreamSubscription = _channel.torchToggleStream(viewId).listen((
       event,
     ) {
-      if (mounted && _viewId == viewId && _cameraOwnership.owns(this)) {
+      if (mounted && _viewId == viewId && _isCameraVisible) {
         widget.onChangeFlashState?.call(event);
       }
     });
 
     if (_isCameraVisible) {
-      await _cameraOwnership.capture(
-        this,
+      await _captureCameraAndHandleResult(
         onCaptured: _notifyScannerInitialized,
       );
     } else {
@@ -190,10 +187,10 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     _isCameraVisible = isVisible;
     if (_isCameraVisible) {
       if (_viewId != null) {
-        unawaited(_cameraOwnership.capture(this));
+        unawaited(_captureCameraAndHandleResult());
       }
     } else {
-      unawaited(_cameraOwnership.release(this));
+      unawaited(_releaseCamera());
     }
   }
 
@@ -272,55 +269,6 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
       throw StateError('Camera preview is not initialized');
     }
     return viewId;
-  }
-}
-
-/// Restores the most recently visible scanner after a newer scanner releases it.
-///
-/// Opaque routes are still handled by [TickerMode]. This coordinator covers the
-/// shorter transition where a new scanner captures the camera and disappears
-/// before the previous route's ticker mode ever changes.
-class _CameraOwnershipCoordinator {
-  final List<_BarcodeScannerState> _visibleScanners = [];
-  _BarcodeScannerState? _owner;
-
-  /// Returns whether [scanner] is the latest selected camera owner.
-  bool owns(_BarcodeScannerState scanner) => identical(_owner, scanner);
-
-  /// Makes [scanner] the latest visible capture candidate.
-  Future<void> capture(
-    _BarcodeScannerState scanner, {
-    VoidCallback? onCaptured,
-  }) {
-    _visibleScanners
-      ..remove(scanner)
-      ..add(scanner);
-    _owner = scanner;
-    return scanner._captureCameraAndHandleResult(onCaptured: onCaptured);
-  }
-
-  /// Releases [scanner] and recaptures the latest remaining visible candidate.
-  Future<void> release(_BarcodeScannerState scanner) async {
-    _visibleScanners.remove(scanner);
-    if (!identical(_owner, scanner)) return;
-
-    final fallback = _visibleScanners.isEmpty ? null : _visibleScanners.last;
-    _owner = fallback;
-    try {
-      await scanner._releaseCamera();
-    } finally {
-      if (_canRestore(fallback)) {
-        await fallback!._captureCameraAndHandleResult();
-      }
-    }
-  }
-
-  bool _canRestore(_BarcodeScannerState? scanner) {
-    return scanner != null &&
-        identical(_owner, scanner) &&
-        scanner.mounted &&
-        scanner._isCameraVisible &&
-        scanner._viewId != null;
   }
 }
 

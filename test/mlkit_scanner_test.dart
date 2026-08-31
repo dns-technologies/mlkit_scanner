@@ -13,7 +13,6 @@ void main() {
     const channel = MethodChannel('mlkit_channel');
     final calls = <MethodCall>[];
     Completer<void>? captureCompletion;
-    final captureCompletions = <int, Completer<void>>{};
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
@@ -21,9 +20,7 @@ void main() {
       messenger.setMockMethodCallHandler(channel, (call) async {
         calls.add(call);
         if (call.method == 'captureCamera') {
-          final arguments = Map<Object?, Object?>.from(call.arguments as Map);
-          final viewCompletion = captureCompletions[arguments['viewId']];
-          await (viewCompletion ?? captureCompletion)?.future;
+          await captureCompletion?.future;
         }
         return null;
       });
@@ -32,7 +29,6 @@ void main() {
     setUp(() {
       calls.clear();
       captureCompletion = null;
-      captureCompletions.clear();
     });
 
     tearDownAll(() {
@@ -194,63 +190,6 @@ void main() {
         calls.where((call) => call.method == 'captureCamera'),
         isEmpty,
       );
-    });
-
-    testWidgets(
-        'rapid A B A with scanners recaptures the original A before ticker changes',
-        (tester) async {
-      var firstInitializationCount = 0;
-      await tester.pumpWidget(TestApp(
-        child: BarcodeScanner(
-          onScannerInitialized: (_) => firstInitializationCount += 1,
-          onScan: (_) {},
-        ),
-      ));
-      final firstPreview =
-          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
-      firstPreview.onCameraInitialized(11);
-      await tester.pumpAndSettle();
-      calls.clear();
-
-      captureCompletions[22] = Completer<void>();
-      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
-      navigator.push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) => BarcodeScanner(
-            onScannerInitialized: (_) {},
-            onScan: (_) {},
-          ),
-        ),
-      );
-      await tester.pump();
-      final secondPreview = tester
-          .widgetList<CameraPreview>(
-            find.byType(CameraPreview, skipOffstage: false),
-          )
-          .singleWhere((preview) => !identical(preview, firstPreview));
-      secondPreview.onCameraInitialized(22);
-      await tester.pump();
-
-      navigator.pop();
-      await tester.pumpAndSettle();
-
-      expect(
-        calls
-            .where((call) => call.method == 'captureCamera')
-            .map((call) => (call.arguments as Map)['viewId']),
-        [22, 11],
-      );
-      expect(
-        calls
-            .where((call) => call.method == 'releaseCamera')
-            .map((call) => (call.arguments as Map)['viewId']),
-        contains(22),
-      );
-      expect(firstInitializationCount, 1);
-
-      captureCompletions[22]!.complete();
-      await tester.pump();
-      expect(tester.takeException(), isNull);
     });
 
     testWidgets('commands from covered A remain addressed to A while B stays',
