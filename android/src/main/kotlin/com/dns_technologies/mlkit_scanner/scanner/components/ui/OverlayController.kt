@@ -46,16 +46,10 @@ internal class OverlayController(
         focusView.resetIndicator()
     }
 
-    /** Renders focus and visor UI for the scanner's current crop area. */
-    fun renderCropArea(cropRect: RecognizeVisorCropRect) {
+    /** Retains focus and visor UI for this platform view's crop area. */
+    fun setCropArea(cropRect: RecognizeVisorCropRect) {
         if (isDisposed) return
-        visorController.setCropArea(cropRect, scanner.isScanActive)
-    }
-
-    /** Redraws retained crop UI after the platform view render target is restored. */
-    fun redrawCropArea() {
-        if (isDisposed) return
-        visorController.redraw()
+        visorController.setCropArea(cropRect)
     }
 
     /** Updates the visual active state of the current visor overlay. */

@@ -55,6 +55,18 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
+    fun `initial crop is retained by view immediately during registration`() {
+        val fixture = Fixture()
+        val cropRect = RecognizeVisorCropRect(scaleWidth = 0.5)
+
+        val view = fixture.attach(SECOND_VIEW_ID, initialCropRect = cropRect)
+
+        verify(view).setCropArea(cropRect)
+        verify(fixture.scanner, never()).setCropArea(cropRect)
+        verify(view, never()).attachPreview(anyValue())
+    }
+
+    @Test
     fun `removing view state without preview does not disturb preview host`() {
         val fixture = Fixture()
         val first = fixture.view(FIRST_VIEW_ID)
@@ -551,7 +563,7 @@ internal class ScannerSessionImplTest {
         verify(fixture.scanner).setZoom(0.75F)
         verify(fixture.scanner).updateScanPeriod(250)
         verify(fixture.scanner).updateScanPeriod(400)
-        verify(fixture.view(SECOND_VIEW_ID)).renderCropArea(cropRect)
+        verify(fixture.view(SECOND_VIEW_ID)).setCropArea(cropRect)
         verify(fixture.scanner).resumeScan()
         verify(fixture.scanner).setTorch(true)
     }
@@ -757,7 +769,7 @@ internal class ScannerSessionImplTest {
         clearInvocations(fixture.scanner)
         val second = fixture.attach(SECOND_VIEW_ID)
 
-        verify(second, never()).renderCropArea(cropRect)
+        verify(second, never()).setCropArea(cropRect)
         verify(fixture.scanner, never()).setCropArea(null)
 
         fixture.captureCamera(SECOND_VIEW_ID, null, null)
@@ -859,6 +871,7 @@ internal class ScannerSessionImplTest {
             verify(fixture.scanner, never()).setTorch(true)
             verify(fixture.scanner, never()).setCropArea(updatedCrop)
             verify(fixture.scanner, never()).updateScanPeriod(350)
+            verify(fixture.view(FIRST_VIEW_ID)).setCropArea(updatedCrop)
 
             fixture.session.disposeView(SECOND_VIEW_ID)
             fixture.captureCamera(FIRST_VIEW_ID, null, null)
@@ -1100,22 +1113,22 @@ internal class ScannerSessionImplTest {
         }
 
     @Test
-    fun `host resume restores and redraws crop area of captured view`() = runSessionTest {
-        val fixture = Fixture(hostLifecycleState = Lifecycle.State.STARTED)
-        val cropRect = RecognizeVisorCropRect(scaleWidth = 0.5)
-        val initialization = async(start = CoroutineStart.UNDISPATCHED) {
-            fixture.captureCamera(FIRST_VIEW_ID, null, cropRect)
+    fun `host resume restores crop processing without an overlay redraw workaround`() =
+        runSessionTest {
+            val fixture = Fixture(hostLifecycleState = Lifecycle.State.STARTED)
+            val cropRect = RecognizeVisorCropRect(scaleWidth = 0.5)
+            val initialization = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.captureCamera(FIRST_VIEW_ID, null, cropRect)
+            }
+            fixture.completeInitialization()
+            withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
+            clearInvocations(fixture.scanner, fixture.view(FIRST_VIEW_ID))
+
+            fixture.hostLifecycleOwner.moveTo(Lifecycle.State.RESUMED)
+
+            verify(fixture.scanner).setCropArea(cropRect)
+            verify(fixture.view(FIRST_VIEW_ID), never()).setCropArea(cropRect)
         }
-        fixture.completeInitialization()
-        withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
-        clearInvocations(fixture.scanner, fixture.view(FIRST_VIEW_ID))
-
-        fixture.hostLifecycleOwner.moveTo(Lifecycle.State.RESUMED)
-
-        verify(fixture.scanner).setCropArea(cropRect)
-        verify(fixture.view(FIRST_VIEW_ID)).redrawCropArea()
-        verify(fixture.view(FIRST_VIEW_ID), never()).renderCropArea(cropRect)
-    }
 
     @Test
     fun `host lifecycle replacement pauses during detach and ignores old host afterwards`() =

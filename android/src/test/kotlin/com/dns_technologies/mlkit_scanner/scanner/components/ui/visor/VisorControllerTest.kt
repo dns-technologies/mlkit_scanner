@@ -6,7 +6,6 @@ import android.widget.FrameLayout
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import org.mockito.Mockito.clearInvocations
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.mockConstruction
@@ -33,11 +32,9 @@ internal class VisorControllerTest {
     }
 
     @Test
-    fun `redraw invalidates retained visor`() {
+    fun `crop is retained by visor before layout is available`() {
         val boundsView = mock(FrameLayout::class.java)
         doReturn(mock(Context::class.java)).`when`(boundsView).context
-        doReturn(200).`when`(boundsView).width
-        doReturn(100).`when`(boundsView).height
 
         mockConstruction(VisorView::class.java).use { construction ->
             val controller = VisorController(
@@ -46,13 +43,10 @@ internal class VisorControllerTest {
                 onCenterChanged = { _, _ -> },
             )
             val cropArea = RecognizeVisorCropRect(scaleWidth = 0.5)
-            controller.setCropArea(cropArea, isScanActive = false)
+            controller.setCropArea(cropArea)
             val visor = construction.constructed().single()
-            clearInvocations(visor)
 
-            controller.redraw()
-
-            verify(visor).invalidate()
+            verify(visor).setCropArea(cropArea)
         }
     }
 }

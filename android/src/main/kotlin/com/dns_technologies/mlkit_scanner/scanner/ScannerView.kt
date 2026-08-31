@@ -66,13 +66,10 @@ class ScannerView(
     /** Updates the scan overlay state in this preview container. */
     fun setScanActive(isActive: Boolean) = overlayController.setScanActive(isActive)
 
-    /** Renders matching focus and visor UI for the scanner's current crop area. */
-    fun renderCropArea(cropRect: RecognizeVisorCropRect) {
-        overlayController.renderCropArea(cropRect)
+    /** Retains crop UI immediately; drawing follows this view's actual layout lifecycle. */
+    fun setCropArea(cropRect: RecognizeVisorCropRect) {
+        overlayController.setCropArea(cropRect)
     }
-
-    /** Redraws the retained crop overlay after the platform view render target is restored. */
-    fun redrawCropArea() = overlayController.redrawCropArea()
 
     /** Unregisters this platform view without releasing shared camera resources. */
     override fun dispose() {

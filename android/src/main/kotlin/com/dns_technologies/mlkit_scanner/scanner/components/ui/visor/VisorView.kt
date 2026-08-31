@@ -10,6 +10,8 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
+import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import kotlin.math.roundToInt
 
 /**
  * Draws the scanner visor overlay for the configured recognition rectangle.
@@ -23,6 +25,7 @@ class VisorView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0,
 ) : View(context, attrs, defStyleAttr) {
+    private var cropArea: RecognizeVisorCropRect? = null
     private var borderPath = Path()
     private var backgroundPath = Path()
     private val cornerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -48,18 +51,37 @@ class VisorView @JvmOverloads constructor(
     internal var cropBounds: Rect? = null
         private set
 
-    /** Rebuilds paths from the rectangle already resolved by the owning controller. */
-    internal fun renderBounds(bounds: Rect) {
-        if (cropBounds == bounds) return
-        cropBounds = bounds
-        createPaths(bounds, width, height)
-        invalidate()
+    /** Reports geometry resolved from this view's actual laid-out size. */
+    internal var onCropBoundsChanged: ((Rect, Int, Int) -> Unit)? = null
+
+    /** Retains crop settings even when layout has not happened yet. */
+    internal fun setCropArea(cropRect: RecognizeVisorCropRect) {
+        if (cropArea == cropRect && cropBounds != null) return
+        cropArea = cropRect
+        updateGeometry(width, height)
     }
 
-    /** Rebuilds paths after the overlay size changes. */
+    /** Resolves geometry whenever Android gives the overlay its real size. */
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        cropBounds?.let { createPaths(it, w, h) }
+        updateGeometry(w, h)
+    }
+
+    /** Rebuilds drawable paths only from a usable, current layout. */
+    private fun updateGeometry(containerWidth: Int, containerHeight: Int) {
+        val currentCropArea = cropArea ?: return
+        if (containerWidth <= 0 || containerHeight <= 0) {
+            cropBounds = null
+            borderPath.reset()
+            backgroundPath.reset()
+            invalidate()
+            return
+        }
+
+        val bounds = calculateVisorBounds(containerWidth, containerHeight, currentCropArea)
+        cropBounds = bounds
+        createPaths(bounds, containerWidth, containerHeight)
+        onCropBoundsChanged?.invoke(bounds, containerWidth, containerHeight)
         invalidate()
     }
 
@@ -157,4 +179,24 @@ private fun Path.roundCorner(from: PointF, to: PointF, startAngle: Float, roundR
     moveTo(from.x, from.y)
     arcTo(roundRect, startAngle, 90F)
     lineTo(to.x, to.y)
+}
+
+/** Calculates the visor rectangle for the overlay's current laid-out size. */
+internal fun calculateVisorBounds(
+    containerWidth: Int,
+    containerHeight: Int,
+    cropArea: RecognizeVisorCropRect,
+): Rect {
+    val visorWidth = containerWidth * cropArea.scaleWidth.toFloat()
+    val visorHeight = containerHeight * cropArea.scaleHeight.toFloat()
+    val left = containerWidth / 2F * (1F + cropArea.centerOffsetX.toFloat()) -
+        visorWidth / 2F
+    val top = containerHeight / 2F * (1F + cropArea.centerOffsetY.toFloat()) -
+        visorHeight / 2F
+    return Rect(
+        left = left.roundToInt(),
+        top = top.roundToInt(),
+        right = (left + visorWidth).roundToInt(),
+        bottom = (top + visorHeight).roundToInt(),
+    )
 }

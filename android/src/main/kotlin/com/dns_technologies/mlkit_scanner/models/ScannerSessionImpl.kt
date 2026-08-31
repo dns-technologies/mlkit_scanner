@@ -117,6 +117,7 @@ internal class ScannerSessionImpl(
             torchEnabled = initialFlashEnabled,
             cropArea = initialCropRect,
         )
+        initialCropRect?.let(view::setCropArea)
         cancelDeferredRelease()
     }
 
@@ -269,21 +270,14 @@ internal class ScannerSessionImpl(
     override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) {
         val viewState = requireView(viewId)
         viewState.cropArea = cropRect
+        viewState.view.setCropArea(cropRect)
         if (canApplyCameraControls(viewState)) applyCropAreaIfActive(viewState)
     }
 
-    /** Applies retained crop geometry when [viewState] currently owns the camera. */
+    /** Applies retained crop processing when [viewState] currently owns the camera. */
     private fun applyCropAreaIfActive(viewState: ScannerViewState) {
         if (!canApplyCameraControls(viewState)) return
         scanner.setCropArea(viewState.cropArea)
-        viewState.cropArea?.let(viewState.view::renderCropArea)
-    }
-
-    /** Restores crop processing and redraws its overlay for the active view. */
-    private fun restoreCropAreaIfActive(viewState: ScannerViewState) {
-        if (!canApplyCameraControls(viewState)) return
-        scanner.setCropArea(viewState.cropArea)
-        viewState.view.redrawCropArea()
     }
 
     /** Applies the retained recognition cooldown for the active view. */
@@ -426,9 +420,7 @@ internal class ScannerSessionImpl(
         updateCameraLifecycle()
         applyScanState()
         if (!isPaused) {
-            capturedViewState()?.let { viewState ->
-                restoreCameraControlsIfActive(viewState, redrawCropArea = true)
-            }
+            capturedViewState()?.let(::restoreCameraControlsIfActive)
         }
     }
 
@@ -490,10 +482,7 @@ internal class ScannerSessionImpl(
         CompletableDeferred<Unit>().also { it.completeExceptionally(error) }
 
     /** Applies zoom and torch atomically before revealing the active preview. */
-    private suspend fun applyCameraControlsIfActive(
-        viewState: ScannerViewState,
-        redrawCropArea: Boolean = false,
-    ) {
+    private suspend fun applyCameraControlsIfActive(viewState: ScannerViewState) {
         cameraControlMutex.withLock {
             if (viewState.configurationApplied) return
             if (
@@ -510,11 +499,7 @@ internal class ScannerSessionImpl(
                     scanner::resetFocus,
                 )
             ) return
-            if (redrawCropArea) {
-                restoreCropAreaIfActive(viewState)
-            } else {
-                applyCropAreaIfActive(viewState)
-            }
+            applyCropAreaIfActive(viewState)
             applyScanPeriodIfActive(viewState)
             if (
                 !awaitCameraControlIfActive(
@@ -541,14 +526,11 @@ internal class ScannerSessionImpl(
     }
 
     /** Starts asynchronous control restoration when an active view needs it. */
-    private fun restoreCameraControlsIfActive(
-        viewState: ScannerViewState,
-        redrawCropArea: Boolean = false,
-    ) {
+    private fun restoreCameraControlsIfActive(viewState: ScannerViewState) {
         if (viewState.configurationApplied || !canApplyCameraControls(viewState)) return
         initializationScope.launch {
             try {
-                applyRestoredCameraControls(viewState, redrawCropArea)
+                applyRestoredCameraControls(viewState)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -560,12 +542,9 @@ internal class ScannerSessionImpl(
     }
 
     /** Restores controls, disabling a retained torch request if flash is unavailable. */
-    private suspend fun applyRestoredCameraControls(
-        viewState: ScannerViewState,
-        redrawCropArea: Boolean = false,
-    ) {
+    private suspend fun applyRestoredCameraControls(viewState: ScannerViewState) {
         try {
-            applyCameraControlsIfActive(viewState, redrawCropArea)
+            applyCameraControlsIfActive(viewState)
         } catch (error: PluginError) {
             if (
                 error !== PluginError.DeviceHasNotFlash ||
@@ -575,7 +554,7 @@ internal class ScannerSessionImpl(
                 throw error
             }
             viewState.torchEnabled = false
-            applyCameraControlsIfActive(viewState, redrawCropArea)
+            applyCameraControlsIfActive(viewState)
         }
     }
 
