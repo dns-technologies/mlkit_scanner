@@ -84,7 +84,7 @@ return SizedBox(
   height: 200.0                                 // CameraPreview needs height constraints, if you use widget 
                                                 // in Column use SizedBox or Container with height.
   child: BarcodeScanner(
-    initialZoom: 0.0,                           // Each scanner widget owns and restores
+    initialZoomRatio: 1.0,                      // Each scanner widget owns and restores
     initialFlashEnabled: false,                 // its own zoom, torch and crop configuration.
     cropOverlay: ScannerCropOverlay             // you can use default ScannerOverlay, create custom, or do not 
                                                 // use it at all
@@ -119,7 +119,8 @@ Future<void> _onScannerInitialized(BarcodeScannerController controller) async {
     await controller.resumeCamera()             // Resume camera intent for the active scanner.
                                                 // A hidden scanner retains the request until it returns.
 
-    await controller.setZoom(0.5)               // Set camera zoom. Values must be in range 0...1                            
+    await controller.setZoomRatio(2.0)          // Set absolute camera zoom to 2x.
+                                                // Supported ratios depend on the selected camera.
 }
 ```
 ## Contributing:

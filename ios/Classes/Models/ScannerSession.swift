@@ -28,8 +28,8 @@ protocol ScannerSession: AnyObject {
     func cancelScan(viewId: Int64)
     /// Updates the successful-recognition cooldown retained by a view.
     func updateScanPeriod(viewId: Int64, delay: Int) throws
-    /// Updates normalized zoom retained by a view.
-    func setZoom(viewId: Int64, value: Double) throws
+    /// Updates the absolute zoom ratio retained by a view.
+    func setZoomRatio(viewId: Int64, value: Double) throws
     /// Updates normalized recognition geometry retained by a view.
     func setCropArea(viewId: Int64, cropRect: CropRect) throws
     /// Updates the camera retained by a view.

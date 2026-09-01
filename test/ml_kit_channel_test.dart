@@ -37,7 +37,7 @@ void main() {
     });
     final channel = MlKitChannel();
 
-    await channel.setZoom(0.5, viewId: 42);
+    await channel.setZoomRatio(2.0, viewId: 42);
     await channel.toggleFlash(viewId: 42);
     await channel.setScanDelay(150, viewId: 42);
     await channel.setCropArea(
@@ -60,7 +60,8 @@ void main() {
       type: IosCameraType.builtInWideAngleCamera,
     );
 
-    expect(calls[0].arguments, {'viewId': 42, 'value': 0.5});
+    expect(calls[0].method, 'setZoomRatio');
+    expect(calls[0].arguments, {'viewId': 42, 'value': 2.0});
     expect(calls[1].arguments, {'viewId': 42});
     expect(calls[2].arguments, {'viewId': 42, 'delay': 150});
     expect(calls[3].arguments, {

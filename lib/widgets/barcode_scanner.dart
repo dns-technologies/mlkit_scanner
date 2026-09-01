@@ -34,8 +34,8 @@ class BarcodeScanner extends StatefulWidget {
   /// This callback is currently supported only on iOS.
   final ValueChanged<bool>? onChangeFlashState;
 
-  /// Optional normalized zoom applied before the preview becomes visible.
-  final double? initialZoom;
+  /// Optional absolute camera zoom ratio applied before the preview becomes visible.
+  final double? initialZoomRatio;
 
   /// Initial torch state.
   final bool initialFlashEnabled;
@@ -50,7 +50,7 @@ class BarcodeScanner extends StatefulWidget {
   const BarcodeScanner({
     required this.onScan,
     required this.onScannerInitialized,
-    this.initialZoom,
+    this.initialZoomRatio,
     this.initialFlashEnabled = false,
     this.initialCropRect,
     this.initialCamera,
@@ -82,7 +82,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   @override
   Widget build(BuildContext context) {
     return CameraPreview(
-      initialZoom: widget.initialZoom,
+      initialZoomRatio: widget.initialZoomRatio,
       initialFlashEnabled: widget.initialFlashEnabled,
       initialCropRect: widget.initialCropRect,
       initialCamera: widget.initialCamera,
@@ -233,9 +233,9 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     return _channel.resumeCamera(viewId: _requireViewId());
   }
 
-  /// Applies normalized zoom to this view.
-  Future<void> _setZoom(double value) {
-    return _channel.setZoom(value, viewId: _requireViewId());
+  /// Applies an absolute camera zoom ratio to this view.
+  Future<void> _setZoomRatio(double value) {
+    return _channel.setZoomRatio(value, viewId: _requireViewId());
   }
 
   /// Applies normalized recognition geometry to this view.
@@ -327,17 +327,18 @@ class BarcodeScannerController {
   /// Can throw [PlatformException] if the active camera cannot be resumed.
   Future<void> resumeCamera() => _withState((state) => state._resumeCamera());
 
-  /// Sets the camera zoom.
+  /// Sets the absolute camera zoom ratio.
   ///
-  /// [value] must be in the inclusive range from `0` to `1`.
+  /// `1.0` represents the camera's natural field of view. The supported range
+  /// is device- and camera-dependent.
   /// A hidden scanner retains the value until its next camera capture.
   /// Throws [CameraControlException] when the zoom operation fails.
-  Future<void> setZoom(double value) {
+  Future<void> setZoomRatio(double value) {
     assert(
-      value >= 0 && value <= 1,
-      "Value can only be in the range from 0 to 1",
+      value.isFinite && value > 0,
+      'Zoom ratio must be a positive finite value',
     );
-    return _withState((state) => state._setZoom(value));
+    return _withState((state) => state._setZoomRatio(value));
   }
 
   /// Sets the detection area for barcode recognition.

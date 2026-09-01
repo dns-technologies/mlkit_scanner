@@ -14,7 +14,7 @@ final class ScannerViewState {
     var scanRequestedByView = false
     var recognitionType: RecognitionType?
     var scanDelay: Int?
-    var zoom: Double?
+    var zoomRatio: Double?
     var torchEnabled: Bool?
     var cropArea: CropRect?
     var camera: CameraData?
@@ -31,7 +31,7 @@ final class ScannerViewState {
     ) {
         self.viewId = viewId
         self.view = view
-        zoom = registration.initialZoom
+        zoomRatio = registration.initialZoomRatio
         torchEnabled = registration.initialFlashEnabled
         cropArea = registration.initialCropRect
         camera = registration.initialCamera

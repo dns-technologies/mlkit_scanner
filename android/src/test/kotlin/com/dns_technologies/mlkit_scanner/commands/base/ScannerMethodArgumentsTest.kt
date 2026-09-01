@@ -13,7 +13,7 @@ internal class ScannerMethodArgumentsTest {
         val arguments = ScannerMethodArguments.viewRegistration(
             mapOf(
                 "viewId" to 42L,
-                "initialZoom" to 0.75F,
+                "initialZoomRatio" to 2.0F,
                 "initialFlashEnabled" to true,
                 "initialCropRect" to mapOf(
                     "scaleWidth" to 0.5F,
@@ -25,7 +25,7 @@ internal class ScannerMethodArgumentsTest {
         )
 
         assertEquals(42, arguments.viewId)
-        assertEquals(0.75, arguments.initialZoom)
+        assertEquals(2.0, arguments.initialZoomRatio)
         assertEquals(true, arguments.initialFlashEnabled)
         assertEquals(
             RecognizeVisorCropRect(0.5, 0.6, 0.1, -0.2),
@@ -37,7 +37,7 @@ internal class ScannerMethodArgumentsTest {
     fun `view creation preserves absent optional controls`() {
         val arguments = ScannerMethodArguments.viewRegistration(mapOf("viewId" to 1))
 
-        assertNull(arguments.initialZoom)
+        assertNull(arguments.initialZoomRatio)
         assertNull(arguments.initialCropRect)
         assertNull(arguments.initialFlashEnabled)
         assertInvalid {
@@ -71,18 +71,18 @@ internal class ScannerMethodArgumentsTest {
     }
 
     @Test
-    fun `zoom rejects non-finite and out-of-range values`() {
+    fun `zoom ratio accepts positive finite values and rejects invalid values`() {
         assertEquals(
-            ScannerMethodArguments.ViewValue(viewId = 42, value = 0.5F),
-            ScannerMethodArguments.zoom(mapOf("viewId" to 42, "value" to 0.5)),
+            ScannerMethodArguments.ViewValue(viewId = 42, value = 3.0F),
+            ScannerMethodArguments.zoomRatio(mapOf("viewId" to 42, "value" to 3.0)),
         )
 
-        listOf(Double.NaN, Double.POSITIVE_INFINITY, -0.01, 1.01, "0.5").forEach { value ->
+        listOf(Double.NaN, Double.POSITIVE_INFINITY, -0.01, 0.0, "2.0").forEach { value ->
             assertInvalid {
-                ScannerMethodArguments.zoom(mapOf("viewId" to 42, "value" to value))
+                ScannerMethodArguments.zoomRatio(mapOf("viewId" to 42, "value" to value))
             }
         }
-        assertInvalid { ScannerMethodArguments.zoom(mapOf("value" to 0.5)) }
+        assertInvalid { ScannerMethodArguments.zoomRatio(mapOf("value" to 2.0)) }
     }
 
     @Test

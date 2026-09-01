@@ -16,7 +16,7 @@ class MlKitChannel {
   static const _pauseCameraMethod = 'pauseCameraMethod';
   static const _resumeCameraMethod = 'resumeCameraMethod';
   static const _changeTorchStateMethod = 'changeTorchStateMethod';
-  static const _setZoomMethod = 'setZoom';
+  static const _setZoomRatioMethod = 'setZoomRatio';
   static const _setCropAreaMethod = 'setCropAreaMethod';
   static const _getIosAvailableCameras = 'getIosAvailableCameras';
   static const _setIosCamera = 'setIosCamera';
@@ -181,13 +181,14 @@ class MlKitChannel {
     return _invokeVoidMethod(_resumeCameraMethod, {'viewId': viewId});
   }
 
-  /// Sets normalized zoom owned by [viewId].
+  /// Sets the absolute camera zoom ratio owned by [viewId].
   ///
-  /// [value] must be in the inclusive range from `0` to `1`.
+  /// `1.0` represents the camera's natural field of view. The supported range
+  /// is device- and camera-dependent.
   /// Inactive views retain the value until their next camera capture.
   /// Throws [CameraControlException] when the zoom operation fails.
-  Future<void> setZoom(double value, {required int viewId}) {
-    return _invokeVoidMethod(_setZoomMethod, {
+  Future<void> setZoomRatio(double value, {required int viewId}) {
+    return _invokeVoidMethod(_setZoomRatioMethod, {
       'viewId': viewId,
       'value': value,
     });

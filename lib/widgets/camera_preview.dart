@@ -20,8 +20,8 @@ class CameraPreview extends StatefulWidget {
   /// Called with the native platform-view identifier after creation.
   final CameraInitialized onCameraInitialized;
 
-  /// Optional normalized zoom applied before the preview becomes visible.
-  final double? initialZoom;
+  /// Optional absolute camera zoom ratio applied before the preview becomes visible.
+  final double? initialZoomRatio;
 
   /// Optional torch state retained until this view is initialized and active.
   final bool? initialFlashEnabled;
@@ -36,7 +36,7 @@ class CameraPreview extends StatefulWidget {
   const CameraPreview({
     Key? key,
     required this.onCameraInitialized,
-    this.initialZoom,
+    this.initialZoomRatio,
     this.initialFlashEnabled,
     this.initialCropRect,
     this.initialCamera,
@@ -59,7 +59,8 @@ class _CameraPreviewState extends State<CameraPreview> {
             creationParams: {
               'width': constraints.maxWidth,
               'height': constraints.maxHeight,
-              if (widget.initialZoom != null) 'initialZoom': widget.initialZoom,
+              if (widget.initialZoomRatio != null)
+                'initialZoomRatio': widget.initialZoomRatio,
               'initialFlashEnabled': widget.initialFlashEnabled,
               if (widget.initialCropRect != null)
                 'initialCropRect': widget.initialCropRect!.toJson(),
@@ -93,8 +94,8 @@ class _CameraPreviewState extends State<CameraPreview> {
                 'viewId': params.id,
                 'width': constraints.maxWidth,
                 'height': constraints.maxHeight,
-                if (widget.initialZoom != null)
-                  'initialZoom': widget.initialZoom,
+                if (widget.initialZoomRatio != null)
+                  'initialZoomRatio': widget.initialZoomRatio,
                 'initialFlashEnabled': widget.initialFlashEnabled,
                 if (widget.initialCropRect != null)
                   'initialCropRect': widget.initialCropRect!.toJson(),

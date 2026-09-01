@@ -9,7 +9,7 @@ internal object ScannerMethodArguments {
     /** Typed arguments required to register a platform view and its initial configuration. */
     data class ViewRegistration(
         val viewId: Int,
-        val initialZoom: Double?,
+        val initialZoomRatio: Double?,
         val initialCropRect: RecognizeVisorCropRect?,
         val initialFlashEnabled: Boolean?,
     )
@@ -31,8 +31,8 @@ internal object ScannerMethodArguments {
         val map = arguments.requireMap()
         return ViewRegistration(
             viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
-            initialZoom = map.optionalFiniteDouble(PluginConstants.initialZoomArgument)
-                ?.requireInRange(MIN_ZOOM, MAX_ZOOM),
+            initialZoomRatio = map.optionalFiniteDouble(PluginConstants.initialZoomRatioArgument)
+                ?.requirePositive(),
             initialCropRect = map.optionalMap(PluginConstants.initialCropRectArgument)
                 ?.let(::cropRect),
             initialFlashEnabled = map.optionalBoolean(PluginConstants.initialFlashEnabledArgument),
@@ -54,13 +54,13 @@ internal object ScannerMethodArguments {
         )
     }
 
-    /** Parses view identity and normalized linear camera zoom. */
-    fun zoom(arguments: Any?): ViewValue<Float> = arguments.requireMap().let { map ->
+    /** Parses view identity and a positive absolute camera zoom ratio. */
+    fun zoomRatio(arguments: Any?): ViewValue<Float> = arguments.requireMap().let { map ->
         ViewValue(
             viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
             value = map[PluginConstants.valueArgument]
                 .requireFiniteDouble()
-                .requireInRange(MIN_ZOOM, MAX_ZOOM)
+                .requirePositive()
                 .toFloat(),
         )
     }
@@ -167,9 +167,9 @@ internal object ScannerMethodArguments {
         return value
     }
 
-    /** Returns this value when it belongs to the inclusive range. */
-    private fun Double.requireInRange(minimum: Double, maximum: Double): Double {
-        if (this !in minimum..maximum) throw PluginError.InvalidArguments
+    /** Returns this finite value when it is a valid absolute zoom ratio. */
+    private fun Double.requirePositive(): Double {
+        if (this <= 0.0) throw PluginError.InvalidArguments
         return this
     }
 
@@ -179,8 +179,6 @@ internal object ScannerMethodArguments {
     private const val OFFSET_X_ARGUMENT = "offsetX"
     private const val OFFSET_Y_ARGUMENT = "offsetY"
     private const val BARCODE_RECOGNITION_TYPE = 0
-    private const val MIN_ZOOM = 0.0
-    private const val MAX_ZOOM = 1.0
     private const val DEFAULT_SCALE = 1.0
     private const val DEFAULT_OFFSET = 0.0
 }

@@ -114,7 +114,7 @@ internal class CaptureCameraCommandTest {
         override fun createView(
             context: Context,
             viewId: Int,
-            initialZoom: Double?,
+            initialZoomRatio: Double?,
             initialCropRect: RecognizeVisorCropRect?,
             initialFlashEnabled: Boolean?,
         ): ScannerView = mock(ScannerView::class.java)
@@ -138,7 +138,7 @@ internal class CaptureCameraCommandTest {
         override fun startScan(viewId: Int, periodMs: Int) = Unit
         override fun pauseScan(viewId: Int) = Unit
         override fun updateScanPeriod(viewId: Int, periodMs: Int) = Unit
-        override suspend fun setZoom(viewId: Int, value: Float) = Unit
+        override suspend fun setZoomRatio(viewId: Int, value: Float) = Unit
         override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) = Unit
         override fun release() = Unit
     }

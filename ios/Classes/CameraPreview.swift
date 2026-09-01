@@ -70,7 +70,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         dispose()
         onDispose(viewId)
     }
-    
+
     /// Clears camera and overlay focus-lock state.
     private func clearFocusLock() {
         focusOnCenter(needLock: false)
@@ -343,16 +343,21 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
     }
 
-    /// Applies normalized zoom in the inclusive range from `0` to `1`.
-    func setZoom(_ value: Double) throws {
+    /// Applies an absolute zoom ratio supported by the selected capture device.
+    func setZoomRatio(_ value: Double) throws {
         guard let camera = camera else {
             throw MlKitPluginError.cameraIsNotInitialized
         }
+        let zoomRatio = CGFloat(value)
+        guard
+            zoomRatio >= camera.minAvailableVideoZoomFactor,
+            zoomRatio <= camera.maxAvailableVideoZoomFactor
+        else {
+            throw MlKitPluginError.invalidArguments
+        }
         try camera.lockForConfiguration()
-        // value in Range from 0 to 1, ios range from 1 to maxAvailableVideoZoomFactor
-        let zoom = 1 + CGFloat(value) * 5
-        camera.videoZoomFactor = min(zoom, camera.maxAvailableVideoZoomFactor)
-        camera.unlockForConfiguration()
+        defer { camera.unlockForConfiguration() }
+        camera.videoZoomFactor = zoomRatio
     }
     
     /// Observes hardware torch activity and reports it with this view's identity.

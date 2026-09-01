@@ -59,8 +59,8 @@ internal class ScannerCommandStateTest {
                 )
             },
             { result ->
-                SetZoomCommand({ null }, commandScope).execute(
-                    MethodCall("zoom", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
+                SetZoomRatioCommand({ null }, commandScope).execute(
+                    MethodCall("zoomRatio", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
                     result,
                 )
             },
@@ -108,12 +108,12 @@ internal class ScannerCommandStateTest {
     }
 
     @Test
-    fun `zoom command completes only after camera control succeeds`() {
+    fun `zoomRatio command completes only after camera control succeeds`() {
         val session = ControlSession()
         val result = mock(MethodChannel.Result::class.java)
 
-        SetZoomCommand({ session }, commandScope).execute(
-            MethodCall("zoom", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
+        SetZoomRatioCommand({ session }, commandScope).execute(
+            MethodCall("zoomRatio", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
             result,
         )
 
@@ -143,15 +143,15 @@ internal class ScannerCommandStateTest {
     fun `camera control failure is returned with stable error`() {
         val session = ControlSession()
         val result = mock(MethodChannel.Result::class.java)
-        val cause = IllegalStateException("CameraX rejected zoom")
+        val cause = IllegalStateException("CameraX rejected zoomRatio")
         val error = PluginError.CameraControlError(
             operation = CameraControlOperation.ZOOM,
             viewId = VIEW_ID,
             cause = cause,
         )
 
-        SetZoomCommand({ session }, commandScope).execute(
-            MethodCall("zoom", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
+        SetZoomRatioCommand({ session }, commandScope).execute(
+            MethodCall("zoomRatio", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
             result,
         )
         session.zoomResult.completeExceptionally(error)
@@ -175,7 +175,7 @@ internal class ScannerCommandStateTest {
         override fun createView(
             context: Context,
             viewId: Int,
-            initialZoom: Double?,
+            initialZoomRatio: Double?,
             initialCropRect: RecognizeVisorCropRect?,
             initialFlashEnabled: Boolean?,
         ): ScannerView = mock(ScannerView::class.java)
@@ -197,7 +197,7 @@ internal class ScannerCommandStateTest {
         override fun startScan(viewId: Int, periodMs: Int) = Unit
         override fun pauseScan(viewId: Int) = Unit
         override fun updateScanPeriod(viewId: Int, periodMs: Int) = Unit
-        override suspend fun setZoom(viewId: Int, value: Float) {
+        override suspend fun setZoomRatio(viewId: Int, value: Float) {
             zoomViewId = viewId
             zoomResult.await()
         }

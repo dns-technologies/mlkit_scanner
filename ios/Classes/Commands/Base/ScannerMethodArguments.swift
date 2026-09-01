@@ -5,8 +5,8 @@ import Foundation
 struct ScannerViewRegistration {
     /// Optional native preview size supplied by Flutter.
     let size: CGSize?
-    /// Normalized zoom to apply before showing the preview.
-    let initialZoom: Double?
+    /// Absolute zoom ratio to apply before showing the preview.
+    let initialZoomRatio: Double?
     /// Initial retained torch request.
     let initialFlashEnabled: Bool?
     /// Initial retained recognition rectangle.
@@ -17,7 +17,7 @@ struct ScannerViewRegistration {
     /// Registration with no explicit initial configuration.
     static let empty = ScannerViewRegistration(
         size: nil,
-        initialZoom: nil,
+        initialZoomRatio: nil,
         initialFlashEnabled: nil,
         initialCropRect: nil,
         initialCamera: nil
@@ -55,8 +55,8 @@ enum ScannerMethodArguments {
             throw MlKitPluginError.invalidArguments
         }
 
-        let zoom = try optionalDouble(values[PluginConstants.initialZoomArgument])
-        if let zoom = zoom, !(0...1).contains(zoom) {
+        let zoomRatio = try optionalDouble(values[PluginConstants.initialZoomRatioArgument])
+        if let zoomRatio = zoomRatio, zoomRatio <= 0 {
             throw MlKitPluginError.invalidArguments
         }
 
@@ -64,7 +64,7 @@ enum ScannerMethodArguments {
         let cameraMap = try optionalMap(values[PluginConstants.initialCameraArgument])
         return ScannerViewRegistration(
             size: size,
-            initialZoom: zoom,
+            initialZoomRatio: zoomRatio,
             initialFlashEnabled: try optionalBool(
                 values[PluginConstants.initialFlashEnabledArgument]
             ),
@@ -102,16 +102,16 @@ enum ScannerMethodArguments {
         )
     }
 
-    /// Parses normalized zoom addressed to one view.
-    static func zoom(_ arguments: Any?) throws -> ViewValue<Double> {
+    /// Parses a positive absolute zoom ratio addressed to one view.
+    static func zoomRatio(_ arguments: Any?) throws -> ViewValue<Double> {
         let values = try map(arguments)
-        let zoom = try finiteDouble(values[PluginConstants.valueArgument])
-        guard (0...1).contains(zoom) else {
+        let zoomRatio = try finiteDouble(values[PluginConstants.valueArgument])
+        guard zoomRatio > 0 else {
             throw MlKitPluginError.invalidArguments
         }
         return ViewValue(
             viewId: try nonNegativeInt64(values[PluginConstants.viewIdArgument]),
-            value: zoom
+            value: zoomRatio
         )
     }
 

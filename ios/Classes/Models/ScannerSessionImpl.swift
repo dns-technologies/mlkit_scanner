@@ -184,13 +184,13 @@ final class ScannerSessionImpl: ScannerSession {
         }
     }
 
-    /// Updates normalized zoom retained by a view.
-    func setZoom(viewId: Int64, value: Double) throws {
+    /// Updates the absolute zoom ratio retained by a view.
+    func setZoomRatio(viewId: Int64, value: Double) throws {
         let viewState = try requireView(viewId)
         if canApplyControls(viewState) {
-            try viewState.view?.setZoom(value)
+            try viewState.view?.setZoomRatio(value)
         }
-        viewState.zoom = value
+        viewState.zoomRatio = value
     }
 
     /// Updates normalized recognition geometry retained by a view.
@@ -381,8 +381,8 @@ final class ScannerSessionImpl: ScannerSession {
             try view.setCamera(camera)
         }
         view.resetFocus()
-        if let zoom = viewState.zoom {
-            try view.setZoom(zoom)
+        if let zoomRatio = viewState.zoomRatio {
+            try view.setZoomRatio(zoomRatio)
         }
         if let torchEnabled = viewState.torchEnabled {
             do {

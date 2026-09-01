@@ -10,7 +10,7 @@ import com.dns_technologies.mlkit_scanner.commands.ReleaseCameraCommand
 import com.dns_technologies.mlkit_scanner.commands.ResumeCameraCommand
 import com.dns_technologies.mlkit_scanner.commands.SetCropAreaCommand
 import com.dns_technologies.mlkit_scanner.commands.SetScanDelayCommand
-import com.dns_technologies.mlkit_scanner.commands.SetZoomCommand
+import com.dns_technologies.mlkit_scanner.commands.SetZoomRatioCommand
 import com.dns_technologies.mlkit_scanner.commands.StartScanCommand
 import com.dns_technologies.mlkit_scanner.commands.ToggleFlashCommand
 import com.dns_technologies.mlkit_scanner.commands.base.ScannerMethodArguments
@@ -124,7 +124,7 @@ class MlkitScannerPlugin internal constructor(
             PluginConstants.startScanMethod -> StartScanCommand(::scannerSession).execute(call, result)
             PluginConstants.cancelScanMethod -> CancelScanCommand(::scannerSession).execute(call, result)
             PluginConstants.setScanDelayMethod -> SetScanDelayCommand(::scannerSession).execute(call, result)
-            PluginConstants.setZoomMethod -> SetZoomCommand(
+            PluginConstants.setZoomRatioMethod -> SetZoomRatioCommand(
                 scannerSessionProvider = ::scannerSession,
                 commandScope = commandScope,
             ).execute(call, result)
@@ -177,7 +177,7 @@ class MlkitScannerPlugin internal constructor(
         return session.createView(
             context = context,
             viewId = viewId,
-            initialZoom = registration.initialZoom,
+            initialZoomRatio = registration.initialZoomRatio,
             initialCropRect = registration.initialCropRect,
             initialFlashEnabled = registration.initialFlashEnabled,
         )

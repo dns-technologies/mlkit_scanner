@@ -273,20 +273,20 @@ void main() {
       await tester.pumpAndSettle();
       calls.clear();
 
-      await firstController!.setZoom(0.25);
+      await firstController!.setZoomRatio(2.0);
       await firstController!.startScan(100);
-      await secondController!.setZoom(0.75);
+      await secondController!.setZoomRatio(3.0);
 
       expect(
         calls.map((call) => call.arguments),
         [
-          {'viewId': 11, 'value': 0.25},
+          {'viewId': 11, 'value': 2.0},
           {
             'viewId': 11,
             'type': 0,
             'delay': 100,
           },
-          {'viewId': 22, 'value': 0.75},
+          {'viewId': 22, 'value': 3.0},
         ],
       );
 
@@ -360,7 +360,7 @@ void main() {
       expect(tester.takeException(), isNull);
 
       calls.clear();
-      await controller!.setZoom(0.5);
+      await controller!.setZoomRatio(2.0);
       await controller!.toggleFlash();
       await controller!.setCropArea(const CropRect(scaleWidth: 0.5));
       await controller!.startScan(250);
@@ -368,7 +368,7 @@ void main() {
       expect(
         calls.map((call) => call.method),
         containsAll(<String>[
-          'setZoom',
+          'setZoomRatio',
           'toggleFlash',
           'setCropAreaMethod',
           'startScan',

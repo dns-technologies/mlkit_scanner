@@ -78,7 +78,7 @@ internal class ScannerSessionImpl(
     override fun createView(
         context: Context,
         viewId: Int,
-        initialZoom: Double?,
+        initialZoomRatio: Double?,
         initialCropRect: RecognizeVisorCropRect?,
         initialFlashEnabled: Boolean?,
     ): ScannerView {
@@ -91,7 +91,7 @@ internal class ScannerSessionImpl(
             },
             onDispose = { disposePlatformView(viewId) },
         )
-        registerView(viewId, view, initialZoom, initialCropRect, initialFlashEnabled)
+        registerView(viewId, view, initialZoomRatio, initialCropRect, initialFlashEnabled)
         return view
     }
 
@@ -99,18 +99,18 @@ internal class ScannerSessionImpl(
     internal fun attachView(
         viewId: Int,
         view: ScannerView,
-        initialZoom: Double? = null,
+        initialZoomRatio: Double? = null,
         initialCropRect: RecognizeVisorCropRect? = null,
         initialFlashEnabled: Boolean? = null,
     ) {
         check(!releaseRequested) { "Cannot add a scanner view to a released session" }
-        registerView(viewId, view, initialZoom, initialCropRect, initialFlashEnabled)
+        registerView(viewId, view, initialZoomRatio, initialCropRect, initialFlashEnabled)
     }
 
     private fun registerView(
         viewId: Int,
         view: ScannerView,
-        initialZoom: Double?,
+        initialZoomRatio: Double?,
         initialCropRect: RecognizeVisorCropRect?,
         initialFlashEnabled: Boolean?,
     ) {
@@ -118,7 +118,7 @@ internal class ScannerSessionImpl(
             SessionEvent.RegisterView(
                 viewId,
                 view,
-                initialZoom?.toFloat(),
+                initialZoomRatio?.toFloat(),
                 initialCropRect,
                 initialFlashEnabled,
             ),
@@ -182,10 +182,10 @@ internal class ScannerSessionImpl(
         dispatch(SessionEvent.UpdateScanPeriod(viewId, periodMs))
     }
 
-    override suspend fun setZoom(viewId: Int, value: Float) {
+    override suspend fun setZoomRatio(viewId: Int, value: Float) {
         if (releaseRequested) throw PluginError.CameraSessionDisposed
         val result = CompletableDeferred<Unit>()
-        dispatch(SessionEvent.SetZoom(viewId, value, result))
+        dispatch(SessionEvent.SetZoomRatio(viewId, value, result))
         result.await()
     }
 
@@ -234,7 +234,7 @@ internal class ScannerSessionImpl(
             SessionEvent.DetachHostLifecycle -> onDetachHostLifecycle()
             is SessionEvent.HostPaused -> updateHostPaused(event.paused)
             is SessionEvent.ToggleTorch -> onToggleTorch(event)
-            is SessionEvent.SetZoom -> onSetZoom(event)
+            is SessionEvent.SetZoomRatio -> onSetZoomRatio(event)
             is SessionEvent.SetCropArea -> onSetCropArea(event)
             is SessionEvent.StartScan -> onStartScan(event)
             is SessionEvent.PauseScan -> onPauseScan(event.viewId)
@@ -257,7 +257,7 @@ internal class ScannerSessionImpl(
             viewId = event.viewId,
             view = event.view,
             desired = DesiredConfiguration(
-                zoom = event.initialZoom,
+                zoomRatio = event.initialZoomRatio,
                 torchEnabled = event.initialFlashEnabled,
                 cropArea = event.initialCropRect,
             ),
@@ -513,19 +513,19 @@ internal class ScannerSessionImpl(
         applyScanState()
     }
 
-    private fun onSetZoom(event: SessionEvent.SetZoom) {
+    private fun onSetZoomRatio(event: SessionEvent.SetZoomRatio) {
         val viewState = views[event.viewId]
         if (viewState == null) {
             event.result.completeExceptionally(PluginError.CameraIsNotInitialized)
             return
         }
-        if (!event.value.isFinite() || event.value !in MIN_ZOOM..MAX_ZOOM) {
+        if (!event.value.isFinite() || event.value <= 0.0F) {
             event.result.completeExceptionally(PluginError.InvalidArguments)
             return
         }
         val activation = owner?.takeIf { it.viewState === viewState }
         val wasApplied = activation?.hasUsablePreview(viewState.desired) == true
-        val desired = updateDesiredConfiguration(viewState) { it.copy(zoom = event.value) }
+        val desired = updateDesiredConfiguration(viewState) { it.copy(zoomRatio = event.value) }
         if (!shouldAwaitConfiguration(viewState)) {
             event.result.complete(Unit)
             reconcileCamera()
@@ -535,7 +535,7 @@ internal class ScannerSessionImpl(
         if (wasApplied) {
             startSingleCameraOperation(
                 activation = activation,
-                command = CameraCommand.SetZoom(event.value),
+                command = CameraCommand.SetZoomRatio(event.value),
             )
         } else {
             reconcileCamera()
@@ -751,8 +751,7 @@ internal class ScannerSessionImpl(
                     command.offsetX,
                     command.offsetY,
                 )
-                is CameraCommand.SetZoom -> scanner.setZoom(command.value)
-                is CameraCommand.EnsureZoom -> scanner.ensureZoom(command.value)
+                is CameraCommand.SetZoomRatio -> scanner.setZoomRatio(command.value)
                 is CameraCommand.SetTorch -> scanner.setTorch(command.enabled)
             }
             operation.task = result
@@ -769,9 +768,10 @@ internal class ScannerSessionImpl(
         stage: ApplyStage,
     ): CameraCommand = when (stage) {
         ApplyStage.Focus -> CameraCommand.ResetFocus
-        ApplyStage.Zoom -> CameraCommand.SetZoom(execution.desired.zoom ?: DEFAULT_ZOOM)
+        ApplyStage.Zoom -> CameraCommand.SetZoomRatio(
+            execution.desired.zoomRatio ?: DEFAULT_ZOOM_RATIO,
+        )
         ApplyStage.Torch -> CameraCommand.SetTorch(execution.desired.torchEnabled == true)
-        ApplyStage.EnsureZoom -> CameraCommand.EnsureZoom(execution.desired.zoom ?: DEFAULT_ZOOM)
     }
 
     private fun onOperationCompleted(event: SessionEvent.OperationCompleted) {
@@ -833,8 +833,7 @@ internal class ScannerSessionImpl(
                 startStartupCameraOperation(execution, ApplyStage.Zoom)
             }
             ApplyStage.Zoom -> startStartupCameraOperation(execution, ApplyStage.Torch)
-            ApplyStage.Torch -> startStartupCameraOperation(execution, ApplyStage.EnsureZoom)
-            ApplyStage.EnsureZoom -> finishConfiguration(execution)
+            ApplyStage.Torch -> finishConfiguration(execution)
         }
     }
 
@@ -957,15 +956,14 @@ internal class ScannerSessionImpl(
     private val CameraCommand.operation: CameraControlOperation
         get() = when (this) {
             CameraCommand.ResetFocus, is CameraCommand.Focus -> CameraControlOperation.FOCUS
-            is CameraCommand.SetZoom, is CameraCommand.EnsureZoom -> CameraControlOperation.ZOOM
+            is CameraCommand.SetZoomRatio -> CameraControlOperation.ZOOM
             is CameraCommand.SetTorch -> CameraControlOperation.TORCH
         }
 
     private val CameraCommand.stage: ApplyStage
         get() = when (this) {
             CameraCommand.ResetFocus, is CameraCommand.Focus -> ApplyStage.Focus
-            is CameraCommand.SetZoom -> ApplyStage.Zoom
-            is CameraCommand.EnsureZoom -> ApplyStage.EnsureZoom
+            is CameraCommand.SetZoomRatio -> ApplyStage.Zoom
             is CameraCommand.SetTorch -> ApplyStage.Torch
         }
 
@@ -1160,7 +1158,7 @@ internal class ScannerSessionImpl(
         data class RegisterView(
             val viewId: Int,
             val view: ScannerView,
-            val initialZoom: Float?,
+            val initialZoomRatio: Float?,
             val initialCropRect: RecognizeVisorCropRect?,
             val initialFlashEnabled: Boolean?,
         ) : SessionEvent
@@ -1184,7 +1182,7 @@ internal class ScannerSessionImpl(
         data object DetachHostLifecycle : SessionEvent
         data class HostPaused(val paused: Boolean) : SessionEvent
         data class ToggleTorch(val viewId: Int, val result: CompletableDeferred<Unit>) : SessionEvent
-        data class SetZoom(
+        data class SetZoomRatio(
             val viewId: Int,
             val value: Float,
             val result: CompletableDeferred<Unit>,
@@ -1246,7 +1244,6 @@ internal class ScannerSessionImpl(
         Focus,
         Zoom,
         Torch,
-        EnsureZoom,
     }
 
     private class CaptureRequest(
@@ -1262,7 +1259,7 @@ internal class ScannerSessionImpl(
     private data class DesiredConfiguration(
         val cropArea: RecognizeVisorCropRect? = null,
         val scanPeriodMs: Int? = null,
-        val zoom: Float? = null,
+        val zoomRatio: Float? = null,
         val torchEnabled: Boolean? = null,
     )
 
@@ -1372,8 +1369,6 @@ internal class ScannerSessionImpl(
         /** Retains an empty scanner session while Flutter replaces its platform view. */
         const val NAVIGATION_GRACE_PERIOD_MS = 300L
 
-        private const val DEFAULT_ZOOM = 0.0F
-        private const val MIN_ZOOM = 0.0F
-        private const val MAX_ZOOM = 1.0F
+        private const val DEFAULT_ZOOM_RATIO = 1.0F
     }
 }

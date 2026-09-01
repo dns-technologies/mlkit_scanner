@@ -25,7 +25,7 @@ typealias OnScanResultListener = (result: Barcode) -> Unit
 /**
  * Owns scanner behavior independent from Flutter platform view plumbing.
  *
- * @property camera Camera adapter used for preview, focus, flash and zoom.
+ * @property camera Camera adapter used for preview, focus, flash and zoomRatio.
  * @property analyzer Barcode analyzer used for throttled frame recognition.
  */
 class Scanner(
@@ -92,11 +92,8 @@ class Scanner(
     /** Clears focus through the stateless camera command boundary. */
     fun resetFocus() = executeCameraCommand(CameraCommand.ResetFocus)
 
-    /** Applies normalized zoom through the stateless camera command boundary. */
-    fun setZoom(value: Float) = executeCameraCommand(CameraCommand.SetZoom(value))
-
-    /** Verifies normalized zoom after startup configuration has finished. */
-    fun ensureZoom(value: Float) = executeCameraCommand(CameraCommand.EnsureZoom(value))
+    /** Applies an absolute zoom ratio through the stateless camera command boundary. */
+    fun setZoomRatio(value: Float) = executeCameraCommand(CameraCommand.SetZoomRatio(value))
 
     /** Starts analysis with the configured analyzer component. */
     fun startScan(periodMs: Int) {

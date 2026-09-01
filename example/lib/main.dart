@@ -13,7 +13,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   var _barcode = 'Please, scan';
-  final _zoomValues = [0.0, 0.33, 0.66];
+  final _zoomRatios = [1.0, 2.0, 3.0];
   var _actualZoomIndex = 0;
 
   static const _delayOptions = {
@@ -39,16 +39,16 @@ class _MyAppState extends State<MyApp> {
       position: _iosCameras[_cameraIndex].position,
       type: _iosCameras[_cameraIndex].type,
     );
-    _resetZoom();
+    _resetZoomRatio();
     setState(() {
       _cameraType = _iosCameras[_cameraIndex].type.name;
       _cameraPosition = _iosCameras[_cameraIndex].position.name;
     });
   }
 
-  void _resetZoom() {
+  void _resetZoomRatio() {
     _actualZoomIndex = 0;
-    _controller?.setZoom(_zoomValues[_actualZoomIndex]);
+    _controller?.setZoomRatio(_zoomRatios[_actualZoomIndex]);
   }
 
   @override
@@ -187,10 +187,10 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               onPressed: () {
-                _actualZoomIndex = _actualZoomIndex + 1 < _zoomValues.length
+                _actualZoomIndex = _actualZoomIndex + 1 < _zoomRatios.length
                     ? _actualZoomIndex + 1
                     : 0;
-                _controller?.setZoom(_zoomValues[_actualZoomIndex]);
+                _controller?.setZoomRatio(_zoomRatios[_actualZoomIndex]);
               },
             ),
             if (defaultTargetPlatform == TargetPlatform.iOS)

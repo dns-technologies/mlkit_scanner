@@ -114,17 +114,17 @@ internal class ScannerTest {
     }
 
     @Test
-    fun `runtime zoom before initialization is rejected by camera adapter`() {
+    fun `runtime zoomRatio before initialization is rejected by camera adapter`() {
         val fixture = Fixture()
 
-        val error = runCatching { fixture.scanner.setZoom(0.75F) }.exceptionOrNull()
+        val error = runCatching { fixture.scanner.setZoomRatio(2.0F) }.exceptionOrNull()
 
         assertSame(PluginError.CameraIsNotInitialized, error)
-        assertEquals(emptyList<Float>(), fixture.camera.zoomValues)
+        assertEquals(emptyList<Float>(), fixture.camera.zoomRatioValues)
     }
 
     @Test
-    fun `zoom is applied through the camera adapter`() = runBlocking {
+    fun `zoomRatio is applied through the camera adapter`() = runBlocking {
         val fixture = Fixture()
 
         fixture.scanner.startCamera(
@@ -132,23 +132,9 @@ internal class ScannerTest {
             onInit = {},
             onError = {},
         )
-        fixture.scanner.setZoom(0.75F).await()
+        fixture.scanner.setZoomRatio(2.0F).await()
 
-        assertEquals(listOf(0.75F), fixture.camera.zoomValues)
-    }
-
-    @Test
-    fun `startup zoom verification is delegated to the camera adapter`() = runBlocking {
-        val fixture = Fixture()
-
-        fixture.scanner.startCamera(
-            lifecycleOwner = mock(LifecycleOwner::class.java),
-            onInit = {},
-            onError = {},
-        )
-        fixture.scanner.ensureZoom(0.75F).await()
-
-        assertEquals(listOf(0.75F), fixture.camera.ensuredZoomValues)
+        assertEquals(listOf(2.0F), fixture.camera.zoomRatioValues)
     }
 
     @Test
@@ -318,8 +304,7 @@ internal class ScannerTest {
 
     private class FakeCamera : Camera {
         override val previewView: View = mock(View::class.java)
-        val zoomValues = mutableListOf<Float>()
-        val ensuredZoomValues = mutableListOf<Float>()
+        val zoomRatioValues = mutableListOf<Float>()
         private var onFrame: OnCameraFrame? = null
 
         override fun bind(
@@ -342,8 +327,7 @@ internal class ScannerTest {
 
         override fun execute(command: CameraCommand): Deferred<Unit> {
             if (!isBound()) throw PluginError.CameraIsNotInitialized
-            if (command is CameraCommand.SetZoom) zoomValues += command.value
-            if (command is CameraCommand.EnsureZoom) ensuredZoomValues += command.value
+            if (command is CameraCommand.SetZoomRatio) zoomRatioValues += command.value
             return CompletableDeferred(Unit)
         }
 
