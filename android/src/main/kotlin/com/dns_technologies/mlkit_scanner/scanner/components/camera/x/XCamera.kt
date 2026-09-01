@@ -14,7 +14,6 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
-import androidx.camera.core.TorchState
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.ViewPort
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -27,7 +26,10 @@ import androidx.lifecycle.Observer
 import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraCommand
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraAvailabilityChanged
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
@@ -92,10 +94,11 @@ class XCamera(
     }
 
     /** Starts preview and analysis while keeping preview hidden until [showPreview] is called. */
-    override fun start(
+    override fun bind(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
         onFrame: OnCameraFrame,
+        onAvailabilityChanged: OnCameraAvailabilityChanged,
         onInit: OnInit,
         onError: OnError,
     ) {
@@ -105,7 +108,14 @@ class XCamera(
             BindingState.Idle -> Unit
         }
 
-        val request = PendingStart(lifecycleOwner, analysisExecutor, onFrame, onInit, onError)
+        val request = PendingStart(
+            lifecycleOwner,
+            analysisExecutor,
+            onFrame,
+            onAvailabilityChanged,
+            onInit,
+            onError,
+        )
         bindingState = request
         previewView.alpha = 0.0F
         try {
@@ -125,33 +135,18 @@ class XCamera(
     }
 
     /** Returns true when a camera is currently bound. */
-    override fun isActive(): Boolean = bindingState is BoundCamera
+    override fun isBound(): Boolean = bindingState is BoundCamera
 
-    /** Completes when the currently bound camera reaches its open state. */
-    override fun awaitOpen(): Deferred<Unit> {
-        val current = bindingState as? BoundCamera
-            ?: throw PluginError.CameraIsNotInitialized
-        return current.runtimeState.awaitOpen()
-    }
-
-    /** Applies an absolute torch state for the active camera. */
-    override fun setTorch(enabled: Boolean): Deferred<Unit> {
-        val current = bindingState as? BoundCamera
-            ?: throw PluginError.CameraIsNotInitialized
-        if (!isFlashSupported(current)) {
-            if (!enabled) return CompletableDeferred(Unit)
-            throw PluginError.DeviceHasNotFlash
-        }
-
-        return executeTorchOperation(current, current.runtimeState.beginTorch(enabled))
+    /** Executes one command and deliberately retains no desired camera configuration. */
+    override fun execute(command: CameraCommand): Deferred<Unit> = when (command) {
+        CameraCommand.ResetFocus -> executeResetFocus()
+        is CameraCommand.Focus -> executeFocus(command)
+        is CameraCommand.SetZoom -> executeZoom(command.value)
+        is CameraCommand.SetTorch -> executeTorch(command.enabled)
     }
 
     /** Starts focus and metering around the provided preview offsets. */
-    override fun focusOnCenter(
-        resetDelayMs: Long,
-        offsetX: Float,
-        offsetY: Float,
-    ): Deferred<Unit> {
+    private fun executeFocus(command: CameraCommand.Focus): Deferred<Unit> {
         val activeCamera = (bindingState as? BoundCamera)?.camera
             ?: throw PluginError.CameraIsNotInitialized
         if (cameraPreviewView.width == 0 || cameraPreviewView.height == 0) {
@@ -159,12 +154,12 @@ class XCamera(
         }
 
         val focusPoint = cameraPreviewView.meteringPointFactory.createPoint(
-            cameraPreviewView.width / 2F + offsetX,
-            cameraPreviewView.height / 2F + offsetY,
+            cameraPreviewView.width / 2F + command.offsetX,
+            cameraPreviewView.height / 2F + command.offsetY,
         )
         val focusActionBuilder = FocusMeteringAction.Builder(focusPoint)
-        if (resetDelayMs > 0L) {
-            focusActionBuilder.setAutoCancelDuration(resetDelayMs, TimeUnit.MILLISECONDS)
+        if (command.resetDelayMs > 0L) {
+            focusActionBuilder.setAutoCancelDuration(command.resetDelayMs, TimeUnit.MILLISECONDS)
         } else {
             focusActionBuilder.disableAutoCancel()
         }
@@ -174,7 +169,7 @@ class XCamera(
     }
 
     /** Clears focus state left by the previous platform-view owner. */
-    override fun resetFocus(): Deferred<Unit> {
+    private fun executeResetFocus(): Deferred<Unit> {
         val activeCamera = (bindingState as? BoundCamera)?.camera
             ?: throw PluginError.CameraIsNotInitialized
         return activeCamera.cameraControl.cancelFocusAndMetering()
@@ -182,19 +177,33 @@ class XCamera(
     }
 
     /** Applies normalized linear zoom and completes after the camera accepts the value. */
-    override fun setZoom(value: Float): Deferred<Unit> {
+    private fun executeZoom(value: Float): Deferred<Unit> {
         val current = bindingState as? BoundCamera
             ?: throw PluginError.CameraIsNotInitialized
         if (!value.isFinite() || value !in MIN_LINEAR_ZOOM..MAX_LINEAR_ZOOM) {
             throw PluginError.InvalidArguments
         }
 
-        return executeZoomOperation(current, current.runtimeState.beginZoom(value))
+        return current.camera.cameraControl.setLinearZoom(value)
+            .asCameraControlDeferred(mainExecutor, CameraControlOperation.ZOOM)
+    }
+
+    /** Applies an absolute torch state for the active camera. */
+    private fun executeTorch(enabled: Boolean): Deferred<Unit> {
+        val current = bindingState as? BoundCamera
+            ?: throw PluginError.CameraIsNotInitialized
+        if (!isFlashSupported(current)) {
+            if (!enabled) return CompletableDeferred(Unit)
+            throw PluginError.DeviceHasNotFlash
+        }
+
+        return current.camera.cameraControl.enableTorch(enabled)
+            .asCameraControlDeferred(mainExecutor, CameraControlOperation.TORCH)
     }
 
     /** Reveals preview only after session-level startup configuration is complete. */
     override fun showPreview() {
-        if (!isActive()) throw PluginError.CameraIsNotInitialized
+        if (!isBound()) throw PluginError.CameraIsNotInitialized
         previewView.alpha = 1.0F
     }
 
@@ -203,13 +212,24 @@ class XCamera(
         previewView.alpha = 0.0F
     }
 
-    /** Releases camera bindings owned by this adapter. */
+    /** Removes the active use-case binding while leaving adapter resources reusable. */
+    override fun unbind() {
+        if (bindingState === BindingState.Disposed || bindingState === BindingState.Idle) return
+        val current = bindingState as? BoundCamera
+        previewView.alpha = 0.0F
+        if (current != null) {
+            unbindCamera(current)
+            if (bindingState === current) bindingState = BindingState.Idle
+        } else {
+            bindingState = BindingState.Idle
+        }
+    }
+
+    /** Releases camera bindings and resources owned by this adapter. */
     override fun dispose() {
         if (bindingState === BindingState.Disposed) return
-        val current = bindingState as? BoundCamera
+        unbind()
         bindingState = BindingState.Disposed
-        previewView.alpha = 0.0F
-        current?.let(::unbindCamera)
         cameraPreviewView.removeOnLayoutChangeListener(previewLayoutChangeListener)
         displayManager.unregisterDisplayListener(displayListener)
         nv21Converter.dispose()
@@ -228,6 +248,7 @@ class XCamera(
                         current.lifecycleOwner,
                         current.analysisExecutor,
                         current.onFrame,
+                        current.onAvailabilityChanged,
                         viewPort,
                     )
                     bindingState = bound
@@ -259,8 +280,8 @@ class XCamera(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
         onFrame: OnCameraFrame,
+        onAvailabilityChanged: OnCameraAvailabilityChanged,
         viewPort: ViewPort,
-        runtimeState: CameraRuntimeState = CameraRuntimeState(),
     ): BoundCamera {
         val preview = createPreview(viewPort.rotation)
         val imageAnalysis = createImageAnalysis(
@@ -284,13 +305,13 @@ class XCamera(
                 lifecycleOwner = lifecycleOwner,
                 analysisExecutor = analysisExecutor,
                 onFrame = onFrame,
+                onAvailabilityChanged = onAvailabilityChanged,
                 camera = camera,
                 preview = preview,
                 imageAnalysis = imageAnalysis,
                 useCaseGroup = useCaseGroup,
                 viewPort = viewPort,
-                runtimeState = runtimeState,
-                cameraStateObserver = createCameraStateObserver(camera, runtimeState),
+                cameraStateObserver = createCameraStateObserver(camera),
             )
         } catch (error: Exception) {
             imageAnalysis.clearAnalyzer()
@@ -319,8 +340,8 @@ class XCamera(
                 current.lifecycleOwner,
                 current.analysisExecutor,
                 current.onFrame,
+                current.onAvailabilityChanged,
                 viewPort,
-                current.runtimeState,
             )
             bindingState = replacement
             observeCameraState(replacement)
@@ -336,14 +357,13 @@ class XCamera(
                     camera = restoredCamera,
                     cameraStateObserver = createCameraStateObserver(
                         restoredCamera,
-                        current.runtimeState,
                     ),
+                    availability = CameraAvailability.Closed(),
                 )
                 bindingState = restored
                 observeCameraState(restored)
             } catch (restoreError: Exception) {
                 current.imageAnalysis.clearAnalyzer()
-                current.runtimeState.dispose()
                 bindingState = BindingState.Idle
                 previewView.alpha = 0.0F
                 Log.e(TAG, "Unable to restore CameraX use cases after viewport update", restoreError)
@@ -395,7 +415,6 @@ class XCamera(
     /** Unbinds the use cases owned by one completed binding. */
     private fun unbindCamera(current: BoundCamera) {
         stopObservingCameraState(current)
-        current.runtimeState.dispose()
         try {
             cameraProvider?.unbind(current.preview, current.imageAnalysis)
         } catch (error: Exception) {
@@ -410,138 +429,60 @@ class XCamera(
         current.camera.cameraInfo.cameraState.observeForever(current.cameraStateObserver)
         onCameraStateChanged(
             current.camera,
-            current.runtimeState,
             current.camera.cameraInfo.cameraState.value,
         )
     }
 
-    /** Removes the device-state observer and fails operations waiting for an open camera. */
+    /** Removes the device-state observer and reports that this binding is no longer open. */
     private fun stopObservingCameraState(current: BoundCamera) {
         current.camera.cameraInfo.cameraState.removeObserver(current.cameraStateObserver)
-        current.runtimeState.onCameraUnavailable()
+        updateAvailability(current, CameraAvailability.Closed())
     }
 
     /** Returns whether this completed camera binding exposes a flash unit. */
     private fun isFlashSupported(current: BoundCamera): Boolean =
         current.camera.cameraInfo.hasFlashUnit()
 
-    /** Creates an observer tied to one camera and its control state. */
-    private fun createCameraStateObserver(
-        camera: AndroidXCamera,
-        runtimeState: CameraRuntimeState,
-    ) = Observer<AndroidXCameraState> { state ->
-        onCameraStateChanged(camera, runtimeState, state)
-    }
+    /** Creates an observer tied to one concrete CameraX binding. */
+    private fun createCameraStateObserver(camera: AndroidXCamera) =
+        Observer<AndroidXCameraState> { state -> onCameraStateChanged(camera, state) }
 
-    /** Updates runtime availability only when the event belongs to the active binding. */
+    /** Forwards only OPEN/CLOSED availability when the event belongs to the active binding. */
     private fun onCameraStateChanged(
         sourceCamera: AndroidXCamera,
-        runtimeState: CameraRuntimeState,
         state: AndroidXCameraState?,
     ) {
         val current = bindingState as? BoundCamera ?: return
-        if (current.camera !== sourceCamera || current.runtimeState !== runtimeState) return
-        if (state?.type == AndroidXCameraState.Type.OPEN) {
-            if (runtimeState.onCameraOpened()) restoreCameraControls(current, force = true)
+        if (current.camera !== sourceCamera) return
+        val availability = if (state?.type == AndroidXCameraState.Type.OPEN) {
+            CameraAvailability.Open
         } else {
             val stateError = state?.error
-            runtimeState.onCameraUnavailable(
-                stateError?.let { error ->
-                    PluginError.CameraControlError(
-                        operation = CameraControlOperation.AWAIT_OPEN,
-                        cause = error.cause,
-                        cameraStateErrorCode = error.code,
-                    )
-                },
+            CameraAvailability.Closed(
+                errorCode = stateError?.code,
+                cause = stateError?.cause,
             )
         }
+        updateAvailability(current, availability)
     }
 
-    /** Restores retained zoom and torch values after a camera binding becomes available. */
-    private fun restoreCameraControls(current: BoundCamera, force: Boolean = false) {
+    /** Deduplicates CameraX's intermediate states into the adapter's OPEN/CLOSED contract. */
+    private fun updateAvailability(
+        current: BoundCamera,
+        availability: CameraAvailability,
+    ) {
         if (bindingState !== current) return
-        current.runtimeState.beginZoomRestoration(
-            current.camera.cameraInfo.zoomState.value?.linearZoom,
-            force,
-        )?.let { operation ->
-            try {
-                executeZoomOperation(current, operation)
-            } catch (_: Exception) {
-                // executeZoomOperation already records and logs restoration failure.
-            }
+        val isDuplicate = when {
+            current.availability is CameraAvailability.Open &&
+                availability is CameraAvailability.Open -> true
+            current.availability is CameraAvailability.Closed &&
+                availability is CameraAvailability.Closed &&
+                availability.errorCode == null -> true
+            else -> false
         }
-        current.runtimeState.beginTorchRestoration(
-            current.camera.cameraInfo.torchState.value?.let { it == TorchState.ON },
-            force,
-        )?.let { operation ->
-            try {
-                executeTorchOperation(current, operation)
-            } catch (_: Exception) {
-                // executeTorchOperation already records and logs restoration failure.
-            }
-        }
-    }
-
-    /** Continues restoration if [runtimeState] still belongs to the active binding. */
-    private fun restoreCameraControls(runtimeState: CameraRuntimeState) {
-        val current = bindingState as? BoundCamera ?: return
-        if (current.runtimeState === runtimeState) restoreCameraControls(current)
-    }
-
-    /** Submits one serialized zoom operation and records its asynchronous completion. */
-    private fun executeZoomOperation(
-        current: BoundCamera,
-        operation: CameraRuntimeState.Operation<Float>,
-    ): Deferred<Unit> = try {
-        current.camera.cameraControl.setLinearZoom(operation.value)
-            .asCameraControlDeferred(mainExecutor, CameraControlOperation.ZOOM)
-            .also { result ->
-                result.invokeOnCompletion { error ->
-                    handleZoomCompletion(current.runtimeState, operation, error)
-                }
-            }
-    } catch (error: Exception) {
-        handleZoomCompletion(current.runtimeState, operation, error)
-        throw error
-    }
-
-    /** Completes a zoom operation and starts deferred restoration when required. */
-    private fun handleZoomCompletion(
-        runtimeState: CameraRuntimeState,
-        operation: CameraRuntimeState.Operation<Float>,
-        error: Throwable?,
-    ) {
-        val completion = runtimeState.completeZoom(operation, error == null)
-        if (completion.restorationFailed) Log.d(TAG, "Unable to restore CameraX zoom", error)
-        if (completion.shouldRestore) restoreCameraControls(runtimeState)
-    }
-
-    /** Submits one serialized torch operation and records its asynchronous completion. */
-    private fun executeTorchOperation(
-        current: BoundCamera,
-        operation: CameraRuntimeState.Operation<Boolean>,
-    ): Deferred<Unit> = try {
-        current.camera.cameraControl.enableTorch(operation.value)
-            .asCameraControlDeferred(mainExecutor, CameraControlOperation.TORCH)
-            .also { result ->
-                result.invokeOnCompletion { error ->
-                    handleTorchCompletion(current.runtimeState, operation, error)
-                }
-            }
-    } catch (error: Exception) {
-        handleTorchCompletion(current.runtimeState, operation, error)
-        throw error
-    }
-
-    /** Completes a torch operation and starts deferred restoration when required. */
-    private fun handleTorchCompletion(
-        runtimeState: CameraRuntimeState,
-        operation: CameraRuntimeState.Operation<Boolean>,
-        error: Throwable?,
-    ) {
-        val completion = runtimeState.completeTorch(operation, error == null)
-        if (completion.restorationFailed) Log.d(TAG, "Unable to restore CameraX torch", error)
-        if (completion.shouldRestore) restoreCameraControls(runtimeState)
+        if (isDuplicate) return
+        current.availability = availability
+        current.onAvailabilityChanged(availability)
     }
 
     /** Fails a start request only while it is still the current binding state. */
@@ -561,6 +502,7 @@ class XCamera(
         val lifecycleOwner: LifecycleOwner,
         val analysisExecutor: ExecutorService,
         val onFrame: OnCameraFrame,
+        val onAvailabilityChanged: OnCameraAvailabilityChanged,
         val onInit: OnInit,
         val onError: OnError,
     ) : BindingState
@@ -569,13 +511,14 @@ class XCamera(
         val lifecycleOwner: LifecycleOwner,
         val analysisExecutor: ExecutorService,
         val onFrame: OnCameraFrame,
+        val onAvailabilityChanged: OnCameraAvailabilityChanged,
         val camera: AndroidXCamera,
         val preview: Preview,
         val imageAnalysis: ImageAnalysis,
         val useCaseGroup: UseCaseGroup,
         val viewPort: ViewPort,
-        val runtimeState: CameraRuntimeState,
         val cameraStateObserver: Observer<AndroidXCameraState>,
+        var availability: CameraAvailability = CameraAvailability.Closed(),
     ) : BindingState
 
     /** Preview size changes are handled in place; transform changes require a rebind. */

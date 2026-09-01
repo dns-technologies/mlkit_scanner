@@ -5,7 +5,9 @@ import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraCommand
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraAvailabilityChanged
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
@@ -305,10 +307,11 @@ internal class ScannerTest {
         val zoomValues = mutableListOf<Float>()
         private var onFrame: OnCameraFrame? = null
 
-        override fun start(
+        override fun bind(
             lifecycleOwner: LifecycleOwner,
             analysisExecutor: ExecutorService,
             onFrame: OnCameraFrame,
+            onAvailabilityChanged: OnCameraAvailabilityChanged,
             onInit: OnInit,
             onError: OnError,
         ) {
@@ -320,23 +323,11 @@ internal class ScannerTest {
             frame.use { onFrame?.invoke(it) }
         }
 
-        override fun isActive(): Boolean = onFrame != null
+        override fun isBound(): Boolean = onFrame != null
 
-        override fun awaitOpen(): Deferred<Unit> = CompletableDeferred(Unit)
-
-        override fun setTorch(enabled: Boolean): Deferred<Unit> = CompletableDeferred(Unit)
-
-        override fun focusOnCenter(
-            resetDelayMs: Long,
-            offsetX: Float,
-            offsetY: Float,
-        ): Deferred<Unit> = CompletableDeferred(Unit)
-
-        override fun resetFocus(): Deferred<Unit> = CompletableDeferred(Unit)
-
-        override fun setZoom(value: Float): Deferred<Unit> {
-            if (!isActive()) throw PluginError.CameraIsNotInitialized
-            zoomValues += value
+        override fun execute(command: CameraCommand): Deferred<Unit> {
+            if (!isBound()) throw PluginError.CameraIsNotInitialized
+            if (command is CameraCommand.SetZoom) zoomValues += command.value
             return CompletableDeferred(Unit)
         }
 
@@ -344,8 +335,12 @@ internal class ScannerTest {
 
         override fun hidePreview() = Unit
 
-        override fun dispose() {
+        override fun unbind() {
             onFrame = null
+        }
+
+        override fun dispose() {
+            unbind()
         }
     }
 

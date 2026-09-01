@@ -4,7 +4,9 @@ import android.view.View
 import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraCommand
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraAvailabilityChanged
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
@@ -49,6 +51,7 @@ class Scanner(
     /** Starts the delegated camera and wires common frame handling. */
     fun startCamera(
         lifecycleOwner: LifecycleOwner,
+        onAvailabilityChanged: OnCameraAvailabilityChanged,
         onInit: OnInit,
         onError: OnError,
     ) {
@@ -56,30 +59,41 @@ class Scanner(
             ?.takeUnless { it.isShutdown }
             ?: Executors.newSingleThreadExecutor().also { analysisExecutor = it }
 
-        camera.start(
+        camera.bind(
             lifecycleOwner = lifecycleOwner,
             analysisExecutor = executor,
             onFrame = this::analyzeFrame,
+            onAvailabilityChanged = onAvailabilityChanged,
             onInit = onInit,
             onError = onError,
         )
     }
 
+    /** Compatibility overload for scanner-only callers that do not coordinate CameraX state. */
+    fun startCamera(
+        lifecycleOwner: LifecycleOwner,
+        onInit: OnInit,
+        onError: OnError,
+    ) = startCamera(lifecycleOwner, {}, onInit, onError)
+
     /** Returns true when the scanner camera is active. */
-    fun isActive(): Boolean = camera.isActive()
+    fun isActive(): Boolean = camera.isBound()
 
-    /** Waits until the lifecycle-bound camera device is actually open. */
-    fun awaitCameraOpen() = camera.awaitOpen()
+    /** Executes one stateless camera command selected by the owning scanner session. */
+    fun executeCameraCommand(command: CameraCommand) = camera.execute(command)
 
-    /** Applies torch state through the active camera component. */
-    fun setTorch(enabled: Boolean) = camera.setTorch(enabled)
+    /** Applies torch through the stateless camera command boundary. */
+    fun setTorch(enabled: Boolean) = executeCameraCommand(CameraCommand.SetTorch(enabled))
 
-    /** Starts camera focus and metering around the visual scanner focus point. */
+    /** Starts focus through the stateless camera command boundary. */
     fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) =
-        camera.focusOnCenter(resetDelayMs, offsetX, offsetY)
+        executeCameraCommand(CameraCommand.Focus(resetDelayMs, offsetX, offsetY))
 
-    /** Clears focus and metering state before another platform view becomes active. */
-    fun resetFocus() = camera.resetFocus()
+    /** Clears focus through the stateless camera command boundary. */
+    fun resetFocus() = executeCameraCommand(CameraCommand.ResetFocus)
+
+    /** Applies normalized zoom through the stateless camera command boundary. */
+    fun setZoom(value: Float) = executeCameraCommand(CameraCommand.SetZoom(value))
 
     /** Starts analysis with the configured analyzer component. */
     fun startScan(periodMs: Int) {
@@ -118,9 +132,6 @@ class Scanner(
     fun setCropArea(cropRect: RecognizeVisorCropRect?) {
         cropArea = cropRect
     }
-
-    /** Delegates normalized zoom to the camera adapter. */
-    fun setZoom(value: Float) = camera.setZoom(value)
 
     /** Reveals camera preview after startup controls have been applied. */
     fun showPreview() = camera.showPreview()
