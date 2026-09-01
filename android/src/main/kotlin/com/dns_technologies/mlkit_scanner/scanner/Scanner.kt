@@ -95,6 +95,9 @@ class Scanner(
     /** Applies normalized zoom through the stateless camera command boundary. */
     fun setZoom(value: Float) = executeCameraCommand(CameraCommand.SetZoom(value))
 
+    /** Verifies normalized zoom after startup configuration has finished. */
+    fun ensureZoom(value: Float) = executeCameraCommand(CameraCommand.EnsureZoom(value))
+
     /** Starts analysis with the configured analyzer component. */
     fun startScan(periodMs: Int) {
         analyzer.updatePeriod(periodMs)

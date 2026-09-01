@@ -44,6 +44,9 @@ sealed interface CameraCommand {
     /** Applies normalized linear zoom. */
     data class SetZoom(val value: Float) : CameraCommand
 
+    /** Verifies normalized linear zoom and reapplies it only when CameraX reports another value. */
+    data class EnsureZoom(val value: Float) : CameraCommand
+
     /** Applies an absolute torch state. */
     data class SetTorch(val enabled: Boolean) : CameraCommand
 }

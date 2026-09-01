@@ -533,12 +533,9 @@ internal class ScannerSessionImpl(
         }
         viewState.configurationWaiters += ConfigurationWaiter(desired, event.result)
         if (wasApplied) {
-            startConfigurationPipeline(
-                activation,
-                ApplyStage.Zoom,
-                allowTorchFallback = false,
-                hidePreview = false,
-                previewRemainsUsable = true,
+            startSingleCameraOperation(
+                activation = activation,
+                command = CameraCommand.SetZoom(event.value),
             )
         } else {
             reconcileCamera()
@@ -563,12 +560,9 @@ internal class ScannerSessionImpl(
         }
         viewState.configurationWaiters += ConfigurationWaiter(desired, event.result)
         if (wasApplied) {
-            startConfigurationPipeline(
-                activation,
-                ApplyStage.Torch,
-                allowTorchFallback = false,
-                hidePreview = false,
-                previewRemainsUsable = true,
+            startSingleCameraOperation(
+                activation = activation,
+                command = CameraCommand.SetTorch(desired.torchEnabled == true),
             )
         } else {
             reconcileCamera()
@@ -579,15 +573,10 @@ internal class ScannerSessionImpl(
         val viewState = views[event.viewId] ?: return
         val activation = owner?.takeIf { it.viewState === viewState } ?: return
         if (!activation.hasUsablePreview(viewState.desired)) return
-        updateDesiredConfiguration(viewState) {
-            it.copy(focus = CameraCommand.Focus(event.resetDelayMs, event.offsetX, event.offsetY))
-        }
-        startConfigurationPipeline(
-            activation,
-            ApplyStage.Focus,
-            allowTorchFallback = false,
-            hidePreview = false,
-            previewRemainsUsable = true,
+        activation.invalidateConfiguration()
+        startSingleCameraOperation(
+            activation = activation,
+            command = CameraCommand.Focus(event.resetDelayMs, event.offsetX, event.offsetY),
         )
     }
 
@@ -598,7 +587,7 @@ internal class ScannerSessionImpl(
         val desired = updateDesiredConfiguration(viewState) { it.copy(cropArea = event.cropRect) }
         viewState.view.setCropArea(event.cropRect)
         if (wasApplied && canOperateCamera(activation)) {
-            applyCropAndDelay(desired)
+            scanner.setCropArea(desired.cropArea)
             markConfigurationApplied(activation, desired)
         } else {
             reconcileCamera()
@@ -614,7 +603,7 @@ internal class ScannerSessionImpl(
         }
         viewState.scanRequestedByView = true
         if (wasApplied && canOperateCamera(activation)) {
-            applyCropAndDelay(desired)
+            scanner.updateScanPeriod(event.periodMs)
             markConfigurationApplied(activation, desired)
         } else {
             reconcileCamera()
@@ -636,7 +625,7 @@ internal class ScannerSessionImpl(
             it.copy(scanPeriodMs = event.periodMs)
         }
         if (wasApplied && canOperateCamera(activation)) {
-            applyCropAndDelay(desired)
+            scanner.updateScanPeriod(event.periodMs)
             markConfigurationApplied(activation, desired)
         } else {
             reconcileCamera()
@@ -707,7 +696,7 @@ internal class ScannerSessionImpl(
     ) {
         val open = cameraConnection.open ?: return
         if (owner !== activation || !canOperateCamera(activation)) return
-        val execution = ConfigurationExecution(
+        val execution = StartupConfigurationExecution(
             activation = activation,
             open = open,
             desired = activation.viewState.desired,
@@ -718,20 +707,40 @@ internal class ScannerSessionImpl(
             scanner.hidePreview()
             activation.viewState.view.unbindFocus()
         }
-        startCameraOperation(execution, stage)
+        startStartupCameraOperation(execution, stage)
         applyScanState()
     }
 
-    private fun startCameraOperation(
-        execution: ConfigurationExecution,
+    /** Executes one runtime command without replaying the startup configuration pipeline. */
+    private fun startSingleCameraOperation(
+        activation: OwnerActivation,
+        command: CameraCommand,
+    ) {
+        val open = cameraConnection.open ?: return
+        if (owner !== activation || !canOperateCamera(activation)) return
+        val execution = SingleCameraExecution(
+            activation = activation,
+            open = open,
+            desired = activation.viewState.desired,
+            previewRemainsUsable = true,
+        )
+        startCameraOperation(execution, command.stage, command)
+        applyScanState()
+    }
+
+    private fun startStartupCameraOperation(
+        execution: StartupConfigurationExecution,
         stage: ApplyStage,
     ) {
+        startCameraOperation(execution, stage, startupCommand(execution, stage))
+    }
+
+    private fun startCameraOperation(
+        execution: CameraExecution,
+        stage: ApplyStage,
+        command: CameraCommand,
+    ) {
         if (!isCurrent(execution)) return
-        val command = when (stage) {
-            ApplyStage.Focus -> execution.desired.focus
-            ApplyStage.Zoom -> CameraCommand.SetZoom(execution.desired.zoom ?: DEFAULT_ZOOM)
-            ApplyStage.Torch -> CameraCommand.SetTorch(execution.desired.torchEnabled == true)
-        }
         val operation = CameraOperation(execution, stage, command)
         execution.activation.configuration = ConfigurationState.Applying(operation)
         try {
@@ -743,6 +752,7 @@ internal class ScannerSessionImpl(
                     command.offsetY,
                 )
                 is CameraCommand.SetZoom -> scanner.setZoom(command.value)
+                is CameraCommand.EnsureZoom -> scanner.ensureZoom(command.value)
                 is CameraCommand.SetTorch -> scanner.setTorch(command.enabled)
             }
             operation.task = result
@@ -752,6 +762,16 @@ internal class ScannerSessionImpl(
         } catch (error: Exception) {
             dispatch(SessionEvent.OperationCompleted(operation, error))
         }
+    }
+
+    private fun startupCommand(
+        execution: StartupConfigurationExecution,
+        stage: ApplyStage,
+    ): CameraCommand = when (stage) {
+        ApplyStage.Focus -> CameraCommand.ResetFocus
+        ApplyStage.Zoom -> CameraCommand.SetZoom(execution.desired.zoom ?: DEFAULT_ZOOM)
+        ApplyStage.Torch -> CameraCommand.SetTorch(execution.desired.torchEnabled == true)
+        ApplyStage.EnsureZoom -> CameraCommand.EnsureZoom(execution.desired.zoom ?: DEFAULT_ZOOM)
     }
 
     private fun onOperationCompleted(event: SessionEvent.OperationCompleted) {
@@ -776,6 +796,7 @@ internal class ScannerSessionImpl(
             }
             if (
                 operation.stage == ApplyStage.Torch &&
+                execution is StartupConfigurationExecution &&
                 execution.allowTorchFallback &&
                 execution.desired.torchEnabled == true &&
                 error === PluginError.DeviceHasNotFlash
@@ -799,17 +820,25 @@ internal class ScannerSessionImpl(
             return
         }
 
+        if (execution is SingleCameraExecution) {
+            markConfigurationApplied(execution.activation, execution.desired)
+            applyScanState()
+            return
+        }
+        execution as StartupConfigurationExecution
+
         when (operation.stage) {
             ApplyStage.Focus -> {
                 applyCropAndDelay(execution.desired)
-                startCameraOperation(execution, ApplyStage.Zoom)
+                startStartupCameraOperation(execution, ApplyStage.Zoom)
             }
-            ApplyStage.Zoom -> startCameraOperation(execution, ApplyStage.Torch)
-            ApplyStage.Torch -> finishConfiguration(execution)
+            ApplyStage.Zoom -> startStartupCameraOperation(execution, ApplyStage.Torch)
+            ApplyStage.Torch -> startStartupCameraOperation(execution, ApplyStage.EnsureZoom)
+            ApplyStage.EnsureZoom -> finishConfiguration(execution)
         }
     }
 
-    private fun finishConfiguration(execution: ConfigurationExecution) {
+    private fun finishConfiguration(execution: StartupConfigurationExecution) {
         if (!isCurrent(execution)) return
         val activation = execution.activation
         try {
@@ -928,8 +957,16 @@ internal class ScannerSessionImpl(
     private val CameraCommand.operation: CameraControlOperation
         get() = when (this) {
             CameraCommand.ResetFocus, is CameraCommand.Focus -> CameraControlOperation.FOCUS
-            is CameraCommand.SetZoom -> CameraControlOperation.ZOOM
+            is CameraCommand.SetZoom, is CameraCommand.EnsureZoom -> CameraControlOperation.ZOOM
             is CameraCommand.SetTorch -> CameraControlOperation.TORCH
+        }
+
+    private val CameraCommand.stage: ApplyStage
+        get() = when (this) {
+            CameraCommand.ResetFocus, is CameraCommand.Focus -> ApplyStage.Focus
+            is CameraCommand.SetZoom -> ApplyStage.Zoom
+            is CameraCommand.EnsureZoom -> ApplyStage.EnsureZoom
+            is CameraCommand.SetTorch -> ApplyStage.Torch
         }
 
     private fun canOperateCamera(activation: OwnerActivation): Boolean =
@@ -940,7 +977,7 @@ internal class ScannerSessionImpl(
             !hostPaused &&
             cameraConnection.isBound
 
-    private fun isCurrent(execution: ConfigurationExecution): Boolean =
+    private fun isCurrent(execution: CameraExecution): Boolean =
         owner === execution.activation &&
             execution.activation.viewState.desired === execution.desired &&
             cameraConnection.open === execution.open &&
@@ -1176,25 +1213,40 @@ internal class ScannerSessionImpl(
     }
 
     private class CameraOperation(
-        val execution: ConfigurationExecution,
+        val execution: CameraExecution,
         val stage: ApplyStage,
         val command: CameraCommand,
     ) {
         var task: Deferred<Unit>? = null
     }
 
-    private class ConfigurationExecution(
+    private sealed class CameraExecution(
         val activation: OwnerActivation,
         val open: CameraAvailabilityState.Open,
         val desired: DesiredConfiguration,
-        val allowTorchFallback: Boolean,
         val previewRemainsUsable: Boolean,
     )
+
+    private class StartupConfigurationExecution(
+        activation: OwnerActivation,
+        open: CameraAvailabilityState.Open,
+        desired: DesiredConfiguration,
+        val allowTorchFallback: Boolean,
+        previewRemainsUsable: Boolean,
+    ) : CameraExecution(activation, open, desired, previewRemainsUsable)
+
+    private class SingleCameraExecution(
+        activation: OwnerActivation,
+        open: CameraAvailabilityState.Open,
+        desired: DesiredConfiguration,
+        previewRemainsUsable: Boolean,
+    ) : CameraExecution(activation, open, desired, previewRemainsUsable)
 
     private enum class ApplyStage {
         Focus,
         Zoom,
         Torch,
+        EnsureZoom,
     }
 
     private class CaptureRequest(
@@ -1208,7 +1260,6 @@ internal class ScannerSessionImpl(
     )
 
     private data class DesiredConfiguration(
-        val focus: CameraCommand = CameraCommand.ResetFocus,
         val cropArea: RecognizeVisorCropRect? = null,
         val scanPeriodMs: Int? = null,
         val zoom: Float? = null,

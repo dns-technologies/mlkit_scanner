@@ -138,6 +138,20 @@ internal class ScannerTest {
     }
 
     @Test
+    fun `startup zoom verification is delegated to the camera adapter`() = runBlocking {
+        val fixture = Fixture()
+
+        fixture.scanner.startCamera(
+            lifecycleOwner = mock(LifecycleOwner::class.java),
+            onInit = {},
+            onError = {},
+        )
+        fixture.scanner.ensureZoom(0.75F).await()
+
+        assertEquals(listOf(0.75F), fixture.camera.ensuredZoomValues)
+    }
+
+    @Test
     fun `resume scan preserves successful recognition cooldown`() {
         val fixture = Fixture(analysisResult = BARCODE)
         fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
@@ -305,6 +319,7 @@ internal class ScannerTest {
     private class FakeCamera : Camera {
         override val previewView: View = mock(View::class.java)
         val zoomValues = mutableListOf<Float>()
+        val ensuredZoomValues = mutableListOf<Float>()
         private var onFrame: OnCameraFrame? = null
 
         override fun bind(
@@ -328,6 +343,7 @@ internal class ScannerTest {
         override fun execute(command: CameraCommand): Deferred<Unit> {
             if (!isBound()) throw PluginError.CameraIsNotInitialized
             if (command is CameraCommand.SetZoom) zoomValues += command.value
+            if (command is CameraCommand.EnsureZoom) ensuredZoomValues += command.value
             return CompletableDeferred(Unit)
         }
 

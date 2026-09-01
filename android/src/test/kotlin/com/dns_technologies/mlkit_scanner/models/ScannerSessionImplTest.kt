@@ -606,6 +606,36 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
+    fun `runtime crop updates only crop`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.updateScanPeriod(FIRST_VIEW_ID, 250)
+        clearInvocations(fixture.scanner)
+        val cropRect = RecognizeVisorCropRect(scaleWidth = 0.5)
+
+        fixture.session.setCropArea(FIRST_VIEW_ID, cropRect)
+
+        verify(fixture.scanner).setCropArea(cropRect)
+        verify(fixture.scanner, never()).updateScanPeriod(anyInt())
+    }
+
+    @Test
+    fun `runtime delay updates only delay`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.setCropArea(
+            FIRST_VIEW_ID,
+            RecognizeVisorCropRect(scaleWidth = 0.5),
+        )
+        clearInvocations(fixture.scanner)
+
+        fixture.session.updateScanPeriod(FIRST_VIEW_ID, 250)
+
+        verify(fixture.scanner).updateScanPeriod(250)
+        verify(fixture.scanner, never()).setCropArea(anyValue())
+    }
+
+    @Test
     fun `pending runtime zoom keeps scan and visor active`() = runSessionTest {
         val fixture = Fixture()
         fixture.activateCamera(FIRST_VIEW_ID)
@@ -619,6 +649,10 @@ internal class ScannerSessionImplTest {
         }
 
         verify(fixture.scanner).setZoom(0.5F)
+        verify(fixture.scanner, never()).ensureZoom(anyFloat())
+        verify(fixture.scanner, never()).setTorch(anyBoolean())
+        verify(fixture.scanner, never()).resetFocus()
+        verify(fixture.scanner, never()).showPreview()
         verify(fixture.scanner, never()).pauseScan()
         verify(fixture.view(FIRST_VIEW_ID), never()).setScanActive(false)
 
@@ -643,6 +677,10 @@ internal class ScannerSessionImplTest {
         }
 
         verify(fixture.scanner).setTorch(true)
+        verify(fixture.scanner, never()).ensureZoom(anyFloat())
+        verify(fixture.scanner, never()).setZoom(anyFloat())
+        verify(fixture.scanner, never()).resetFocus()
+        verify(fixture.scanner, never()).showPreview()
         verify(fixture.scanner, never()).pauseScan()
         verify(fixture.view(FIRST_VIEW_ID), never()).setScanActive(false)
 
@@ -670,6 +708,11 @@ internal class ScannerSessionImplTest {
         )
 
         verify(fixture.scanner).focusOnCenter(500L, 10F, 20F)
+        verify(fixture.scanner, never()).ensureZoom(anyFloat())
+        verify(fixture.scanner, never()).setZoom(anyFloat())
+        verify(fixture.scanner, never()).setTorch(anyBoolean())
+        verify(fixture.scanner, never()).resetFocus()
+        verify(fixture.scanner, never()).showPreview()
         verify(fixture.scanner, never()).pauseScan()
         verify(fixture.view(FIRST_VIEW_ID), never()).setScanActive(false)
 
@@ -678,6 +721,26 @@ internal class ScannerSessionImplTest {
 
         verify(fixture.scanner, never()).pauseScan()
         verify(fixture.view(FIRST_VIEW_ID), never()).setScanActive(false)
+    }
+
+    @Test
+    fun `runtime focus is not retained for the next camera open`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.requestFocus(
+            viewId = FIRST_VIEW_ID,
+            resetDelayMs = 500L,
+            offsetX = 10F,
+            offsetY = 20F,
+        )
+        yield()
+        clearInvocations(fixture.scanner)
+
+        fixture.emitCameraClosed()
+        fixture.emitCameraOpen()
+
+        verify(fixture.scanner).resetFocus()
+        verify(fixture.scanner, never()).focusOnCenter(anyLong(), anyFloat(), anyFloat())
     }
 
     @Test
@@ -875,6 +938,7 @@ internal class ScannerSessionImplTest {
             verify(fixture.scanner).updateScanPeriod(250)
             verify(fixture.scanner).setZoom(0.75F)
             verify(fixture.scanner).setTorch(true)
+            verify(fixture.scanner).ensureZoom(0.75F)
             verify(fixture.scanner).showPreview()
         }
     }
@@ -1826,6 +1890,9 @@ internal class ScannerSessionImplTest {
             doAnswer {
                 zoomResults.removeFirstOrNull() ?: CompletableDeferred(Unit)
             }.`when`(scanner).setZoom(anyFloat())
+            doAnswer {
+                CompletableDeferred(Unit)
+            }.`when`(scanner).ensureZoom(anyFloat())
             doAnswer {
                 torchResults.removeFirstOrNull() ?: CompletableDeferred(Unit)
             }.`when`(scanner).setTorch(anyBoolean())

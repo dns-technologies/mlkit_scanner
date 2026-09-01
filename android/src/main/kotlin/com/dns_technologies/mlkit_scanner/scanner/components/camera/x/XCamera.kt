@@ -35,6 +35,7 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 
@@ -142,6 +143,7 @@ class XCamera(
         CameraCommand.ResetFocus -> executeResetFocus()
         is CameraCommand.Focus -> executeFocus(command)
         is CameraCommand.SetZoom -> executeZoom(command.value)
+        is CameraCommand.EnsureZoom -> executeEnsureZoom(command.value)
         is CameraCommand.SetTorch -> executeTorch(command.enabled)
     }
 
@@ -184,6 +186,23 @@ class XCamera(
             throw PluginError.InvalidArguments
         }
 
+        return current.camera.cameraControl.setLinearZoom(value)
+            .asCameraControlDeferred(mainExecutor, CameraControlOperation.ZOOM)
+    }
+
+    /** Reapplies startup zoom only when CameraX did not retain the requested value. */
+    private fun executeEnsureZoom(value: Float): Deferred<Unit> {
+        val current = bindingState as? BoundCamera
+            ?: throw PluginError.CameraIsNotInitialized
+        if (!value.isFinite() || value !in MIN_LINEAR_ZOOM..MAX_LINEAR_ZOOM) {
+            throw PluginError.InvalidArguments
+        }
+        val actualZoom = current.camera.cameraInfo.zoomState.value?.linearZoom
+        if (!shouldReapplyLinearZoom(actualZoom, value)) return CompletableDeferred(Unit)
+
+        // Временный костыль для ручных тестов
+        // После первого OPEN CameraX иногда не сохраняет желаемый zoom
+        Log.w(TAG, "Reapplying initial linear zoom: expected=$value, actual=$actualZoom")
         return current.camera.cameraControl.setLinearZoom(value)
             .asCameraControlDeferred(mainExecutor, CameraControlOperation.ZOOM)
     }
@@ -549,3 +568,10 @@ class XCamera(
             .build()
     }
 }
+
+internal fun shouldReapplyLinearZoom(actualZoom: Float?, desiredZoom: Float): Boolean =
+    actualZoom == null ||
+        !actualZoom.isFinite() ||
+        abs(actualZoom - desiredZoom) > LINEAR_ZOOM_TOLERANCE
+
+private const val LINEAR_ZOOM_TOLERANCE = 0.0001F
