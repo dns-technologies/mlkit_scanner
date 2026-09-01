@@ -604,6 +604,81 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
+    fun `pending runtime zoom keeps scan and visor active`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 100)
+        val completion = CompletableDeferred<Unit>()
+        fixture.enqueueZoomResult(completion)
+        clearInvocations(fixture.scanner, fixture.view(FIRST_VIEW_ID))
+
+        val zoom = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.setZoom(FIRST_VIEW_ID, 0.5F)
+        }
+
+        verify(fixture.scanner).setZoom(0.5F)
+        verify(fixture.scanner, never()).pauseScan()
+        verify(fixture.view(FIRST_VIEW_ID), never()).setScanActive(false)
+
+        completion.complete(Unit)
+        withTimeout(TEST_TIMEOUT_MS) { zoom.await() }
+
+        verify(fixture.scanner, never()).pauseScan()
+        verify(fixture.view(FIRST_VIEW_ID), never()).setScanActive(false)
+    }
+
+    @Test
+    fun `pending runtime torch keeps scan and visor active`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 100)
+        val completion = CompletableDeferred<Unit>()
+        fixture.enqueueTorchResult(completion)
+        clearInvocations(fixture.scanner, fixture.view(FIRST_VIEW_ID))
+
+        val torch = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.toggleFlashLight(FIRST_VIEW_ID)
+        }
+
+        verify(fixture.scanner).setTorch(true)
+        verify(fixture.scanner, never()).pauseScan()
+        verify(fixture.view(FIRST_VIEW_ID), never()).setScanActive(false)
+
+        completion.complete(Unit)
+        withTimeout(TEST_TIMEOUT_MS) { torch.await() }
+
+        verify(fixture.scanner, never()).pauseScan()
+        verify(fixture.view(FIRST_VIEW_ID), never()).setScanActive(false)
+    }
+
+    @Test
+    fun `pending runtime focus keeps scan and visor active`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 100)
+        val completion = CompletableDeferred<Unit>()
+        fixture.enqueueFocusResult(completion)
+        clearInvocations(fixture.scanner, fixture.view(FIRST_VIEW_ID))
+
+        fixture.session.requestFocus(
+            viewId = FIRST_VIEW_ID,
+            resetDelayMs = 500L,
+            offsetX = 10F,
+            offsetY = 20F,
+        )
+
+        verify(fixture.scanner).focusOnCenter(500L, 10F, 20F)
+        verify(fixture.scanner, never()).pauseScan()
+        verify(fixture.view(FIRST_VIEW_ID), never()).setScanActive(false)
+
+        completion.complete(Unit)
+        yield()
+
+        verify(fixture.scanner, never()).pauseScan()
+        verify(fixture.view(FIRST_VIEW_ID), never()).setScanActive(false)
+    }
+
+    @Test
     fun `configuration is retained before first camera capture`() = runSessionTest {
         val fixture = Fixture()
         val cropRect = RecognizeVisorCropRect(scaleWidth = 0.5)
@@ -1687,6 +1762,7 @@ internal class ScannerSessionImplTest {
         private var scanResultListener: ((Barcode) -> Unit)? = null
         private val openResults = ArrayDeque<CompletableDeferred<Unit>>()
         private val focusResetResults = ArrayDeque<CompletableDeferred<Unit>>()
+        private val focusResults = ArrayDeque<CompletableDeferred<Unit>>()
         private val zoomResults = ArrayDeque<CompletableDeferred<Unit>>()
         private val torchResults = ArrayDeque<CompletableDeferred<Unit>>()
 
@@ -1714,6 +1790,9 @@ internal class ScannerSessionImplTest {
             doAnswer {
                 focusResetResults.removeFirstOrNull() ?: CompletableDeferred(Unit)
             }.`when`(scanner).resetFocus()
+            doAnswer {
+                focusResults.removeFirstOrNull() ?: CompletableDeferred(Unit)
+            }.`when`(scanner).focusOnCenter(anyLong(), anyFloat(), anyFloat())
             doAnswer {
                 zoomResults.removeFirstOrNull() ?: CompletableDeferred(Unit)
             }.`when`(scanner).setZoom(anyFloat())
@@ -1864,6 +1943,10 @@ internal class ScannerSessionImplTest {
 
         fun enqueueFocusReset(result: CompletableDeferred<Unit>) {
             focusResetResults += result
+        }
+
+        fun enqueueFocusResult(result: CompletableDeferred<Unit>) {
+            focusResults += result
         }
 
         fun enqueueOpenResult(result: CompletableDeferred<Unit>) {

@@ -87,7 +87,7 @@ internal class ScannerSessionImpl(
             context = context,
             scanner = scanner,
             onFocusRequest = { resetDelayMs, offsetX, offsetY ->
-                dispatch(SessionEvent.FocusRequested(viewId, resetDelayMs, offsetX, offsetY))
+                requestFocus(viewId, resetDelayMs, offsetX, offsetY)
             },
             onDispose = { disposePlatformView(viewId) },
         )
@@ -191,6 +191,16 @@ internal class ScannerSessionImpl(
 
     override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) {
         dispatch(SessionEvent.SetCropArea(viewId, cropRect))
+    }
+
+    /** Routes a preview focus gesture through the session actor. */
+    internal fun requestFocus(
+        viewId: Int,
+        resetDelayMs: Long,
+        offsetX: Float,
+        offsetY: Float,
+    ) {
+        dispatch(SessionEvent.FocusRequested(viewId, resetDelayMs, offsetX, offsetY))
     }
 
     /** Mirrors Flutter's native PlatformView disposal in JVM tests. */
@@ -522,7 +532,7 @@ internal class ScannerSessionImpl(
                 ApplyStage.Zoom,
                 allowTorchFallback = false,
                 hidePreview = false,
-                keepPreviewOnFailure = true,
+                previewRemainsUsable = true,
             )
         } else {
             reconcileCamera()
@@ -552,7 +562,7 @@ internal class ScannerSessionImpl(
                 ApplyStage.Torch,
                 allowTorchFallback = false,
                 hidePreview = false,
-                keepPreviewOnFailure = true,
+                previewRemainsUsable = true,
             )
         } else {
             reconcileCamera()
@@ -571,7 +581,7 @@ internal class ScannerSessionImpl(
             ApplyStage.Focus,
             allowTorchFallback = false,
             hidePreview = false,
-            keepPreviewOnFailure = true,
+            previewRemainsUsable = true,
         )
     }
 
@@ -678,7 +688,7 @@ internal class ScannerSessionImpl(
             ApplyStage.Focus,
             allowTorchFallback = activation.viewState.hasBeenConfigured,
             hidePreview = true,
-            keepPreviewOnFailure = false,
+            previewRemainsUsable = false,
         )
     }
 
@@ -687,7 +697,7 @@ internal class ScannerSessionImpl(
         stage: ApplyStage,
         allowTorchFallback: Boolean,
         hidePreview: Boolean,
-        keepPreviewOnFailure: Boolean,
+        previewRemainsUsable: Boolean,
     ) {
         val open = cameraConnection.open ?: return
         if (owner !== activation || !canOperateCamera(activation)) return
@@ -696,7 +706,7 @@ internal class ScannerSessionImpl(
             open = open,
             desired = activation.viewState.desired,
             allowTorchFallback = allowTorchFallback,
-            keepPreviewOnFailure = keepPreviewOnFailure,
+            previewRemainsUsable = previewRemainsUsable,
         )
         if (hidePreview) {
             scanner.hidePreview()
@@ -776,7 +786,7 @@ internal class ScannerSessionImpl(
             execution.activation.configuration = ConfigurationState.Failed(
                 open = execution.open,
                 desired = execution.desired,
-                previewUsable = execution.keepPreviewOnFailure,
+                previewUsable = execution.previewRemainsUsable,
             )
             failCurrentOwnerWork(execution.activation, contextualized)
             applyScanState()
@@ -1173,7 +1183,7 @@ internal class ScannerSessionImpl(
         val open: CameraAvailabilityState.Open,
         val desired: DesiredConfiguration,
         val allowTorchFallback: Boolean,
-        val keepPreviewOnFailure: Boolean,
+        val previewRemainsUsable: Boolean,
     )
 
     private enum class ApplyStage {
@@ -1284,6 +1294,11 @@ internal class ScannerSessionImpl(
         val open = cameraConnection.open ?: return false
         return when (val state = configuration) {
             is ConfigurationState.Applied -> state.open === open && state.desired === desired
+            is ConfigurationState.Applying -> state.operation.execution.let { execution ->
+                execution.previewRemainsUsable &&
+                    execution.open === open &&
+                    execution.desired === desired
+            }
             is ConfigurationState.Failed ->
                 state.previewUsable && state.open === open && state.desired === desired
             else -> false
