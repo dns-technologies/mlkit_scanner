@@ -171,6 +171,21 @@ internal class MlkitScannerPluginTest {
     }
 
     @Test
+    fun `released session cannot remove its replacement`() {
+        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
+        val releasedSession = mock(ScannerSession::class.java)
+        val replacementSession = mock(ScannerSession::class.java)
+        plugin.setField("scannerSession", replacementSession)
+
+        plugin.javaClass.getDeclaredMethod(
+            "removeScannerSession",
+            ScannerSession::class.java,
+        ).apply { isAccessible = true }.invoke(plugin, releasedSession)
+
+        assertSame(replacementSession, plugin.getField<ScannerSession?>("scannerSession"))
+    }
+
+    @Test
     fun `command scope is recreated when plugin attaches to another engine`() {
         val plugin = MlkitScannerPlugin(mock(Handler::class.java))
         val binding = mock(FlutterPlugin.FlutterPluginBinding::class.java)

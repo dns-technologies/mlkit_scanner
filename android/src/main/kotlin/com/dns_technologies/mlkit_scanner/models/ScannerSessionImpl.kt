@@ -37,7 +37,7 @@ internal class ScannerSessionImpl(
     private val scanner: Scanner,
     private val mainHandler: Handler,
     private val onScanResult: (Int, Barcode) -> Unit,
-    private val onReleased: () -> Unit,
+    private val onReleaseRequested: (ScannerSession) -> Unit,
     private val initializationScope: CoroutineScope = MainScope(),
     lifecycleRegistryFactory: (LifecycleOwner) -> LifecycleRegistry = ::LifecycleRegistry,
 ) : ScannerSession, LifecycleOwner, DefaultLifecycleObserver {
@@ -209,9 +209,15 @@ internal class ScannerSessionImpl(
     }
 
     override fun release() {
-        if (releaseRequested) return
-        releaseRequested = true
+        if (!markReleaseRequested()) return
         dispatch(SessionEvent.ReleaseSession)
+    }
+
+    private fun markReleaseRequested(): Boolean {
+        if (releaseRequested) return false
+        releaseRequested = true
+        onReleaseRequested(this)
+        return true
     }
 
     /** Serial reducer. This is the only method allowed to mutate session/camera state. */
@@ -386,7 +392,7 @@ internal class ScannerSessionImpl(
             viewState.configurationWaiters.toList().forEach { it.result.completeExceptionally(error) }
             viewState.configurationWaiters.clear()
         }
-        releaseRequested = true
+        markReleaseRequested()
         releaseSession()
     }
 
@@ -1104,7 +1110,6 @@ internal class ScannerSessionImpl(
         scanSubscription = null
         scanner.dispose()
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
-        onReleased()
         events.close()
         actorJob.cancel()
         initializationScope.cancel()

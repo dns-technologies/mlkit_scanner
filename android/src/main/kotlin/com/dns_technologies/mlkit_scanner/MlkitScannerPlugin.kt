@@ -169,7 +169,7 @@ class MlkitScannerPlugin internal constructor(
             ),
             mainHandler = mainHandler,
             onScanResult = ::emitScanResult,
-            onReleased = { scannerSession = null },
+            onReleaseRequested = ::removeScannerSession,
         ).also { newSession ->
             scannerSession = newSession
             activityBinding?.activityLifecycle?.let(newSession::attachHostLifecycle)
@@ -188,6 +188,11 @@ class MlkitScannerPlugin internal constructor(
         val activeSession = scannerSession
         scannerSession = null
         activeSession?.release()
+    }
+
+    /** Removes only the session that started releasing, preserving a possible replacement. */
+    private fun removeScannerSession(releasedSession: ScannerSession) {
+        if (scannerSession === releasedSession) scannerSession = null
     }
 
     /** Sends a recognized barcode result to Dart on the main thread. */

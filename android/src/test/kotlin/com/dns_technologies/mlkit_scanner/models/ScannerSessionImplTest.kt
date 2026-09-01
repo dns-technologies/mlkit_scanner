@@ -14,6 +14,7 @@ import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
+import kotlin.coroutines.CoroutineContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -1624,6 +1626,34 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
+    fun `release detaches session owner before actor teardown`() {
+        val scanner = mock(Scanner::class.java)
+        val queuedTasks = ArrayDeque<Runnable>()
+        val queuedDispatcher = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                queuedTasks += block
+            }
+        }
+        var releasedSession: ScannerSession? = null
+        val session = ScannerSessionImpl(
+            scanner = scanner,
+            mainHandler = mock(Handler::class.java),
+            onScanResult = { _, _ -> },
+            onReleaseRequested = { releasedSession = it },
+            initializationScope = CoroutineScope(queuedDispatcher),
+            lifecycleRegistryFactory = LifecycleRegistry::createUnsafe,
+        )
+
+        session.release()
+
+        assertSame(session, releasedSession)
+        verify(scanner, never()).dispose()
+
+        queuedTasks.removeFirst().run()
+        verify(scanner).dispose()
+    }
+
+    @Test
     fun `initialization error releases session and is propagated`() = runSessionTest {
         val fixture = Fixture()
         val initialization = async(start = CoroutineStart.UNDISPATCHED) {
@@ -1807,7 +1837,7 @@ internal class ScannerSessionImplTest {
                 scanner = scanner,
                 mainHandler = mainHandler,
                 onScanResult = onScanResult,
-                onReleased = { releaseCalls += 1 },
+                onReleaseRequested = { releaseCalls += 1 },
                 initializationScope = CoroutineScope(Dispatchers.Unconfined),
                 lifecycleRegistryFactory = LifecycleRegistry::createUnsafe,
             )
