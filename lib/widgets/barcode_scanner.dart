@@ -12,20 +12,20 @@ class BarcodeScanner extends StatefulWidget {
   /// Called for each barcode recognized while scanning is active.
   final ValueChanged<Barcode> onScan;
 
-  /// Called once when the controller can safely update this scanner's retained state.
+  /// Called once after the native platform view is registered.
   ///
-  /// A visible scanner waits for a successful camera capture. A scanner that is
-  /// already hidden when its native view is registered receives the controller
-  /// without taking camera ownership. Configuration calls made while hidden are
-  /// retained and applied after its per-view initialization completes and the
-  /// scanner becomes active again.
+  /// Camera capture may still be pending. Configuration calls made from this
+  /// callback or while capture is in progress update this view's retained state
+  /// and are applied when the camera becomes ready. Capture failures are reported
+  /// independently through [onCameraInitializeError].
   final void Function(BarcodeScannerController controller) onScannerInitialized;
 
   /// Called for every camera capture or initialization failure.
   ///
-  /// Failures are not converted into [onScannerInitialized] success callbacks.
-  /// Capture-time retained-control failures arrive here as
-  /// [CameraControlException]. Errors from later controller calls complete the
+  /// The controller has already been delivered through [onScannerInitialized]
+  /// when an initial capture fails and remains valid for retained configuration
+  /// updates or a later capture. Capture-time retained-control failures arrive
+  /// here as [CameraControlException]. Errors from controller calls complete the
   /// corresponding [Future] instead.
   final ValueChanged<PlatformException>? onCameraInitializeError;
 
@@ -142,21 +142,14 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
       }
     });
 
-    if (_isCameraVisible) {
-      await _captureCameraAndHandleResult(
-        onCaptured: _notifyScannerInitialized,
-      );
-    } else {
-      _notifyScannerInitialized();
-    }
+    _notifyScannerInitialized();
+    if (_isCameraVisible) await _captureCameraAndHandleResult();
   }
 
-  /// Captures this view, reports failures, and runs an optional success action.
-  Future<void> _captureCameraAndHandleResult({VoidCallback? onCaptured}) async {
+  /// Captures this view and reports failures independently from controller creation.
+  Future<void> _captureCameraAndHandleResult() async {
     try {
       await _captureCamera();
-      if (!mounted) return;
-      onCaptured?.call();
     } on PlatformException catch (error) {
       if (!mounted) return;
       final onError = widget.onCameraInitializeError;

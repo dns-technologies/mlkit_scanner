@@ -56,6 +56,47 @@ void main() {
       );
     });
 
+    testWidgets(
+        'exposes controller before capture and retains an initialization crop',
+        (tester) async {
+      BarcodeScannerController? controller;
+      captureCompletion = Completer<void>();
+      const cropRect = CropRect(scaleWidth: 0.7, scaleHeight: 0.4);
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) {
+            controller = value;
+            unawaited(value.setCropArea(cropRect));
+          },
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+
+      preview.onCameraInitialized(17);
+      await tester.pump();
+      await tester.pump();
+
+      expect(controller, isNotNull);
+      expect(
+        calls.map((call) => call.method),
+        containsAllInOrder(<String>['setCropAreaMethod', 'captureCamera']),
+      );
+      expect(
+        calls
+            .firstWhere((call) => call.method == 'setCropAreaMethod')
+            .arguments,
+        {
+          'viewId': 17,
+          'cropRect': cropRect.toJson(),
+        },
+      );
+
+      captureCompletion!.complete();
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('disposing a widget does not cancel the shared scan',
         (tester) async {
       BarcodeScannerController? controller;
@@ -339,7 +380,7 @@ void main() {
       );
     });
 
-    testWidgets('A B A waits for initialization and publishes controller once',
+    testWidgets('A B A publishes controller once while capture is pending',
         (tester) async {
       BarcodeScannerController? controller;
       var initializationCount = 0;
@@ -372,7 +413,8 @@ void main() {
         calls.where((call) => call.method == 'captureCamera'),
         hasLength(2),
       );
-      expect(controller, isNull);
+      expect(controller, isNotNull);
+      expect(initializationCount, 1);
 
       captureCompletion!.complete();
       await tester.pumpAndSettle();
@@ -425,7 +467,7 @@ void main() {
         CameraControlOperation.torch,
       );
       expect(reportedError.viewId, 17);
-      expect(controller, isNull);
+      expect(controller, isNotNull);
       expect(tester.takeException(), isNull);
     });
   });
