@@ -16,7 +16,7 @@ internal class ToggleFlashCommand(
         call: MethodCall,
         result: Result,
     ) {
-        requireScannerSession().toggleFlashLight(ScannerMethodArguments.viewId(call.arguments))
+        scannerSessionProvider()?.toggleFlashLight(ScannerMethodArguments.viewId(call.arguments))
         success(result)
     }
 }

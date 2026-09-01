@@ -254,7 +254,7 @@ class XCamera(
                         viewPort,
                     )
                     bindingState = bound
-                    observeCameraState(bound)
+                    observeCameraAvailability(bound)
                     try {
                         current.onInit()
                     } catch (error: Exception) {
@@ -314,6 +314,7 @@ class XCamera(
                 useCaseGroup = useCaseGroup,
                 viewPort = viewPort,
                 cameraStateObserver = createCameraStateObserver(camera),
+                previewStreamStateObserver = createPreviewStreamStateObserver(camera),
             )
         } catch (error: Exception) {
             imageAnalysis.clearAnalyzer()
@@ -331,7 +332,7 @@ class XCamera(
         try {
             provider.unbind(current.preview, current.imageAnalysis)
         } catch (error: Exception) {
-            observeCameraState(current)
+            observeCameraAvailability(current)
             Log.w(TAG, "Unable to unbind CameraX use cases for viewport update", error)
             return
         }
@@ -346,7 +347,7 @@ class XCamera(
                 viewPort,
             )
             bindingState = replacement
-            observeCameraState(replacement)
+            observeCameraAvailability(replacement)
             current.imageAnalysis.clearAnalyzer()
         } catch (error: Exception) {
             try {
@@ -360,10 +361,13 @@ class XCamera(
                     cameraStateObserver = createCameraStateObserver(
                         restoredCamera,
                     ),
+                    previewStreamStateObserver = createPreviewStreamStateObserver(restoredCamera),
                     availability = CameraAvailability.Closed(),
+                    cameraState = null,
+                    previewStreamState = null,
                 )
                 bindingState = restored
-                observeCameraState(restored)
+                observeCameraAvailability(restored)
             } catch (restoreError: Exception) {
                 current.imageAnalysis.clearAnalyzer()
                 bindingState = BindingState.Idle
@@ -426,18 +430,24 @@ class XCamera(
         }
     }
 
-    /** Subscribes to device state and immediately processes the latest available value. */
-    private fun observeCameraState(current: BoundCamera) {
+    /** Reports OPEN only after both the camera device and preview stream are ready. */
+    private fun observeCameraAvailability(current: BoundCamera) {
         current.camera.cameraInfo.cameraState.observeForever(current.cameraStateObserver)
+        cameraPreviewView.previewStreamState.observeForever(current.previewStreamStateObserver)
         onCameraStateChanged(
             current.camera,
             current.camera.cameraInfo.cameraState.value,
         )
+        onPreviewStreamStateChanged(
+            current.camera,
+            cameraPreviewView.previewStreamState.value,
+        )
     }
 
-    /** Removes the device-state observer and reports that this binding is no longer open. */
+    /** Removes readiness observers and reports that this binding is no longer open. */
     private fun stopObservingCameraState(current: BoundCamera) {
         current.camera.cameraInfo.cameraState.removeObserver(current.cameraStateObserver)
+        cameraPreviewView.previewStreamState.removeObserver(current.previewStreamStateObserver)
         updateAvailability(current, CameraAvailability.Closed())
     }
 
@@ -449,17 +459,43 @@ class XCamera(
     private fun createCameraStateObserver(camera: AndroidXCamera) =
         Observer<AndroidXCameraState> { state -> onCameraStateChanged(camera, state) }
 
-    /** Forwards only OPEN/CLOSED availability when the event belongs to the active binding. */
+    /** Creates a preview-stream observer tied to one concrete CameraX binding. */
+    private fun createPreviewStreamStateObserver(camera: AndroidXCamera) =
+        Observer<PreviewView.StreamState> { state -> onPreviewStreamStateChanged(camera, state) }
+
+    /** Retains device state and publishes combined camera/preview readiness. */
     private fun onCameraStateChanged(
         sourceCamera: AndroidXCamera,
         state: AndroidXCameraState?,
     ) {
         val current = bindingState as? BoundCamera ?: return
         if (current.camera !== sourceCamera) return
-        val availability = if (state?.type == AndroidXCameraState.Type.OPEN) {
+        current.cameraState = state
+        publishAvailability(current)
+    }
+
+    /** Retains whether PreviewView has received frames for the active binding. */
+    private fun onPreviewStreamStateChanged(
+        sourceCamera: AndroidXCamera,
+        state: PreviewView.StreamState?,
+    ) {
+        val current = bindingState as? BoundCamera ?: return
+        if (current.camera !== sourceCamera) return
+        current.previewStreamState = state
+        publishAvailability(current)
+    }
+
+    /** Converts CameraX device and stream state into the adapter's stable readiness event. */
+    private fun publishAvailability(current: BoundCamera) {
+        val cameraState = current.cameraState
+        val isReady = isCameraReadyForControls(
+            cameraState?.type,
+            current.previewStreamState,
+        )
+        val availability = if (isReady) {
             CameraAvailability.Open
         } else {
-            val stateError = state?.error
+            val stateError = cameraState?.error
             CameraAvailability.Closed(
                 errorCode = stateError?.code,
                 cause = stateError?.cause,
@@ -520,7 +556,10 @@ class XCamera(
         val useCaseGroup: UseCaseGroup,
         val viewPort: ViewPort,
         val cameraStateObserver: Observer<AndroidXCameraState>,
+        val previewStreamStateObserver: Observer<PreviewView.StreamState>,
         var availability: CameraAvailability = CameraAvailability.Closed(),
+        var cameraState: AndroidXCameraState? = null,
+        var previewStreamState: PreviewView.StreamState? = null,
     ) : BindingState
 
     /** Preview size changes are handled in place; transform changes require a rebind. */
@@ -549,3 +588,11 @@ class XCamera(
             .build()
     }
 }
+
+/** Camera controls are stable only after PreviewView has received a frame from an open device. */
+internal fun isCameraReadyForControls(
+    cameraState: AndroidXCameraState.Type?,
+    previewStreamState: PreviewView.StreamState?,
+): Boolean =
+    cameraState == AndroidXCameraState.Type.OPEN &&
+        previewStreamState == PreviewView.StreamState.STREAMING

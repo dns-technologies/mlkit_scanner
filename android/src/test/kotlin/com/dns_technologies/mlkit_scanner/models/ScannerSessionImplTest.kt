@@ -89,6 +89,50 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
+    fun `disposing A cancels its pending startup and lets B capture without an error`() =
+        runSessionTest {
+            val fixture = Fixture()
+            fixture.attach(SECOND_VIEW_ID)
+            val firstZoom = CompletableDeferred<Unit>()
+            fixture.enqueueZoomResult(firstZoom)
+            val firstCapture = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.captureCamera(FIRST_VIEW_ID, null, null)
+            }
+            fixture.completeInitialization()
+
+            assertFalse(firstCapture.isCompleted)
+            fixture.session.disposeView(FIRST_VIEW_ID)
+            val secondCapture = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.captureCamera(SECOND_VIEW_ID, null, null)
+            }
+
+            withTimeout(TEST_TIMEOUT_MS) { awaitAll(firstCapture, secondCapture) }
+
+            assertTrue(firstZoom.isCancelled)
+            assertTrue(fixture.hasPreview(SECOND_VIEW_ID))
+            verify(fixture.scanner).showPreview()
+        }
+
+    @Test
+    fun `late disposal from an old platform view cannot remove its replacement`() =
+        runSessionTest {
+            val fixture = Fixture()
+            val oldView = fixture.view(FIRST_VIEW_ID)
+            fixture.session.disposeView(FIRST_VIEW_ID)
+            val replacement = fixture.attach(FIRST_VIEW_ID)
+
+            fixture.session.disposeView(FIRST_VIEW_ID, oldView)
+            val capture = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.captureCamera(FIRST_VIEW_ID, null, null)
+            }
+            fixture.completeInitialization()
+            withTimeout(TEST_TIMEOUT_MS) { capture.await() }
+
+            verify(replacement).attachPreview(anyValue())
+            assertTrue(fixture.hasPreview(FIRST_VIEW_ID))
+        }
+
+    @Test
     fun `removing preview host does not infer a replacement`() {
         val fixture = Fixture()
         val first = fixture.view(FIRST_VIEW_ID)
@@ -881,6 +925,29 @@ internal class ScannerSessionImplTest {
         )
         verify(fixture.scanner, times(1)).setZoomRatio(0.75F)
     }
+
+    @Test
+    fun `recapturing the same view cancels its old command before restoring it`() =
+        runSessionTest {
+            val fixture = Fixture()
+            fixture.activateCamera(FIRST_VIEW_ID)
+            val oldZoom = CompletableDeferred<Unit>()
+            fixture.enqueueZoomResult(oldZoom)
+            clearInvocations(fixture.scanner)
+
+            val zoom = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.session.setZoomRatio(FIRST_VIEW_ID, 0.75F)
+            }
+            val recapture = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.captureCamera(FIRST_VIEW_ID, null, null)
+            }
+
+            withTimeout(TEST_TIMEOUT_MS) { awaitAll(zoom, recapture) }
+
+            assertTrue(oldZoom.isCancelled)
+            verify(fixture.scanner, times(2)).setZoomRatio(0.75F)
+            verify(fixture.scanner).showPreview()
+        }
 
     @Test
     fun `current canceled operation retries only after the next stable open`() = runSessionTest {
@@ -1806,7 +1873,7 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `start after release fails without restarting camera`() = runSessionTest {
+    fun `capture arriving after release is canceled without restarting camera`() = runSessionTest {
         val fixture = Fixture()
         fixture.session.release()
 
@@ -1814,7 +1881,7 @@ internal class ScannerSessionImplTest {
             fixture.captureCamera(FIRST_VIEW_ID, null, null)
         }.exceptionOrNull()
 
-        assertSame(PluginError.CameraSessionDisposed, error)
+        assertEquals(null, error)
         assertEquals(0, fixture.startCalls)
     }
 

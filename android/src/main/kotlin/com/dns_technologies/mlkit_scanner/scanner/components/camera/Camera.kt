@@ -14,12 +14,12 @@ typealias OnError = (e: Exception) -> Unit
 /** Callback invoked with a frame scoped to the duration of the callback. */
 typealias OnCameraFrame = (frame: CameraFrame) -> Unit
 
-/** Callback invoked when CameraX reports a stable OPEN or non-OPEN device state. */
+/** Callback invoked when the camera preview becomes ready or stops streaming. */
 typealias OnCameraAvailabilityChanged = (availability: CameraAvailability) -> Unit
 
 /** Device availability reported by the concrete camera adapter. */
 sealed interface CameraAvailability {
-    /** The bound camera device can accept control commands. */
+    /** The camera is open and the preview has started delivering frames. */
     data object Open : CameraAvailability
 
     /** The device is not open; an optional CameraX state error explains the transition. */

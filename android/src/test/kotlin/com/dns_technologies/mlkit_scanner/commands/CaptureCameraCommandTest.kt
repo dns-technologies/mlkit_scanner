@@ -17,6 +17,7 @@ import org.junit.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 
 internal class CaptureCameraCommandTest {
@@ -33,6 +34,25 @@ internal class CaptureCameraCommandTest {
 
         assertEquals(listOf("capture:$VIEW_ID", "complete:$VIEW_ID"), scannerSession.calls)
         verify(result).success(true)
+    }
+
+    @Test
+    fun `capture is canceled successfully when platform view session is already gone`() = runBlocking {
+        val permissionGateway = mock(PermissionGateway::class.java)
+        val result = mock(MethodChannel.Result::class.java)
+
+        CaptureCameraCommand(
+            scannerSessionProvider = { null },
+            permissionGateway = permissionGateway,
+            commandScope = CoroutineScope(Dispatchers.Unconfined),
+        ).execute(
+            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID)),
+            result,
+        )
+
+        verify(result).success(true)
+        verify(permissionGateway, never()).requestPermissions(anyValue())
+        Unit
     }
 
     @Test

@@ -11,7 +11,7 @@ internal class ResumeCameraCommand(
     scannerSessionProvider: () -> ScannerSession?,
 ) : ScannerCommand(scannerSessionProvider) {
     override fun executeCommand(call: MethodCall, result: Result) {
-        requireScannerSession().resumeCamera(ScannerMethodArguments.viewId(call.arguments))
+        scannerSessionProvider()?.resumeCamera(ScannerMethodArguments.viewId(call.arguments))
         success(result)
     }
 }

@@ -14,7 +14,7 @@ internal class SetZoomRatioCommand(
 ) : AsyncScannerCommand(scannerSessionProvider, commandScope) {
     override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
         val arguments = ScannerMethodArguments.zoomRatio(call.arguments)
-        requireScannerSession().setZoomRatio(arguments.viewId, arguments.value)
+        scannerSessionProvider()?.setZoomRatio(arguments.viewId, arguments.value)
         success(result)
     }
 }

@@ -23,7 +23,7 @@ internal class ScannerCommandStateTest {
     private val commandScope = CoroutineScope(Dispatchers.Unconfined)
 
     @Test
-    fun `commands requiring a session report camera not initialized when it is absent`() {
+    fun `view commands are canceled successfully when their session is already gone`() {
         val executions = listOf<(MethodChannel.Result) -> Unit>(
             { result ->
                 StartScanCommand { null }.execute(
@@ -75,11 +75,7 @@ internal class ScannerCommandStateTest {
         executions.forEach { execute ->
             val result = mock(MethodChannel.Result::class.java)
             execute(result)
-            verify(result).error(
-                PluginError.CameraIsNotInitialized.errorCode,
-                PluginError.CameraIsNotInitialized.message,
-                null,
-            )
+            verify(result).success(true)
         }
     }
 

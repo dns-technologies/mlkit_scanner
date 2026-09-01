@@ -20,12 +20,16 @@ internal class CaptureCameraCommand(
 ) : BaseScannerCommand(scannerSessionProvider) {
     /** Validates the request before running the single session capture transaction. */
     fun execute(call: MethodCall, result: Result) {
-        val scannerSession: ScannerSession
         val viewId = try {
-            scannerSession = requireScannerSession()
             ScannerMethodArguments.viewId(call.arguments)
         } catch (error: Exception) {
             reportError(result, error)
+            return
+        }
+        val scannerSession: ScannerSession = scannerSessionProvider() ?: run {
+            // The platform view may have been disposed while this method-channel message was
+            // already in flight. Treat it as superseded work instead of failing a new screen.
+            success(result)
             return
         }
 

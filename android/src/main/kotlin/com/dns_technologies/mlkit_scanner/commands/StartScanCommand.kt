@@ -12,7 +12,7 @@ internal class StartScanCommand(
 ) : ScannerCommand(scannerSessionProvider) {
     override fun executeCommand(call: MethodCall, result: Result) {
         val options = ScannerMethodArguments.scanOptions(call.arguments)
-        requireScannerSession().startScan(options.viewId, options.periodMs)
+        scannerSessionProvider()?.startScan(options.viewId, options.periodMs)
         success(result)
     }
 }

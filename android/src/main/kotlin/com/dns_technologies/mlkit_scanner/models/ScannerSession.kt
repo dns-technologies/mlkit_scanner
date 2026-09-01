@@ -18,7 +18,8 @@ internal interface ScannerSession {
 
     /**
      * Selects one view, awaits that view's reusable initialization, then applies its retained state
-     * only if it still owns the camera.
+     * only if it still owns the camera. A request whose platform view was already disposed is
+     * treated as superseded work and completes without changing another view.
      */
     suspend fun captureCamera(
         viewId: Int,

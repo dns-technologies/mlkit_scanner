@@ -12,7 +12,7 @@ internal class SetCropAreaCommand(
 ) : ScannerCommand(scannerSessionProvider) {
     override fun executeCommand(call: MethodCall, result: Result) {
         val arguments = ScannerMethodArguments.cropRect(call.arguments)
-        requireScannerSession().setCropArea(arguments.viewId, arguments.value)
+        scannerSessionProvider()?.setCropArea(arguments.viewId, arguments.value)
         success(result)
     }
 }

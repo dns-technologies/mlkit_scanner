@@ -83,13 +83,14 @@ internal class ScannerSessionImpl(
         initialFlashEnabled: Boolean?,
     ): ScannerView {
         check(!releaseRequested) { "Cannot add a scanner view to a released session" }
-        val view = ScannerView(
+        lateinit var view: ScannerView
+        view = ScannerView(
             context = context,
             scanner = scanner,
             onFocusRequest = { resetDelayMs, offsetX, offsetY ->
                 requestFocus(viewId, resetDelayMs, offsetX, offsetY)
             },
-            onDispose = { disposePlatformView(viewId) },
+            onDispose = { disposePlatformView(viewId, view) },
         )
         registerView(viewId, view, initialZoomRatio, initialCropRect, initialFlashEnabled)
         return view
@@ -129,7 +130,7 @@ internal class ScannerSessionImpl(
         viewId: Int,
         requestCameraPermission: suspend () -> Boolean,
     ) {
-        if (releaseRequested) throw PluginError.CameraSessionDisposed
+        if (releaseRequested) return
         val result = CompletableDeferred<Unit>()
         dispatch(SessionEvent.Capture(viewId, requestCameraPermission, result))
         result.await()
@@ -164,7 +165,7 @@ internal class ScannerSessionImpl(
     }
 
     override suspend fun toggleFlashLight(viewId: Int) {
-        if (releaseRequested) throw PluginError.CameraSessionDisposed
+        if (releaseRequested) return
         val result = CompletableDeferred<Unit>()
         dispatch(SessionEvent.ToggleTorch(viewId, result))
         result.await()
@@ -183,7 +184,7 @@ internal class ScannerSessionImpl(
     }
 
     override suspend fun setZoomRatio(viewId: Int, value: Float) {
-        if (releaseRequested) throw PluginError.CameraSessionDisposed
+        if (releaseRequested) return
         val result = CompletableDeferred<Unit>()
         dispatch(SessionEvent.SetZoomRatio(viewId, value, result))
         result.await()
@@ -204,8 +205,8 @@ internal class ScannerSessionImpl(
     }
 
     /** Mirrors Flutter's native PlatformView disposal in JVM tests. */
-    internal fun disposeView(viewId: Int) {
-        dispatch(SessionEvent.DisposeView(viewId))
+    internal fun disposeView(viewId: Int, view: ScannerView? = null) {
+        dispatch(SessionEvent.DisposeView(viewId, view))
     }
 
     override fun release() {
@@ -246,7 +247,7 @@ internal class ScannerSessionImpl(
             is SessionEvent.CameraAvailabilityChanged -> onCameraAvailabilityChanged(event.value)
             is SessionEvent.OperationCompleted -> onOperationCompleted(event)
             is SessionEvent.HandoffExpired -> onHandoffExpired(event.handoff)
-            is SessionEvent.DisposeView -> onDisposeView(event.viewId)
+            is SessionEvent.DisposeView -> onDisposeView(event)
             SessionEvent.ReleaseSession -> releaseSession()
         }
     }
@@ -269,7 +270,7 @@ internal class ScannerSessionImpl(
     private fun onCapture(event: SessionEvent.Capture) {
         val viewState = views[event.viewId]
         if (viewState == null) {
-            event.result.completeExceptionally(PluginError.CameraIsNotInitialized)
+            event.result.complete(Unit)
             return
         }
 
@@ -516,7 +517,7 @@ internal class ScannerSessionImpl(
     private fun onSetZoomRatio(event: SessionEvent.SetZoomRatio) {
         val viewState = views[event.viewId]
         if (viewState == null) {
-            event.result.completeExceptionally(PluginError.CameraIsNotInitialized)
+            event.result.complete(Unit)
             return
         }
         if (!event.value.isFinite() || event.value <= 0.0F) {
@@ -545,7 +546,7 @@ internal class ScannerSessionImpl(
     private fun onToggleTorch(event: SessionEvent.ToggleTorch) {
         val viewState = views[event.viewId]
         if (viewState == null) {
-            event.result.completeExceptionally(PluginError.CameraIsNotInitialized)
+            event.result.complete(Unit)
             return
         }
         val activation = owner?.takeIf { it.viewState === viewState }
@@ -1081,23 +1082,24 @@ internal class ScannerSessionImpl(
         callbacks.forEach(mainHandler::removeCallbacks)
     }
 
-    private fun onDisposeView(viewId: Int) {
-        val viewState = views[viewId] ?: return
+    private fun onDisposeView(event: SessionEvent.DisposeView) {
+        val viewState = views[event.viewId] ?: return
+        if (event.view != null && viewState.view !== event.view) return
         if (owner?.viewState === viewState) releaseCurrentOwner(scheduleHandoff = true)
-        views.remove(viewId)
+        views.remove(event.viewId)
         viewState.captureRequests.toList().forEach {
-            it.result.completeExceptionally(PluginError.CameraIsNotInitialized)
+            it.result.complete(Unit)
         }
         viewState.configurationWaiters.toList().forEach {
-            it.result.completeExceptionally(PluginError.CameraIsNotInitialized)
+            it.result.complete(Unit)
         }
         viewState.view.setScanActive(false)
         if (views.isEmpty()) scheduleDeferredRelease()
         applyScanState()
     }
 
-    private fun disposePlatformView(viewId: Int) {
-        disposeView(viewId)
+    private fun disposePlatformView(viewId: Int, view: ScannerView) {
+        disposeView(viewId, view)
     }
 
     private fun scheduleDeferredRelease() {
@@ -1206,7 +1208,10 @@ internal class ScannerSessionImpl(
             val error: Throwable?,
         ) : SessionEvent
         data class HandoffExpired(val handoff: Handoff) : SessionEvent
-        data class DisposeView(val viewId: Int) : SessionEvent
+        data class DisposeView(
+            val viewId: Int,
+            val view: ScannerView?,
+        ) : SessionEvent
         data object ReleaseSession : SessionEvent
     }
 
