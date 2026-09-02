@@ -106,10 +106,19 @@ class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, Life
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
         this.binding = binding
         binding.addRequestPermissionsResultListener(this::listenPermissionResult)
+        // Riprende la camera dopo il config-change (es. rotazione)
+        if (!isLockedAutoResumeCamera && cameraLifecycle != null) {
+            cameraLifecycle?.resume()
+        }
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
         binding.removeRequestPermissionsResultListener(this::listenPermissionResult)
+        // Pausa la camera prima del config-change per evitare il crash
+        // "app passed NULL surface" di Camera1/CameraView durante la rotazione
+        if (camera?.isActive() == true) {
+            cameraLifecycle?.pause()
+        }
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
