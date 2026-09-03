@@ -26,6 +26,107 @@ final class ScannerMethodArgumentsTests: XCTestCase {
         XCTAssertEqual(registration.initialCropRect?.offsetY, -0.2)
     }
 
+    func testCodecNSNumberZeroAndOneRemainNumericValues() throws {
+        let zero = NSNumber(value: Int32(0))
+        let one = NSNumber(value: Int32(1))
+        let oneDouble = NSNumber(value: 1.0)
+
+        XCTAssertEqual(
+            try ScannerMethodArguments.viewId(["viewId": zero]),
+            0
+        )
+        let options = try ScannerMethodArguments.scanOptions([
+            "viewId": zero,
+            "type": zero,
+            "delay": NSNumber(value: Int32(150)),
+        ])
+        XCTAssertEqual(options.viewId, 0)
+        XCTAssertEqual(options.type, .barcodeRecognition)
+
+        let zoom = try ScannerMethodArguments.zoomRatio([
+            "viewId": zero,
+            "value": oneDouble,
+        ])
+        XCTAssertEqual(zoom.value, 1)
+
+        let crop = try ScannerMethodArguments.cropRect([
+            "viewId": zero,
+            "cropRect": [
+                "scaleWidth": oneDouble,
+                "scaleHeight": oneDouble,
+                "offsetX": NSNumber(value: 0.0),
+                "offsetY": NSNumber(value: 0.0),
+            ],
+        ])
+        XCTAssertEqual(crop.value.scaleWidth, 1)
+        XCTAssertEqual(crop.value.offsetX, 0)
+
+        let camera = try CameraData(arguments: [
+            "type": zero,
+            "position": one,
+        ])
+        XCTAssertEqual(camera.type, .builtInWideAngleCamera)
+        XCTAssertEqual(camera.position, .back)
+    }
+
+    func testCodecBooleanAndNumericScalarsAreStrictlySeparated() throws {
+        let codecBoolean = NSNumber(value: true)
+        let codecNumericZero = NSNumber(value: Int32(0))
+        let codecNumericOne = NSNumber(value: Int32(1))
+
+        XCTAssertTrue(try PlatformChannelScalar.bool(from: codecBoolean))
+        XCTAssertEqual(
+            try PlatformChannelScalar.number(from: codecNumericZero).intValue,
+            0
+        )
+        XCTAssertEqual(
+            try PlatformChannelScalar.number(from: codecNumericOne).intValue,
+            1
+        )
+        assertInvalid {
+            _ = try PlatformChannelScalar.number(from: codecBoolean)
+        }
+        assertInvalid {
+            _ = try PlatformChannelScalar.bool(from: codecNumericZero)
+        }
+        assertInvalid {
+            _ = try PlatformChannelScalar.bool(from: codecNumericOne)
+        }
+
+        let registration = try ScannerMethodArguments.viewRegistration([
+            "initialFlashEnabled": codecBoolean,
+        ])
+        XCTAssertEqual(registration.initialFlashEnabled, true)
+        assertInvalid {
+            _ = try ScannerMethodArguments.viewRegistration([
+                "initialFlashEnabled": codecNumericOne,
+            ])
+        }
+    }
+
+    func testNumericArgumentsRejectCodecBooleanValues() {
+        let codecBoolean = NSNumber(value: true)
+
+        assertInvalid {
+            _ = try ScannerMethodArguments.viewId(["viewId": codecBoolean])
+        }
+        assertInvalid {
+            _ = try ScannerMethodArguments.zoomRatio([
+                "viewId": NSNumber(value: Int32(0)),
+                "value": codecBoolean,
+            ])
+        }
+        assertInvalid {
+            _ = try CropRect(arguments: ["scaleWidth": codecBoolean])
+        }
+        assertInvalid {
+            _ = try CameraData(arguments: [
+                "type": codecBoolean,
+                "position": NSNumber(value: Int32(1)),
+            ])
+        }
+    }
+
     func testZeroCreationSizeDefersToUIKitLayout() throws {
         let registration = try ScannerMethodArguments.viewRegistration([
             "width": 0.0,

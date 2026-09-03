@@ -157,10 +157,7 @@ enum ScannerMethodArguments {
     /// Parses an optional Boolean channel value.
     private static func optionalBool(_ value: Any?) throws -> Bool? {
         guard let value = value, !(value is NSNull) else { return nil }
-        guard let value = value as? Bool else {
-            throw MlKitPluginError.invalidArguments
-        }
-        return value
+        return try PlatformChannelScalar.bool(from: value)
     }
 
     /// Parses an optional finite numeric channel value.
@@ -171,9 +168,7 @@ enum ScannerMethodArguments {
 
     /// Converts a numeric channel value to a finite double.
     private static func finiteDouble(_ value: Any?) throws -> Double {
-        guard !(value is Bool), let number = value as? NSNumber else {
-            throw MlKitPluginError.invalidArguments
-        }
+        let number = try PlatformChannelScalar.number(from: value)
         let result = number.doubleValue
         guard result.isFinite else {
             throw MlKitPluginError.invalidArguments
@@ -192,9 +187,7 @@ enum ScannerMethodArguments {
 
     /// Converts an exact, nonnegative channel number to `Int64`.
     private static func nonNegativeInt64(_ value: Any?) throws -> Int64 {
-        guard !(value is Bool), let number = value as? NSNumber else {
-            throw MlKitPluginError.invalidArguments
-        }
+        let number = try PlatformChannelScalar.number(from: value)
         let result = number.int64Value
         guard
             result >= 0,

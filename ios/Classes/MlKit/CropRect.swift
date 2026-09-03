@@ -38,11 +38,8 @@ struct CropRect {
             guard let rawValue = arguments[key], !(rawValue is NSNull) else {
                 return defaultValue
             }
-            guard
-                !(rawValue is Bool),
-                let number = rawValue as? NSNumber,
-                number.doubleValue.isFinite
-            else {
+            let number = try PlatformChannelScalar.number(from: rawValue)
+            guard number.doubleValue.isFinite else {
                 throw MlKitPluginError.invalidArguments
             }
             return CGFloat(number.doubleValue)

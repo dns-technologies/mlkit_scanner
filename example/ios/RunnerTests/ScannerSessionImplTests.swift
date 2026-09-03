@@ -4,6 +4,37 @@ import XCTest
 @testable import mlkit_scanner
 
 final class ScannerSessionImplTests: XCTestCase {
+    func testFirstCodecPlatformViewCanCaptureAndStartScan() throws {
+        let session = makeSession()
+        let viewId = try ScannerMethodArguments.viewId([
+            "viewId": NSNumber(value: Int32(0)),
+        ])
+        let options = try ScannerMethodArguments.scanOptions([
+            "viewId": NSNumber(value: Int32(0)),
+            "type": NSNumber(value: Int32(0)),
+            "delay": NSNumber(value: Int32(100)),
+        ])
+        let view = FakeCameraPreview(viewId: viewId)
+        session.attachView(viewId: viewId, view: view)
+        var captureCompletionCount = 0
+
+        session.captureCamera(viewId: viewId) { error in
+            XCTAssertNil(error)
+            captureCompletionCount += 1
+        }
+        try session.startScan(
+            viewId: options.viewId,
+            type: options.type,
+            delay: options.delay
+        )
+
+        XCTAssertEqual(viewId, 0)
+        XCTAssertEqual(captureCompletionCount, 1)
+        XCTAssertEqual(view.resumeCount, 1)
+        XCTAssertNotNil(view.recognitionHandler)
+        XCTAssertEqual(view.scanActiveValues.last, true)
+    }
+
     func testInitialCropIsAppliedToViewDuringRegistration() throws {
         let session = makeSession()
         let view = FakeCameraPreview(viewId: 1)
