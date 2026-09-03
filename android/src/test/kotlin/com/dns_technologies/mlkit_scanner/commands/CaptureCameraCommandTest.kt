@@ -22,6 +22,27 @@ import org.mockito.Mockito.verify
 
 internal class CaptureCameraCommandTest {
     @Test
+    fun `invalid arguments are reported by inherited async error handling`() = runBlocking {
+        val permissionGateway = mock(PermissionGateway::class.java)
+        val scannerSession = RecordingScannerSession()
+        val result = mock(MethodChannel.Result::class.java)
+
+        command(scannerSession, permissionGateway).execute(
+            MethodCall("captureCamera", emptyMap<String, Any>()),
+            result,
+        )
+
+        verify(result).error(
+            PluginError.InvalidArguments.errorCode,
+            PluginError.InvalidArguments.message,
+            null,
+        )
+        assertEquals(emptyList<String>(), scannerSession.calls)
+        verify(permissionGateway, never()).requestPermissions(anyValue())
+        Unit
+    }
+
+    @Test
     fun `capture delegates one permission-aware transaction to session`() = runBlocking {
         val permissionGateway = grantedPermissionGateway()
         val scannerSession = RecordingScannerSession()

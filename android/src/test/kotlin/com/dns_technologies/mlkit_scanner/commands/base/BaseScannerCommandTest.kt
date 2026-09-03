@@ -6,6 +6,7 @@ import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
@@ -55,7 +56,12 @@ internal class BaseScannerCommandTest {
         assertTrue((details.value["stackTrace"] as String).isNotBlank())
     }
 
-    private class TestCommand : BaseScannerCommand({ null }) {
+    private class TestCommand : ScannerCommand({ null }) {
+        override fun executeCommand(
+            call: MethodCall,
+            result: MethodChannel.Result,
+        ) = Unit
+
         fun completeSuccessfully(result: MethodChannel.Result) = success(result)
 
         fun completeWith(result: MethodChannel.Result, error: Exception) =
