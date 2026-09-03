@@ -28,149 +28,123 @@ internal object ScannerMethodArguments {
 
     /** Parses view registration arguments, including optional retained controls. */
     fun viewRegistration(arguments: Any?): ViewRegistration {
-        val map = arguments.requireMap()
+        val map = requireArgumentsMap(arguments)
         return ViewRegistration(
-            viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
-            initialZoomRatio = map.optionalFiniteDouble(PluginConstants.initialZoomRatioArgument)
-                ?.requirePositive(),
-            initialCropRect = map.optionalMap(PluginConstants.initialCropRectArgument)
-                ?.let(::cropRect),
-            initialFlashEnabled = map.optionalBoolean(PluginConstants.initialFlashEnabledArgument),
+            viewId = requireNonNegativeInt(map, PluginConstants.viewIdArgument),
+            initialZoomRatio = optionalFiniteDouble(map, PluginConstants.initialZoomRatioArgument)
+                ?.let(::validateZoomRatio),
+            initialCropRect = optionalMap(map, PluginConstants.initialCropRectArgument)
+                ?.let(::parseCropRect),
+            initialFlashEnabled = optionalBoolean(map, PluginConstants.initialFlashEnabledArgument),
         )
     }
 
     /** Parses the platform-view identity required by view-scoped commands. */
-    fun viewId(arguments: Any?): Int = arguments.requireMap()
-        .requireInt(PluginConstants.viewIdArgument, minimum = 0)
+    fun viewId(arguments: Any?): Int = requireNonNegativeInt(
+        requireArgumentsMap(arguments),
+        PluginConstants.viewIdArgument,
+    )
 
     /** Parses recognition type and non-negative delay for a scan start. */
     fun scanOptions(arguments: Any?): ScanOptions {
-        val map = arguments.requireMap()
-        val recognitionType = map.requireInt(RECOGNITION_TYPE_ARGUMENT, minimum = 0)
+        val map = requireArgumentsMap(arguments)
+        val recognitionType = requireNonNegativeInt(map, RECOGNITION_TYPE_ARGUMENT)
         if (recognitionType != BARCODE_RECOGNITION_TYPE) throw PluginError.InvalidArguments
         return ScanOptions(
-            viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
-            periodMs = map.requireInt(PluginConstants.delayArgument, minimum = 0),
+            viewId = requireNonNegativeInt(map, PluginConstants.viewIdArgument),
+            periodMs = requireNonNegativeInt(map, PluginConstants.delayArgument),
         )
     }
 
     /** Parses view identity and a positive absolute camera zoom ratio. */
-    fun zoomRatio(arguments: Any?): ViewValue<Float> = arguments.requireMap().let { map ->
-        ViewValue(
-            viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
-            value = map[PluginConstants.valueArgument]
-                .requireFiniteDouble()
-                .requirePositive()
-                .toFloat(),
+    fun zoomRatio(arguments: Any?): ViewValue<Float> {
+        val map = requireArgumentsMap(arguments)
+        val value = optionalFiniteDouble(map, PluginConstants.valueArgument)
+            ?: throw PluginError.InvalidArguments
+        return ViewValue(
+            viewId = requireNonNegativeInt(map, PluginConstants.viewIdArgument),
+            value = validateZoomRatio(value).toFloat(),
         )
     }
 
     /** Parses view identity and a non-negative cooldown after successful recognition. */
-    fun scanDelay(arguments: Any?): ViewValue<Int> = arguments.requireMap().let { map ->
-        ViewValue(
-            viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
-            value = map.requireInt(PluginConstants.delayArgument, minimum = 0),
+    fun scanDelay(arguments: Any?): ViewValue<Int> {
+        val map = requireArgumentsMap(arguments)
+        return ViewValue(
+            viewId = requireNonNegativeInt(map, PluginConstants.viewIdArgument),
+            value = requireNonNegativeInt(map, PluginConstants.delayArgument),
         )
     }
 
     /** Parses view identity and a finite crop rectangle with positive width and height scales. */
-    fun cropRect(arguments: Any?): ViewValue<RecognizeVisorCropRect> =
-        arguments.requireMap().let { map ->
-            ViewValue(
-                viewId = map.requireInt(PluginConstants.viewIdArgument, minimum = 0),
-                value = cropRect(map.requireMap(PluginConstants.cropRectArgument)),
-            )
-        }
+    fun cropRect(arguments: Any?): ViewValue<RecognizeVisorCropRect> {
+        val map = requireArgumentsMap(arguments)
+        val cropRect = optionalMap(map, PluginConstants.cropRectArgument)
+            ?: throw PluginError.InvalidArguments
+        return ViewValue(
+            viewId = requireNonNegativeInt(map, PluginConstants.viewIdArgument),
+            value = parseCropRect(cropRect),
+        )
+    }
 
     /** Converts an untyped crop map into validated normalized visor geometry. */
-    private fun cropRect(map: Map<*, *>): RecognizeVisorCropRect {
-        val scaleWidth = map.optionalFiniteDouble(SCALE_WIDTH_ARGUMENT) ?: DEFAULT_SCALE
-        val scaleHeight = map.optionalFiniteDouble(SCALE_HEIGHT_ARGUMENT) ?: DEFAULT_SCALE
+    private fun parseCropRect(map: Map<*, *>): RecognizeVisorCropRect {
+        val scaleWidth = optionalFiniteDouble(map, SCALE_WIDTH_ARGUMENT) ?: 1.0
+        val scaleHeight = optionalFiniteDouble(map, SCALE_HEIGHT_ARGUMENT) ?: 1.0
         if (scaleWidth <= 0.0 || scaleHeight <= 0.0) throw PluginError.InvalidArguments
         return RecognizeVisorCropRect(
             scaleWidth = scaleWidth,
             scaleHeight = scaleHeight,
-            centerOffsetX = map.optionalFiniteDouble(OFFSET_X_ARGUMENT) ?: DEFAULT_OFFSET,
-            centerOffsetY = map.optionalFiniteDouble(OFFSET_Y_ARGUMENT) ?: DEFAULT_OFFSET,
+            centerOffsetX = optionalFiniteDouble(map, OFFSET_X_ARGUMENT) ?: 0.0,
+            centerOffsetY = optionalFiniteDouble(map, OFFSET_Y_ARGUMENT) ?: 0.0,
         )
     }
 
-    /** Returns this value as a map or rejects malformed channel arguments. */
-    private fun Any?.requireMap(): Map<*, *> = this as? Map<*, *>
+    /** Returns channel arguments as a map or rejects a malformed envelope. */
+    private fun requireArgumentsMap(value: Any?): Map<*, *> = value as? Map<*, *>
         ?: throw PluginError.InvalidArguments
 
     /** Reads an optional nested map while rejecting values of another type. */
-    private fun Map<*, *>.optionalMap(key: String): Map<*, *>? = when (val value = this[key]) {
+    private fun optionalMap(map: Map<*, *>, key: String): Map<*, *>? = when (val value = map[key]) {
         null -> null
         is Map<*, *> -> value
         else -> throw PluginError.InvalidArguments
     }
 
     /** Reads an optional finite numeric value from this map. */
-    private fun Map<*, *>.optionalFiniteDouble(key: String): Double? = when (val value = this[key]) {
+    private fun optionalFiniteDouble(map: Map<*, *>, key: String): Double? = when (val value = map[key]) {
         null -> null
-        else -> value.requireFiniteDouble()
+        is Number -> value.toDouble().takeIf(Double::isFinite)
+            ?: throw PluginError.InvalidArguments
+        else -> throw PluginError.InvalidArguments
     }
 
     /** Reads an optional Boolean value from this map. */
-    private fun Map<*, *>.optionalBoolean(key: String): Boolean? = when (val value = this[key]) {
+    private fun optionalBoolean(map: Map<*, *>, key: String): Boolean? = when (val value = map[key]) {
         null -> null
         is Boolean -> value
         else -> throw PluginError.InvalidArguments
     }
 
-    /** Reads a required nested map. */
-    private fun Map<*, *>.requireMap(key: String): Map<*, *> =
-        optionalMap(key) ?: throw PluginError.InvalidArguments
-
-    /** Reads a required integral number no smaller than [minimum]. */
-    private fun Map<*, *>.requireInt(key: String, minimum: Int): Int =
-        this[key].requireInt(minimum)
-
-    /** Converts any numeric channel value to a finite [Double]. */
-    private fun Any?.requireFiniteDouble(): Double {
-        val value = (this as? Number)?.toDouble() ?: throw PluginError.InvalidArguments
-        if (!value.isFinite()) throw PluginError.InvalidArguments
-        return value
+    /** Reads a required non-negative integral number that fits in an [Int]. */
+    private fun requireNonNegativeInt(map: Map<*, *>, key: String): Int {
+        val value = (map[key] as? Number)?.toDouble()
+            ?: throw PluginError.InvalidArguments
+        if (
+            !value.isFinite() ||
+            value % 1.0 != 0.0 ||
+            value !in 0.0..Int.MAX_VALUE.toDouble()
+        ) {
+            throw PluginError.InvalidArguments
+        }
+        return value.toInt()
     }
 
-    /** Converts an exact integral channel number to an [Int] no smaller than [minimum]. */
-    private fun Any?.requireInt(minimum: Int): Int {
-        val value = when (this) {
-            is Byte -> toInt()
-            is Short -> toInt()
-            is Int -> this
-            is Long -> if (this in Int.MIN_VALUE..Int.MAX_VALUE) toInt() else null
-            is Float -> if (
-                isFinite() &&
-                toDouble() >= Int.MIN_VALUE.toDouble() &&
-                toDouble() <= Int.MAX_VALUE.toDouble() &&
-                this % 1.0F == 0.0F
-            ) {
-                toInt()
-            } else {
-                null
-            }
-            is Double -> if (
-                isFinite() &&
-                this >= Int.MIN_VALUE.toDouble() &&
-                this <= Int.MAX_VALUE.toDouble() &&
-                this % 1.0 == 0.0
-            ) {
-                toInt()
-            } else {
-                null
-            }
-            else -> null
-        } ?: throw PluginError.InvalidArguments
-        if (value < minimum) throw PluginError.InvalidArguments
+    /** Preserves a positive zoom ratio only when its camera [Float] representation is valid. */
+    private fun validateZoomRatio(value: Double): Double {
+        val floatValue = value.toFloat()
+        if (!floatValue.isFinite() || floatValue <= 0.0F) throw PluginError.InvalidArguments
         return value
-    }
-
-    /** Returns this finite value when it is a valid absolute zoom ratio. */
-    private fun Double.requirePositive(): Double {
-        if (this <= 0.0) throw PluginError.InvalidArguments
-        return this
     }
 
     private const val RECOGNITION_TYPE_ARGUMENT = "type"
@@ -179,6 +153,4 @@ internal object ScannerMethodArguments {
     private const val OFFSET_X_ARGUMENT = "offsetX"
     private const val OFFSET_Y_ARGUMENT = "offsetY"
     private const val BARCODE_RECOGNITION_TYPE = 0
-    private const val DEFAULT_SCALE = 1.0
-    private const val DEFAULT_OFFSET = 0.0
 }

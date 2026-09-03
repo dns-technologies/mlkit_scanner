@@ -48,6 +48,17 @@ internal class ScannerMethodArgumentsTest {
     }
 
     @Test
+    fun `initial zoom ratio requires a positive finite Float representation`() {
+        listOf(Double.MIN_VALUE, Double.MAX_VALUE).forEach { initialZoomRatio ->
+            assertInvalid {
+                ScannerMethodArguments.viewRegistration(
+                    mapOf("viewId" to 1, "initialZoomRatio" to initialZoomRatio),
+                )
+            }
+        }
+    }
+
+    @Test
     fun `scan options require barcode type and non-negative integer delay`() {
         assertEquals(
             ScannerMethodArguments.ScanOptions(viewId = 42, periodMs = 150),
@@ -77,7 +88,15 @@ internal class ScannerMethodArgumentsTest {
             ScannerMethodArguments.zoomRatio(mapOf("viewId" to 42, "value" to 3.0)),
         )
 
-        listOf(Double.NaN, Double.POSITIVE_INFINITY, -0.01, 0.0, "2.0").forEach { value ->
+        listOf(
+            Double.NaN,
+            Double.POSITIVE_INFINITY,
+            Double.MIN_VALUE,
+            Double.MAX_VALUE,
+            -0.01,
+            0.0,
+            "2.0",
+        ).forEach { value ->
             assertInvalid {
                 ScannerMethodArguments.zoomRatio(mapOf("viewId" to 42, "value" to value))
             }
@@ -136,6 +155,24 @@ internal class ScannerMethodArgumentsTest {
         ).forEach { arguments ->
             assertInvalid { ScannerMethodArguments.viewId(arguments) }
         }
+    }
+
+    @Test
+    fun `view identity preserves exact integral values across supported number types`() {
+        listOf<Number>(
+            42.toByte(),
+            42.toShort(),
+            42,
+            42L,
+            42.0F,
+            42.0,
+        ).forEach { value ->
+            assertEquals(42, ScannerMethodArguments.viewId(mapOf("viewId" to value)))
+        }
+        assertEquals(
+            Int.MAX_VALUE,
+            ScannerMethodArguments.viewId(mapOf("viewId" to Int.MAX_VALUE.toDouble())),
+        )
     }
 
     private fun assertInvalid(block: () -> Unit) {
