@@ -33,11 +33,14 @@ struct CropRect {
     
     /// Creates validated crop geometry from Flutter platform-channel arguments.
     init(arguments: [String: Any]) throws {
-        /// Reads one required finite numeric argument.
-        func finiteValue(_ key: String) throws -> CGFloat {
+        /// Reads one finite numeric argument or its cross-platform default.
+        func finiteValue(_ key: String, default defaultValue: CGFloat) throws -> CGFloat {
+            guard let rawValue = arguments[key], !(rawValue is NSNull) else {
+                return defaultValue
+            }
             guard
-                !(arguments[key] is Bool),
-                let number = arguments[key] as? NSNumber,
+                !(rawValue is Bool),
+                let number = rawValue as? NSNumber,
                 number.doubleValue.isFinite
             else {
                 throw MlKitPluginError.invalidArguments
@@ -45,14 +48,14 @@ struct CropRect {
             return CGFloat(number.doubleValue)
         }
 
-        let scaleWidth = try finiteValue("scaleWidth")
-        let scaleHeight = try finiteValue("scaleHeight")
+        let scaleWidth = try finiteValue("scaleWidth", default: 1)
+        let scaleHeight = try finiteValue("scaleHeight", default: 1)
         guard scaleWidth > 0, scaleHeight > 0 else {
             throw MlKitPluginError.invalidArguments
         }
         self.scaleWidth = scaleWidth
         self.scaleHeight = scaleHeight
-        self.offsetX = try finiteValue("offsetX")
-        self.offsetY = try finiteValue("offsetY")
+        self.offsetX = try finiteValue("offsetX", default: 0)
+        self.offsetY = try finiteValue("offsetY", default: 0)
     }
 }

@@ -22,7 +22,7 @@ protocol ScannerSession: AnyObject {
     func resumeCamera(viewId: Int64, completion: @escaping ScannerSessionCompletion)
     /// Toggles retained torch state and touches hardware only while the view is active.
     func toggleFlash(viewId: Int64) throws
-    /// Starts recognition with the platform-specific initial and result cooldown.
+    /// Starts recognition immediately, then uses result-based cooldowns.
     func startScan(viewId: Int64, type: RecognitionType, delay: Int) throws
     /// Stops recognition requested by a view without pausing its camera.
     func cancelScan(viewId: Int64)

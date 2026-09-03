@@ -48,7 +48,13 @@ enum ScannerMethodArguments {
         let height = try optionalDouble(values[PluginConstants.heightArgument])
         let size: CGSize?
         if let width = width, let height = height, width >= 0, height >= 0 {
-            size = CGSize(width: width, height: height)
+            if width > 0, height > 0 {
+                size = CGSize(width: width, height: height)
+            } else {
+                // Flutter may create a UiKitView before its first nonempty layout.
+                // Keep UIKit's frame authoritative instead of persisting zero geometry.
+                size = nil
+            }
         } else if width == nil, height == nil {
             size = nil
         } else {

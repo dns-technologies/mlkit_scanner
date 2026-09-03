@@ -18,9 +18,10 @@ protocol CameraPreviewDelegate: AnyObject {
 }
 
 /// Native iOS camera preview owned by one Flutter platform view.
-class CameraPreview: NSObject, FlutterPlatformView {
+class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
     /// Flutter identifier of the platform view that owns this preview.
     let viewId: Int64
+    let registrationToken: UUID
     private let preview: UIContainer
     private var scaleX, scaleY: CGFloat
     private var offsetX, offsetY: CGFloat
@@ -29,38 +30,74 @@ class CameraPreview: NSObject, FlutterPlatformView {
     private var camera: AVCaptureDevice?
     private var videoOutput: AVCaptureVideoDataOutput?
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private let frameStateLock = NSLock()
+    private let lifecycleLock = NSLock()
     /// Serializes physical camera-session work across every Flutter preview.
     ///
-    /// Separate queues allow `stopRunning` for a released route and
-    /// `startRunning` for its replacement to overlap on the same device.
-    private static let sessionQueue = DispatchQueue(
-        label: "mlkit_scanner.camera_session",
-        qos: .userInitiated
-    )
+    /// A single queue prevents one route from starting capture before the
+    /// previous route has finished releasing the physical camera.
+    private static let sessionQueueKey = DispatchSpecificKey<Void>()
+    private static let sessionQueue: DispatchQueue = {
+        let queue = DispatchQueue(
+            label: "mlkit_scanner.camera_session",
+            qos: .userInitiated
+        )
+        queue.setSpecific(key: sessionQueueKey, value: ())
+        return queue
+    }()
+    private let videoOutputQueue: DispatchQueue
     private var torchObserver: NSKeyValueObservation?
-    private let onDispose: (Int64) -> Void
-    private var isDisposed = false
+    private var captureSessionObservers: [NSObjectProtocol] = []
+    private var layoutReadyCompletions: [() -> Void] = []
+    private var streamingCompletion: ((Error?) -> Void)?
+    private var isStreaming = false
+    private var scannerOverlay: ScannerOverlay?
+    private let onDispose: (Int64, UUID) -> Void
+    private var disposed = false
     
     private let focusView: FocusView
-    weak var recognitionHandler: RecognitionHandler?
+    private weak var currentRecognitionHandler: RecognitionHandler?
+    var recognitionHandler: RecognitionHandler? {
+        get {
+            frameStateLock.lock()
+            defer { frameStateLock.unlock() }
+            return currentRecognitionHandler
+        }
+        set {
+            frameStateLock.lock()
+            currentRecognitionHandler = newValue
+            frameStateLock.unlock()
+        }
+    }
     weak var cameraPreviewDelegate: CameraPreviewDelegate?
     
     /// Creates a native preview without starting camera capture.
     init(
         frame: CGRect,
         viewId: Int64,
+        registrationToken: UUID = UUID(),
         offsetX: CGFloat = 0,
         offsetY: CGFloat = 0,
-        onDispose: @escaping (Int64) -> Void = { _ in }
+        onDispose: @escaping (Int64, UUID) -> Void = { _, _ in }
     ) {
         self.viewId = viewId
+        self.registrationToken = registrationToken
         self.onDispose = onDispose
+        videoOutputQueue = DispatchQueue(
+            label: "mlkit_scanner.video_output.\(viewId)",
+            qos: .userInitiated
+        )
         preview = UIContainer(frame: frame)
-        (scaleX, scaleY) = (frame.width / UIScreen.main.bounds.width, frame.height / UIScreen.main.bounds.height)
+        (scaleX, scaleY) = CameraPreview.previewScale(for: frame)
         (self.offsetX, self.offsetY) = (offsetX, offsetY)
-        let focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
-        self.focusPoint = focusPoint.normalized()
-        focusView = FocusView(frame: preview.frame, point: focusPoint.position())
+        focusPoint = PreviewGeometry.normalizedFocusPoint(offsetX: offsetX, offsetY: offsetY)
+        focusView = FocusView(
+            frame: preview.bounds,
+            point: PreviewGeometry.focusPosition(
+                in: preview.bounds,
+                normalizedPoint: focusPoint
+            )
+        )
         super.init()
         preview.delegate = self
         focusView.delegate = self
@@ -68,7 +105,35 @@ class CameraPreview: NSObject, FlutterPlatformView {
 
     deinit {
         dispose()
-        onDispose(viewId)
+        onDispose(viewId, registrationToken)
+    }
+
+    /// Whether UIKit has supplied finite, nonempty preview bounds.
+    var isLayoutReady: Bool {
+        PreviewGeometry.isLayoutReady(preview.bounds)
+    }
+
+    /// Whether resource teardown has already started.
+    private var isDisposed: Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return disposed
+    }
+
+    /// Calls `completion` after the preview first receives usable bounds.
+    func whenLayoutReady(_ completion: @escaping () -> Void) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.whenLayoutReady(completion)
+            }
+            return
+        }
+        guard !isDisposed else { return }
+        if isLayoutReady {
+            completion()
+        } else {
+            layoutReadyCompletions.append(completion)
+        }
     }
 
     /// Clears camera and overlay focus-lock state.
@@ -145,26 +210,28 @@ class CameraPreview: NSObject, FlutterPlatformView {
         let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
         self.previewLayer = previewLayer
         previewLayer.videoGravity = .resizeAspectFill
-        previewLayer.connection?.videoOrientation = getVideoOrientation()
-        previewLayer.frame = preview.frame
+        updateVideoOrientation()
+        previewLayer.frame = preview.bounds
         preview.layer.insertSublayer(previewLayer, at: 0)
         addFocusView()
 
         subscribeOrientationChanges()
-        self.observeTorchToggle()
+        observeCaptureSession(captureSession)
+        observeTorchToggle()
         CameraPreview.sessionQueue.async { [weak self] in
             guard let self = self, let session = self.captureSession else {
                 completion(MlKitPluginError.cameraIsNotInitialized)
                 return
             }
             let videoOutput = AVCaptureVideoDataOutput()
+            videoOutput.alwaysDiscardsLateVideoFrames = true
             videoOutput.videoSettings = [
                 kCVPixelBufferPixelFormatTypeKey as String:
                     Int(kCVPixelFormatType_32BGRA),
             ]
             videoOutput.setSampleBufferDelegate(
                 self,
-                queue: .global(qos: .userInitiated)
+                queue: self.videoOutputQueue
             )
             guard session.canAddOutput(videoOutput) else {
                 completion(MlKitPluginError.initCameraError)
@@ -191,7 +258,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
 
         let newInput = try AVCaptureDeviceInput.init(device: newCamera)
 
-        try CameraPreview.sessionQueue.sync {
+        try CameraPreview.syncOnSessionQueue {
             let currentInputs = session.inputs
             session.beginConfiguration()
             defer { session.commitConfiguration() }
@@ -222,24 +289,22 @@ class CameraPreview: NSObject, FlutterPlatformView {
         preview.addSubview(focusView)
     }
 
-    /// Calculates a focus point from normalized preview-center offsets.
-    private class func calcFocusPoint(preview: UIContainer, offsetX: CGFloat, offsetY: CGFloat) -> FocusPoint {
-        return FocusPoint(frame: preview.frame, offsetX: offsetX, offsetY: offsetY)
-    }
-
     /// Updates the camera and overlay focus point from normalized center offsets.
     func changeFocusCenter(offsetX: CGFloat, offsetY: CGFloat) {
         (self.offsetX, self.offsetY) = (offsetX, offsetY)
-        let focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
-        self.focusPoint = focusPoint.normalized()
-        focusView.changeFocusPoint(point: focusPoint.position())
+        focusPoint = PreviewGeometry.normalizedFocusPoint(offsetX: offsetX, offsetY: offsetY)
+        focusView.moveFocus(
+            to: PreviewGeometry.focusPosition(
+                in: preview.bounds,
+                normalizedPoint: focusPoint
+            )
+        )
     }
 
     /// Applies an explicit retained torch state.
     func setFlash(_ enabled: Bool) throws {
         guard
-            let session = captureSession,
-            session.isRunning,
+            captureSession != nil,
             let camera = camera,
             camera.isConnected
         else {
@@ -249,14 +314,36 @@ class CameraPreview: NSObject, FlutterPlatformView {
             if !enabled { return }
             throw MlKitPluginError.deviceHasNotFlash
         }
+        let requestedMode: AVCaptureDevice.TorchMode = enabled ? .on : .off
+        guard camera.isTorchModeSupported(requestedMode) else {
+            if !enabled { return }
+            throw MlKitPluginError.deviceHasNotFlash
+        }
         try camera.lockForConfiguration()
-        camera.torchMode = enabled ? .on : .off
-        camera.unlockForConfiguration()
+        defer { camera.unlockForConfiguration() }
+        camera.torchMode = requestedMode
     }
 
     /// Clears focus state retained by a previous camera owner.
     func resetFocus() {
         clearFocusLock()
+    }
+
+    /// Updates the recognition rectangle and its focus center.
+    func setCropArea(_ cropRect: CropRect) {
+        changeFocusCenter(offsetX: cropRect.offsetX, offsetY: cropRect.offsetY)
+        if let scannerOverlay = scannerOverlay {
+            scannerOverlay.updateCropRect(rect: cropRect)
+        } else {
+            let scannerOverlay = ScannerOverlay(cropRect: cropRect)
+            self.scannerOverlay = scannerOverlay
+            preview.insertSubview(scannerOverlay, belowSubview: focusView)
+        }
+    }
+
+    /// Updates whether the scanner overlay indicates active recognition.
+    func setScanActive(_ isActive: Bool) {
+        scannerOverlay?.isActive = isActive
     }
 
     /// Stops the capture session asynchronously without releasing its resources.
@@ -266,9 +353,13 @@ class CameraPreview: NSObject, FlutterPlatformView {
                 completion()
                 return
             }
+            let pendingStreamingCompletion = self.streamingCompletion
+            self.streamingCompletion = nil
+            self.isStreaming = false
             if let session = self.captureSession, session.isRunning {
                 session.stopRunning()
             }
+            pendingStreamingCompletion?(nil)
             completion()
         }
     }
@@ -278,58 +369,108 @@ class CameraPreview: NSObject, FlutterPlatformView {
     /// `completion` receives an error when the camera is not initialized.
     func resumeCamera(completion: @escaping (Error?) -> ()) {
         CameraPreview.sessionQueue.async { [weak self] in
-            guard let session = self?.captureSession, let camera = self?.camera, camera.isConnected else {
+            guard let self = self,
+                  !self.isDisposed,
+                  let session = self.captureSession,
+                  let camera = self.camera,
+                  camera.isConnected else {
                 completion(MlKitPluginError.cameraIsNotInitialized)
                 return
             }
+            if session.isRunning, self.isStreaming {
+                completion(nil)
+                return
+            }
+            self.streamingCompletion = completion
+            self.isStreaming = false
             if !session.isRunning {
                 session.startRunning()
             }
-            completion(nil)
+            if !session.isRunning {
+                let pendingCompletion = self.streamingCompletion
+                self.streamingCompletion = nil
+                pendingCompletion?(MlKitPluginError.initCameraError)
+            }
         }
     }
 
     /// Idempotently releases capture, observation, and preview resources.
     func dispose() {
-        guard !isDisposed else { return }
-        isDisposed = true
+        lifecycleLock.lock()
+        guard !disposed else {
+            lifecycleLock.unlock()
+            return
+        }
+        disposed = true
+        lifecycleLock.unlock()
+        layoutReadyCompletions.removeAll()
         torchObserver?.invalidate()
         torchObserver = nil
+        captureSessionObservers.forEach(NotificationCenter.default.removeObserver)
+        captureSessionObservers.removeAll()
         NotificationCenter.default.removeObserver(self)
         recognitionHandler = nil
         cameraPreviewDelegate = nil
+        scannerOverlay?.removeFromSuperview()
+        scannerOverlay = nil
         previewLayer?.removeFromSuperlayer()
         previewLayer = nil
-        videoOutput?.setSampleBufferDelegate(nil, queue: nil)
-        let session = captureSession
-        captureSession = nil
-        camera = nil
-        videoOutput = nil
+        let resources = CameraPreview.syncOnSessionQueue { () -> (
+            AVCaptureSession?,
+            AVCaptureVideoDataOutput?,
+            ((Error?) -> Void)?
+        ) in
+            let resources = (captureSession, videoOutput, streamingCompletion)
+            streamingCompletion = nil
+            isStreaming = false
+            captureSession = nil
+            camera = nil
+            videoOutput = nil
+            return resources
+        }
+        resources.1?.setSampleBufferDelegate(nil, queue: nil)
         CameraPreview.sessionQueue.async {
-            if let session = session, session.isRunning {
+            if let session = resources.0, session.isRunning {
                 session.stopRunning()
             }
+            resources.2?(MlKitPluginError.cameraSessionDisposed)
         }
-    }
-
-    /// Adds a scanner overlay below the focus gesture view.
-    func addSubview(_ view: UIView) {
-        preview.insertSubview(view, belowSubview: focusView)
     }
 
     /// Subscribes to interface-orientation changes affecting preview output.
     private func subscribeOrientationChanges() {
-        NotificationCenter.default.addObserver(self, selector: #selector(self.onOrientationChanges), name: UIApplication.didChangeStatusBarOrientationNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onOrientationChanges),
+            name: UIDevice.orientationDidChangeNotification,
+            object: nil
+        )
     }
 
     /// Updates the preview connection after interface orientation changes.
     @objc private func onOrientationChanges() {
-        previewLayer?.connection?.videoOrientation = getVideoOrientation()
+        updateVideoOrientation()
     }
 
-    /// Maps the current status-bar orientation to camera output orientation.
+    /// Applies the current interface orientation when the preview connection supports it.
+    private func updateVideoOrientation() {
+        guard let connection = previewLayer?.connection,
+              connection.isVideoOrientationSupported else {
+            return
+        }
+        connection.videoOrientation = getVideoOrientation()
+    }
+
+    /// Maps the current interface orientation to camera output orientation.
     private func getVideoOrientation() -> AVCaptureVideoOrientation {
-        switch UIApplication.shared.statusBarOrientation {
+        let interfaceOrientation: UIInterfaceOrientation
+        if #available(iOS 13.0, *),
+           let windowOrientation = preview.window?.windowScene?.interfaceOrientation {
+            interfaceOrientation = windowOrientation
+        } else {
+            interfaceOrientation = UIApplication.shared.statusBarOrientation
+        }
+        switch interfaceOrientation {
         case .landscapeRight:
             return .landscapeRight
         case .landscapeLeft:
@@ -350,6 +491,7 @@ class CameraPreview: NSObject, FlutterPlatformView {
         }
         let zoomRatio = CGFloat(value)
         guard
+            zoomRatio.isFinite,
             zoomRatio >= camera.minAvailableVideoZoomFactor,
             zoomRatio <= camera.maxAvailableVideoZoomFactor
         else {
@@ -368,12 +510,85 @@ class CameraPreview: NSObject, FlutterPlatformView {
             self.cameraPreviewDelegate?.onToggleTorch(value: isActive, viewId: self.viewId)
         }
     }
+
+    /// Observes unexpected capture stops so a pending activation never hangs.
+    private func observeCaptureSession(_ session: AVCaptureSession) {
+        let runtimeErrorObserver = NotificationCenter.default.addObserver(
+            forName: .AVCaptureSessionRuntimeError,
+            object: session,
+            queue: nil
+        ) { [weak self] notification in
+            let error = notification.userInfo?[AVCaptureSessionErrorKey] as? Error
+                ?? MlKitPluginError.initCameraError
+            CameraPreview.sessionQueue.async {
+                self?.finishPendingStreaming(error: error)
+            }
+        }
+        let interruptedObserver = NotificationCenter.default.addObserver(
+            forName: .AVCaptureSessionWasInterrupted,
+            object: session,
+            queue: nil
+        ) { [weak self] _ in
+            CameraPreview.sessionQueue.async {
+                self?.isStreaming = false
+            }
+        }
+        captureSessionObservers = [runtimeErrorObserver, interruptedObserver]
+    }
+
+    /// Completes the active start request after the first frame or an error.
+    private func finishPendingStreaming(error: Error?) {
+        if error == nil {
+            guard captureSession?.isRunning == true else { return }
+            isStreaming = true
+        } else {
+            isStreaming = false
+        }
+        let completion = streamingCompletion
+        streamingCompletion = nil
+        completion?(error)
+    }
+
+    /// Returns preview-to-screen scale without propagating invalid geometry.
+    private static func previewScale(for bounds: CGRect) -> (CGFloat, CGFloat) {
+        let screenBounds = UIScreen.main.bounds
+        guard bounds.isFinite,
+              screenBounds.width > 0,
+              screenBounds.height > 0 else {
+            return (0, 0)
+        }
+        return (
+            bounds.width / screenBounds.width,
+            bounds.height / screenBounds.height
+        )
+    }
+
+    /// Executes one short state transaction on the shared capture-session queue.
+    private static func syncOnSessionQueue<T>(_ operation: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: sessionQueueKey) != nil {
+            return try operation()
+        }
+        return try sessionQueue.sync(execute: operation)
+    }
 }
 
 extension CameraPreview: AVCaptureVideoDataOutputSampleBufferDelegate {
     /// Forwards camera frames to the currently active recognition handler.
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        recognitionHandler?.processVideoOutput(sampleBuffer: sampleBuffer, scaleX: scaleX, scaleY: scaleY, orientation: connection.videoOrientation)
+        CameraPreview.sessionQueue.async { [weak self] in
+            self?.finishPendingStreaming(error: nil)
+        }
+        frameStateLock.lock()
+        let handler = currentRecognitionHandler
+        let currentScaleX = scaleX
+        let currentScaleY = scaleY
+        frameStateLock.unlock()
+        handler?.processVideoOutput(
+            sampleBuffer: sampleBuffer,
+            scaleX: currentScaleX,
+            scaleY: currentScaleY,
+            orientation: connection.videoOrientation
+        )
     }
 }
 
@@ -397,16 +612,28 @@ extension CameraPreview: FocusViewDelegate {
         }
         do {
             try camera.lockForConfiguration()
-            camera.focusPointOfInterest = focusPoint
-            camera.exposurePointOfInterest = focusPoint
-            if (needLock) {
-                camera.exposureMode = .autoExpose
-                camera.focusMode = .autoFocus
-            } else {
-                camera.exposureMode = .continuousAutoExposure
-                camera.focusMode = .continuousAutoFocus
+            defer { camera.unlockForConfiguration() }
+            if camera.isFocusPointOfInterestSupported {
+                camera.focusPointOfInterest = focusPoint
             }
-            camera.unlockForConfiguration()
+            if camera.isExposurePointOfInterestSupported {
+                camera.exposurePointOfInterest = focusPoint
+            }
+            if (needLock) {
+                if camera.isExposureModeSupported(.autoExpose) {
+                    camera.exposureMode = .autoExpose
+                }
+                if camera.isFocusModeSupported(.autoFocus) {
+                    camera.focusMode = .autoFocus
+                }
+            } else {
+                if camera.isExposureModeSupported(.continuousAutoExposure) {
+                    camera.exposureMode = .continuousAutoExposure
+                }
+                if camera.isFocusModeSupported(.continuousAutoFocus) {
+                    camera.focusMode = .continuousAutoFocus
+                }
+            }
         } catch {}
     }
 }
@@ -414,12 +641,23 @@ extension CameraPreview: FocusViewDelegate {
 extension CameraPreview: UIContainerDelegate {
     /// Recalculates preview geometry and focus coordinates during layout.
     func viewWillLayoutSubviews() {
-        self.scaleX = self.preview.frame.width / UIScreen.main.bounds.width
-        self.scaleY = self.preview.frame.height / UIScreen.main.bounds.height
-        self.previewLayer?.frame = self.preview.frame
-        let focusPoint = CameraPreview.calcFocusPoint(preview: preview, offsetX: offsetX, offsetY: offsetY)
-        self.focusPoint = focusPoint.normalized()
-        focusView.changeFocusPoint(point: focusPoint.position())
+        let previewScale = CameraPreview.previewScale(for: preview.bounds)
+        frameStateLock.lock()
+        (scaleX, scaleY) = previewScale
+        frameStateLock.unlock()
+        previewLayer?.frame = preview.bounds
+        updateVideoOrientation()
+        focusPoint = PreviewGeometry.normalizedFocusPoint(offsetX: offsetX, offsetY: offsetY)
+        focusView.moveFocus(
+            to: PreviewGeometry.focusPosition(
+                in: preview.bounds,
+                normalizedPoint: focusPoint
+            )
+        )
+        guard isLayoutReady, !layoutReadyCompletions.isEmpty else { return }
+        let completions = layoutReadyCompletions
+        layoutReadyCompletions.removeAll()
+        completions.forEach { $0() }
     }
 }
 
@@ -449,24 +687,11 @@ fileprivate class UIContainer : UIView {
     
 }
 
-/// Camera focus point.
-fileprivate class FocusPoint {
-    private let point: CGPoint
-    private let frame: CGRect
-    
-    /// Creates a normalized point from preview-center offsets.
-    init(frame: CGRect, offsetX: CGFloat, offsetY: CGFloat) {
-        self.point = CGPoint(x: (frame.midX + frame.midX * offsetX) / frame.maxX, y: (frame.midY + frame.midY * offsetY) / frame.maxY)
-        self.frame = frame
-    }
-    
-    /// Returns the coordinates of a focus point.
-    func position() -> CGPoint {
-        return CGPoint(x: point.x * frame.maxX, y: point.y * frame.maxY)
-    }
-    
-    /// Returns the normalized focus point.
-    func normalized() -> CGPoint {
-        return point
+private extension CGRect {
+    var isFinite: Bool {
+        origin.x.isFinite
+            && origin.y.isFinite
+            && size.width.isFinite
+            && size.height.isFinite
     }
 }

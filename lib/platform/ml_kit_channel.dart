@@ -115,11 +115,10 @@ class MlKitChannel {
 
   /// Starts recognition requested by the platform view identified by [viewId].
   ///
-  /// [type] selects the native recognition mode. [delay] is the minimum
-  /// cooldown in milliseconds after successful recognition. On iOS, the same
-  /// delay also applies before the first attempt. Failed recognition does not
-  /// restart this timer. On Android, failed attempts wait one second before
-  /// analyzing the next available camera frame.
+  /// [type] selects the native recognition mode. The first available frame is
+  /// analyzed immediately. [delay] is the minimum cooldown in milliseconds
+  /// after successful recognition. Failed attempts wait one second before
+  /// analyzing the next available camera frame on both platforms.
   /// Only the current scanner view receives native scan events.
   /// Inactive views retain the request without changing the active scanner.
   Future<void> startScan(
@@ -156,8 +155,8 @@ class MlKitChannel {
 
   /// Sets the successful-recognition cooldown owned by [viewId].
   ///
-  /// Failed recognition does not start this timer. Inactive views retain the
-  /// value without changing the active scanner.
+  /// Failed recognition uses the fixed retry cooldown instead. Inactive views
+  /// retain the value without changing the active scanner.
   Future<void> setScanDelay(int delay, {required int viewId}) {
     return _invokeVoidMethod(_setScanDelayMethod, {
       'viewId': viewId,
@@ -176,7 +175,7 @@ class MlKitChannel {
   ///
   /// The view's retained camera configuration is restored. Detection also
   /// resumes if [startScan] was previously requested by this view.
-  /// Can throw [PlatformException] if camera is not initialized.
+  /// Throws [CameraControlException] if the camera cannot resume streaming.
   Future<void> resumeCamera({required int viewId}) {
     return _invokeVoidMethod(_resumeCameraMethod, {'viewId': viewId});
   }

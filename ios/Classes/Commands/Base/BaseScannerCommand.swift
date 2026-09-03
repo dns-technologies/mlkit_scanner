@@ -27,7 +27,13 @@ class BaseScannerCommand {
 
     /// Converts a native error into a stable Flutter platform error.
     func reportError(_ result: @escaping FlutterResult, error: Error) {
-        if let pluginError = error as? MlKitPluginError {
+        if let controlError = error as? CameraControlError {
+            result(FlutterError(
+                code: CameraControlError.errorCode,
+                message: CameraControlError.errorMessage,
+                details: controlError.channelDetails
+            ))
+        } else if let pluginError = error as? MlKitPluginError {
             result(FlutterError(
                 code: pluginError.rawValue,
                 message: pluginError.localizedDescription,
@@ -35,7 +41,7 @@ class BaseScannerCommand {
             ))
         } else {
             result(FlutterError(
-                code: "0",
+                code: MlKitPluginError.unknownError.rawValue,
                 message: error.localizedDescription,
                 details: nil
             ))

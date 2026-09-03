@@ -136,7 +136,7 @@ class Scanner(
     /** Reveals camera preview after startup controls have been applied. */
     fun showPreview() = camera.showPreview()
 
-    /** Hides camera preview until the active platform view configuration is restored. */
+    /** Preserves the last camera frame until active-view configuration is restored. */
     fun hidePreview() = camera.hidePreview()
 
     /** Releases scanner components and stops pending analysis work. */

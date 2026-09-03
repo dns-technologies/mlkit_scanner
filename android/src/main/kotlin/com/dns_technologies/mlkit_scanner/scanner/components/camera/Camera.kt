@@ -55,7 +55,7 @@ interface Camera {
     /** Native preview view supplied by the concrete camera implementation. */
     val previewView: View
 
-    /** Binds frame analysis while keeping preview hidden until [showPreview] is called. */
+    /** Binds frame analysis while preserving any frozen frame until [showPreview] is called. */
     fun bind(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
@@ -74,7 +74,7 @@ interface Camera {
     /** Reveals preview after startup camera controls have been applied. */
     fun showPreview()
 
-    /** Hides preview while another platform view's controls are being restored. */
+    /** Freezes preview intent while another platform view's controls are being restored. */
     fun hidePreview()
 
     /** Removes the active CameraX use-case binding while keeping adapter resources reusable. */

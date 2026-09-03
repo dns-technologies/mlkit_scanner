@@ -93,7 +93,7 @@ class XCamera(
         displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
     }
 
-    /** Starts preview and analysis while keeping preview hidden until [showPreview] is called. */
+    /** Starts preview and analysis while retaining the previous texture frame. */
     override fun bind(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
@@ -117,7 +117,6 @@ class XCamera(
             onError,
         )
         bindingState = request
-        previewView.alpha = 0.0F
         try {
             val providerFuture = ProcessCameraProvider.getInstance(context)
             providerFuture.addListener({
@@ -209,16 +208,16 @@ class XCamera(
         previewView.alpha = 1.0F
     }
 
-    /** Hides preview without changing camera bindings or analysis resources. */
+    /** Keeps the last texture frame visible while live preview is not ready. */
     override fun hidePreview() {
-        previewView.alpha = 0.0F
+        // PreviewView uses TextureView in COMPATIBLE mode. Leaving its alpha intact
+        // preserves the last rendered frame instead of flashing the view background.
     }
 
     /** Removes the active use-case binding while leaving adapter resources reusable. */
     override fun unbind() {
         if (bindingState === BindingState.Disposed || bindingState === BindingState.Idle) return
         val current = bindingState as? BoundCamera
-        previewView.alpha = 0.0F
         if (current != null) {
             unbindCamera(current)
             if (bindingState === current) bindingState = BindingState.Idle
@@ -259,7 +258,6 @@ class XCamera(
                         current.onInit()
                     } catch (error: Exception) {
                         bindingState = BindingState.Idle
-                        previewView.alpha = 0.0F
                         unbindCamera(bound)
                         current.onError(error)
                     }
@@ -371,7 +369,6 @@ class XCamera(
             } catch (restoreError: Exception) {
                 current.imageAnalysis.clearAnalyzer()
                 bindingState = BindingState.Idle
-                previewView.alpha = 0.0F
                 Log.e(TAG, "Unable to restore CameraX use cases after viewport update", restoreError)
             }
             Log.w(TAG, "Unable to update CameraX viewport", error)
