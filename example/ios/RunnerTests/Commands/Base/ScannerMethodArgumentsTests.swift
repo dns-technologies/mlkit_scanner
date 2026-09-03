@@ -28,7 +28,6 @@ final class ScannerMethodArgumentsTests: XCTestCase {
 
     func testCodecNSNumberZeroAndOneRemainNumericValues() throws {
         let zero = NSNumber(value: Int32(0))
-        let one = NSNumber(value: Int32(1))
         let oneDouble = NSNumber(value: 1.0)
 
         XCTAssertEqual(
@@ -60,38 +59,11 @@ final class ScannerMethodArgumentsTests: XCTestCase {
         ])
         XCTAssertEqual(crop.value.scaleWidth, 1)
         XCTAssertEqual(crop.value.offsetX, 0)
-
-        let camera = try CameraData(arguments: [
-            "type": zero,
-            "position": one,
-        ])
-        XCTAssertEqual(camera.type, .builtInWideAngleCamera)
-        XCTAssertEqual(camera.position, .back)
     }
 
-    func testCodecBooleanAndNumericScalarsAreStrictlySeparated() throws {
+    func testViewRegistrationRequiresACodecBooleanForFlash() throws {
         let codecBoolean = NSNumber(value: true)
-        let codecNumericZero = NSNumber(value: Int32(0))
         let codecNumericOne = NSNumber(value: Int32(1))
-
-        XCTAssertTrue(try PlatformChannelScalar.bool(from: codecBoolean))
-        XCTAssertEqual(
-            try PlatformChannelScalar.number(from: codecNumericZero).intValue,
-            0
-        )
-        XCTAssertEqual(
-            try PlatformChannelScalar.number(from: codecNumericOne).intValue,
-            1
-        )
-        assertInvalid {
-            _ = try PlatformChannelScalar.number(from: codecBoolean)
-        }
-        assertInvalid {
-            _ = try PlatformChannelScalar.bool(from: codecNumericZero)
-        }
-        assertInvalid {
-            _ = try PlatformChannelScalar.bool(from: codecNumericOne)
-        }
 
         let registration = try ScannerMethodArguments.viewRegistration([
             "initialFlashEnabled": codecBoolean,
@@ -114,15 +86,6 @@ final class ScannerMethodArgumentsTests: XCTestCase {
             _ = try ScannerMethodArguments.zoomRatio([
                 "viewId": NSNumber(value: Int32(0)),
                 "value": codecBoolean,
-            ])
-        }
-        assertInvalid {
-            _ = try CropRect(arguments: ["scaleWidth": codecBoolean])
-        }
-        assertInvalid {
-            _ = try CameraData(arguments: [
-                "type": codecBoolean,
-                "position": NSNumber(value: Int32(1)),
             ])
         }
     }

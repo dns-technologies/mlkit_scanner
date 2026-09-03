@@ -26,6 +26,9 @@ android {
     lint {
         disable 'InvalidPackage'
     }
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -46,6 +49,7 @@ dependencies {
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.mockito:mockito-core:5.8.0'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
 }
 
 group 'com.dns_technologies.mlkit_scanner'

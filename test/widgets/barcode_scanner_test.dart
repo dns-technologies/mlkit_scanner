@@ -9,7 +9,7 @@ import 'package:mlkit_scanner/widgets/camera_preview.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('MLKit scanner', () {
+  group('$BarcodeScanner', () {
     const channel = MethodChannel('mlkit_channel');
     final calls = <MethodCall>[];
     Completer<void>? captureCompletion;
@@ -161,6 +161,87 @@ void main() {
           containsPair('viewId', 17),
         );
       }
+    });
+
+    testWidgets('controller forwards retained configuration to its preview',
+        (tester) async {
+      BarcodeScannerController? controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) => controller = value,
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized(17);
+      await tester.pump();
+      calls.clear();
+
+      await controller!.setDelay(250);
+      await controller!.setIosCamera(
+        position: IosCameraPosition.front,
+        type: IosCameraType.builtInUltraWideCamera,
+      );
+
+      expect(calls, hasLength(2));
+      expect(calls[0].method, 'setScanDelay');
+      expect(calls[0].arguments, {'viewId': 17, 'delay': 250});
+      expect(calls[1].method, 'setIosCamera');
+      expect(calls[1].arguments, {'viewId': 17, 'position': 2, 'type': 3});
+    });
+
+    testWidgets('detached controller commands complete without native calls',
+        (tester) async {
+      BarcodeScannerController? controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) => controller = value,
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized(17);
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(const TestApp(child: SizedBox.shrink()));
+      await tester.pump();
+      calls.clear();
+
+      await controller!.toggleFlash();
+      await controller!.startScan(100);
+      await controller!.cancelScan();
+      await controller!.setDelay(200);
+      await controller!.pauseCamera();
+      await controller!.resumeCamera();
+      await controller!.setZoomRatio(2);
+      await controller!.setCropArea(const CropRect(scaleWidth: 0.5));
+      await controller!.setIosCamera(
+        position: IosCameraPosition.back,
+        type: IosCameraType.builtInWideAngleCamera,
+      );
+
+      expect(calls, isEmpty);
+    });
+
+    testWidgets('controller rejects invalid zoom before invoking native code',
+        (tester) async {
+      BarcodeScannerController? controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) => controller = value,
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized(17);
+      await tester.pump();
+      calls.clear();
+
+      expect(() => controller!.setZoomRatio(0), throwsAssertionError);
+      expect(calls, isEmpty);
     });
 
     testWidgets('route visibility releases and recaptures the camera',
