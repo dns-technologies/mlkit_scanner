@@ -2,16 +2,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 
-void main() => runApp(MyApp());
+void main() => runApp(const MyApp());
 
 class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+
   @override
   _MyAppState createState() => _MyAppState();
 }
 
 class _MyAppState extends State<MyApp> {
   var _barcode = 'Please, scan';
-  final _zoomValues = [0.0, 0.33, 0.66];
+  final _zoomRatios = [1.0, 2.0, 3.0];
   var _actualZoomIndex = 0;
 
   static const _delayOptions = {
@@ -29,18 +31,24 @@ class _MyAppState extends State<MyApp> {
   var _cameraPosition = '';
 
   void _setNextIosCamera() {
+    final controller = _controller;
+    if (_iosCameras.isEmpty || controller == null) return;
+
     _cameraIndex = (_cameraIndex + 1) % _iosCameras.length;
-    _controller!.setIosCamera(position: _iosCameras[_cameraIndex].position, type: _iosCameras[_cameraIndex].type);
-    _resetZoom();
+    controller.setIosCamera(
+      position: _iosCameras[_cameraIndex].position,
+      type: _iosCameras[_cameraIndex].type,
+    );
+    _resetZoomRatio();
     setState(() {
       _cameraType = _iosCameras[_cameraIndex].type.name;
       _cameraPosition = _iosCameras[_cameraIndex].position.name;
     });
   }
 
-  void _resetZoom() {
+  void _resetZoomRatio() {
     _actualZoomIndex = 0;
-    _controller?.setZoom(_zoomValues[_actualZoomIndex]);
+    _controller?.setZoomRatio(_zoomRatios[_actualZoomIndex]);
   }
 
   @override
@@ -56,16 +64,13 @@ class _MyAppState extends State<MyApp> {
           children: [
             Stack(
               children: [
-                Container(
+                SizedBox(
                   height: 200,
                   child: BarcodeScanner(
-                    initialArguments: (defaultTargetPlatform == TargetPlatform.iOS)
-                        ? const IosScannerParameters(
-                            cropRect: CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
-                          )
-                        : const AndroidScannerParameters(
-                            cropRect: CropRect(scaleHeight: 0.7, scaleWidth: 0.7),
-                          ),
+                    initialCropRect: const CropRect(
+                      scaleHeight: 0.7,
+                      scaleWidth: 0.7,
+                    ),
                     onScan: (code) {
                       setState(() {
                         _barcode = code.rawValue;
@@ -74,8 +79,11 @@ class _MyAppState extends State<MyApp> {
                     onScannerInitialized: (controller) async {
                       _controller = controller;
                       if (defaultTargetPlatform == TargetPlatform.iOS) {
-                        _iosCameras = await MLKitUtils().getIosAvailableCameras();
-                        _setNextIosCamera();
+                        final cameras =
+                            await MLKitUtils().getIosAvailableCameras();
+                        if (!mounted) return;
+                        _iosCameras = cameras;
+                        if (_iosCameras.isNotEmpty) _setNextIosCamera();
                       }
                     },
                   ),
@@ -179,8 +187,10 @@ class _MyAppState extends State<MyApp> {
                 ),
               ),
               onPressed: () {
-                _actualZoomIndex = _actualZoomIndex + 1 < _zoomValues.length ? _actualZoomIndex + 1 : 0;
-                _controller?.setZoom(_zoomValues[_actualZoomIndex]);
+                _actualZoomIndex = _actualZoomIndex + 1 < _zoomRatios.length
+                    ? _actualZoomIndex + 1
+                    : 0;
+                _controller?.setZoomRatio(_zoomRatios[_actualZoomIndex]);
               },
             ),
             if (defaultTargetPlatform == TargetPlatform.iOS)

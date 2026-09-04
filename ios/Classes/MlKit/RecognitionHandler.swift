@@ -12,37 +12,29 @@ import MLKitBarcodeScanning
 /// Delegate of the recognition results.
 protocol RecognitionResultDelegate: AnyObject {
     /// Call delegate on success recognition.
-    func onRecognition(result: Barcode)
+    func onRecognition(result: Barcode, viewId: Int64)
     
     /// Call delegate on recognition error.
     func onError(error: Error)
 }
 
-/// Protocol with methods of RecognitionHandler
+/// Processes camera frames for one recognition mode and platform view.
 protocol RecognitionHandler: AnyObject {
-    /// Return the type of RecognitionHandler
+    /// Recognition mode implemented by this handler.
     var type: RecognitionType { get }
     
     /// Delegate of the recognition results.
     var delegate: RecognitionResultDelegate? {get set}
     
-    /// Initialization of RecognitionHandler.
-    /// `delay` - delay between detections
-    /// `cropRect` optional `CropRect`, area of the detection.
-    init(delay: Int, cropRect: CropRect?)
+    /// Creates a handler with a platform cooldown and optional crop.
+    init(delay: Int, cropRect: CropRect?, viewId: Int64)
 
-    /// Set delay when detection is active.
-    /// `delay` - delay between detections
+    /// Updates the cooldown applied after successful recognition.
     func setDelay(delay: Int)
     
-    /// Method for calling processing of video output. 
-    /// `sampleBuffer` - frame from camera `CaptureSession`
-    /// `scaleX` - Scale of CameraPreview width relative to width of the screen.
-    /// `scaleY`- Scale of CameraPreview height relative to height of the screen.
-    /// `orientation` - orientation of `CaptureSession`
+    /// Processes one camera frame using preview scale and video orientation.
     func processVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation)
     
-    /// Update area of the barcode detection
-    /// `cropRect` -  area of the detection.
+    /// Updates normalized barcode recognition geometry.
     func updateCropRect(cropRect: CropRect)
 }

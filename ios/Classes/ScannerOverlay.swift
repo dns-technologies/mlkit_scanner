@@ -7,14 +7,15 @@
 
 import Foundation
 
-// Scanner Overlay with area `CropRect` where detection will take a place
+/// Draws the active recognition rectangle and dims the surrounding preview.
 class ScannerOverlay: UIView {
     private let overlayColor = UIColor(red: 0, green: 0, blue: 0, alpha: 0.5)
     private var cornerLinelength: CGFloat = 0
     private var radius: CGFloat = 0
     private var borderRect: CGRect = CGRect.zero
-    private (set) var cropRect: CropRect
+    private(set) var cropRect: CropRect
 
+    /// Controls whether the recognition border uses its active color.
     var isActive = false {
         didSet {
             setNeedsDisplay()
@@ -27,7 +28,8 @@ class ScannerOverlay: UIView {
             : UIColor(red: 0.38, green: 0.38, blue: 0.38, alpha: 1.00)
     }
     
-    required init( cropRect: CropRect) {
+    /// Creates an overlay for normalized `cropRect` geometry.
+    required init(cropRect: CropRect) {
         self.cropRect = cropRect
         super.init(frame: CGRect.zero)
         backgroundColor = .clear
@@ -36,9 +38,8 @@ class ScannerOverlay: UIView {
     override func didMoveToSuperview() {
         super.didMoveToSuperview()
         if let superview = superview {
-            translatesAutoresizingMaskIntoConstraints = false
-            heightAnchor.constraint(equalTo: superview.heightAnchor).isActive = true
-            widthAnchor.constraint(equalTo: superview.widthAnchor).isActive = true
+            frame = superview.bounds
+            autoresizingMask = [.flexibleWidth, .flexibleHeight]
         }
     }
     
@@ -152,25 +153,27 @@ class ScannerOverlay: UIView {
     }
 
     
-    /// Update overlay with given `CropRect`
+    /// Updates the normalized crop geometry displayed by the overlay.
     func updateCropRect(rect: CropRect) {
         cropRect = rect
         updateOverlay()
     }
 
+    /// Resolves normalized crop geometry against the current overlay bounds.
     private func updateOverlay() {
-            let width = frame.width * cropRect.scaleWidth
-            let height = frame.height * cropRect.scaleHeight
-            let x = frame.midX * (1 + cropRect.offsetX) - width / 2
-            let y = frame.midY * (1 + cropRect.offsetY) - height / 2
-            borderRect = CGRect(x: x, y: y, width: width, height: height)
-            cornerLinelength = width * 0.05
-            radius = cornerLinelength / 4
-            setNeedsDisplay()
+        let width = bounds.width * cropRect.scaleWidth
+        let height = bounds.height * cropRect.scaleHeight
+        let x = bounds.midX * (1 + cropRect.offsetX) - width / 2
+        let y = bounds.midY * (1 + cropRect.offsetY) - height / 2
+        borderRect = CGRect(x: x, y: y, width: width, height: height)
+        cornerLinelength = width * 0.05
+        radius = cornerLinelength / 4
+        setNeedsDisplay()
     }
 }
 
 private extension UIBezierPath {
+    /// Adds one rounded scanner-border corner to this path.
     func roundCorner(
         from: CGPoint,
         to: CGPoint,

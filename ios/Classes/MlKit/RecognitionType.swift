@@ -7,20 +7,18 @@
 
 import Foundation
 
-/// Recognition types for objects
+/// Object recognition modes supported by the native plugin.
 enum RecognitionType: Int {
-    /// Barcode recognition
+    /// Barcode recognition.
     case barcodeRecognition = 0
 }
 
 extension RecognitionType {
-    /// Creation of RecognitionHandler by RecognitionType.
-    /// `delay` - delay between detections
-    /// `cropRect` optional `CropRect`, area of the detection.
-    func createRecognitionHandler(delay: Int, cropRect: CropRect?) -> RecognitionHandler {
+    /// Creates a view-scoped handler for this recognition mode.
+    func createRecognitionHandler(delay: Int, cropRect: CropRect?, viewId: Int64) -> RecognitionHandler {
         switch self {
         case .barcodeRecognition:
-            return MlkitBarcodeScanner(delay: delay, cropRect: cropRect)
+            return MlkitBarcodeScanner(delay: delay, cropRect: cropRect, viewId: viewId)
         }
     }
 }

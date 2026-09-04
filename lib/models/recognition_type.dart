@@ -1,10 +1,11 @@
-/// Recognition types for objects
+/// Object recognition modes supported by the native plugin.
 enum RecognitionType {
-  /// Barcode recognition
+  /// Barcode recognition.
   barcodeRecognition
 }
 
+/// Converts a [RecognitionType] to its native platform value.
 extension RecognitionTypeValue on RecognitionType {
-  /// Returns raw value of this [RecognitionType]
+  /// Returns the platform-channel value of this recognition type.
   int get rawValue => RecognitionType.values.indexOf(this);
 }

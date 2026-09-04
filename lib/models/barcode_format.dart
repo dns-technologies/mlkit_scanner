@@ -43,6 +43,7 @@ enum BarcodeFormat {
   aztec,
 }
 
+/// Converts between [BarcodeFormat] values and native platform codes.
 extension BarcodeFormatCode on BarcodeFormat {
   /// Code of format for transmission over the platform channel.
   int get code => _formatToCode[this]!;

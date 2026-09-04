@@ -11,18 +11,23 @@ allprojects {
 }
 
 android {
-    compileSdkVersion 34
+    compileSdk 34
     namespace 'com.dns_technologies.mlkit_scanner'
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        main.kotlin.srcDirs += 'src/main/kotlin'
         test.java.srcDirs += 'src/test/kotlin'
+        test.kotlin.srcDirs += 'src/test/kotlin'
     }
     defaultConfig {
-        minSdkVersion 21
+        minSdk 21
     }
-    lintOptions {
+    lint {
         disable 'InvalidPackage'
+    }
+    testOptions {
+        unitTests.includeAndroidResources = true
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -34,10 +39,17 @@ android {
 }
 
 dependencies {
-    api "com.otaliastudios:cameraview:2.7.2"
+    def camerax_version = "1.4.2"
+    implementation "androidx.camera:camera-core:$camerax_version"
+    implementation "androidx.camera:camera-camera2:$camerax_version"
+    implementation "androidx.camera:camera-lifecycle:$camerax_version"
+    implementation "androidx.camera:camera-view:$camerax_version"
     implementation 'com.google.mlkit:barcode-scanning:17.3.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
 
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.mockito:mockito-core:5.8.0'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
 }
 
 group 'com.dns_technologies.mlkit_scanner'
