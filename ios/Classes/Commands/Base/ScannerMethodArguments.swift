@@ -5,8 +5,8 @@ import Foundation
 struct ScannerViewRegistration {
     /// Optional native preview size supplied by Flutter.
     let size: CGSize?
-    /// Normalized zoom to apply before showing the preview.
-    let initialZoom: Double?
+    /// Absolute zoom ratio to apply before showing the preview.
+    let initialZoomRatio: Double?
     /// Initial retained torch request.
     let initialFlashEnabled: Bool?
     /// Initial retained recognition rectangle.
@@ -17,7 +17,7 @@ struct ScannerViewRegistration {
     /// Registration with no explicit initial configuration.
     static let empty = ScannerViewRegistration(
         size: nil,
-        initialZoom: nil,
+        initialZoomRatio: nil,
         initialFlashEnabled: nil,
         initialCropRect: nil,
         initialCamera: nil
@@ -48,15 +48,21 @@ enum ScannerMethodArguments {
         let height = try optionalDouble(values[PluginConstants.heightArgument])
         let size: CGSize?
         if let width = width, let height = height, width >= 0, height >= 0 {
-            size = CGSize(width: width, height: height)
+            if width > 0, height > 0 {
+                size = CGSize(width: width, height: height)
+            } else {
+                // Flutter may create a UiKitView before its first nonempty layout.
+                // Keep UIKit's frame authoritative instead of persisting zero geometry.
+                size = nil
+            }
         } else if width == nil, height == nil {
             size = nil
         } else {
             throw MlKitPluginError.invalidArguments
         }
 
-        let zoom = try optionalDouble(values[PluginConstants.initialZoomArgument])
-        if let zoom = zoom, !(0...1).contains(zoom) {
+        let zoomRatio = try optionalDouble(values[PluginConstants.initialZoomRatioArgument])
+        if let zoomRatio = zoomRatio, zoomRatio <= 0 {
             throw MlKitPluginError.invalidArguments
         }
 
@@ -64,7 +70,7 @@ enum ScannerMethodArguments {
         let cameraMap = try optionalMap(values[PluginConstants.initialCameraArgument])
         return ScannerViewRegistration(
             size: size,
-            initialZoom: zoom,
+            initialZoomRatio: zoomRatio,
             initialFlashEnabled: try optionalBool(
                 values[PluginConstants.initialFlashEnabledArgument]
             ),
@@ -102,16 +108,16 @@ enum ScannerMethodArguments {
         )
     }
 
-    /// Parses normalized zoom addressed to one view.
-    static func zoom(_ arguments: Any?) throws -> ViewValue<Double> {
+    /// Parses a positive absolute zoom ratio addressed to one view.
+    static func zoomRatio(_ arguments: Any?) throws -> ViewValue<Double> {
         let values = try map(arguments)
-        let zoom = try finiteDouble(values[PluginConstants.valueArgument])
-        guard (0...1).contains(zoom) else {
+        let zoomRatio = try finiteDouble(values[PluginConstants.valueArgument])
+        guard zoomRatio > 0 else {
             throw MlKitPluginError.invalidArguments
         }
         return ViewValue(
             viewId: try nonNegativeInt64(values[PluginConstants.viewIdArgument]),
-            value: zoom
+            value: zoomRatio
         )
     }
 
@@ -151,10 +157,7 @@ enum ScannerMethodArguments {
     /// Parses an optional Boolean channel value.
     private static func optionalBool(_ value: Any?) throws -> Bool? {
         guard let value = value, !(value is NSNull) else { return nil }
-        guard let value = value as? Bool else {
-            throw MlKitPluginError.invalidArguments
-        }
-        return value
+        return try PlatformChannelScalar.bool(from: value)
     }
 
     /// Parses an optional finite numeric channel value.
@@ -165,9 +168,7 @@ enum ScannerMethodArguments {
 
     /// Converts a numeric channel value to a finite double.
     private static func finiteDouble(_ value: Any?) throws -> Double {
-        guard !(value is Bool), let number = value as? NSNumber else {
-            throw MlKitPluginError.invalidArguments
-        }
+        let number = try PlatformChannelScalar.number(from: value)
         let result = number.doubleValue
         guard result.isFinite else {
             throw MlKitPluginError.invalidArguments
@@ -186,9 +187,7 @@ enum ScannerMethodArguments {
 
     /// Converts an exact, nonnegative channel number to `Int64`.
     private static func nonNegativeInt64(_ value: Any?) throws -> Int64 {
-        guard !(value is Bool), let number = value as? NSNumber else {
-            throw MlKitPluginError.invalidArguments
-        }
+        let number = try PlatformChannelScalar.number(from: value)
         let result = number.int64Value
         guard
             result >= 0,

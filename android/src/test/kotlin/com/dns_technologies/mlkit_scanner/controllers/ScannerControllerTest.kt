@@ -22,7 +22,7 @@ internal class ScannerControllerTest {
         val session = mock(ScannerSession::class.java)
         val view = mock(ScannerView::class.java)
         val cropRect = RecognizeVisorCropRect(0.5, 0.6, 0.1, -0.2)
-        doReturn(view).`when`(session).createView(context, VIEW_ID, 0.75, cropRect, true)
+        doReturn(view).`when`(session).createView(context, VIEW_ID, 2.0, cropRect, true)
         val controller = controller().apply { setSession(session) }
 
         val actualView = controller.createView(
@@ -30,7 +30,7 @@ internal class ScannerControllerTest {
             platformViewId = VIEW_ID,
             creationParams = mapOf(
                 "viewId" to VIEW_ID,
-                "initialZoom" to 0.75,
+                "initialZoomRatio" to 2.0,
                 "initialFlashEnabled" to true,
                 "initialCropRect" to mapOf(
                     "scaleWidth" to 0.5,

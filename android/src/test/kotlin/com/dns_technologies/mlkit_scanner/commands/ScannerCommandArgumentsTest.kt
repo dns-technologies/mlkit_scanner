@@ -50,32 +50,40 @@ internal class ScannerCommandArgumentsTest {
     }
 
     @Test
-    fun `zoom parses normalized finite value`() {
+    fun `zoom parses positive absolute ratio`() {
         val session = RecordingScannerSession()
         val result = mock(MethodChannel.Result::class.java)
 
-        SetZoomCommand({ session }, commandScope).execute(
-            MethodCall("setZoom", mapOf("viewId" to VIEW_ID, "value" to 0.5)),
+        SetZoomRatioCommand({ session }, commandScope).execute(
+            MethodCall("setZoomRatio", mapOf("viewId" to VIEW_ID, "value" to 2.5)),
             result,
         )
 
-        assertEquals(VIEW_ID to 0.5F, session.zoomArguments)
+        assertEquals(VIEW_ID to 2.5F, session.zoomArguments)
         verify(result).success(true)
     }
 
     @Test
-    fun `zoom rejects non-finite out-of-range and malformed values`() {
-        listOf(Double.NaN, Double.POSITIVE_INFINITY, -0.01, 1.01, "0.5").forEach { value ->
+    fun `zoom rejects values without a positive finite Float representation`() {
+        listOf(
+            Double.NaN,
+            Double.POSITIVE_INFINITY,
+            Double.MIN_VALUE,
+            Double.MAX_VALUE,
+            -0.01,
+            0.0,
+            "2.0",
+        ).forEach { value ->
             assertInvalid {
-                SetZoomCommand({ null }, commandScope).execute(
-                    MethodCall("setZoom", mapOf("viewId" to VIEW_ID, "value" to value)),
+                SetZoomRatioCommand({ null }, commandScope).execute(
+                    MethodCall("setZoomRatio", mapOf("viewId" to VIEW_ID, "value" to value)),
                     it,
                 )
             }
         }
         assertInvalid {
-            SetZoomCommand({ null }, commandScope).execute(
-                MethodCall("setZoom", mapOf("value" to 0.5)),
+            SetZoomRatioCommand({ null }, commandScope).execute(
+                MethodCall("setZoomRatio", mapOf("value" to 2.0)),
                 it,
             )
         }
@@ -143,7 +151,7 @@ internal class ScannerCommandArgumentsTest {
     fun `scan delay rejects invalid arguments`() {
         listOf(
             mapOf("viewId" to VIEW_ID, "delay" to -1),
-            mapOf("viewId" to VIEW_ID, "delay" to 150.0),
+            mapOf("viewId" to VIEW_ID, "delay" to 150.5),
             mapOf("delay" to 150),
         ).forEach { arguments ->
             assertInvalid {
@@ -175,7 +183,7 @@ internal class ScannerCommandArgumentsTest {
         override fun createView(
             context: Context,
             viewId: Int,
-            initialZoom: Double?,
+            initialZoomRatio: Double?,
             initialCropRect: RecognizeVisorCropRect?,
             initialFlashEnabled: Boolean?,
         ): ScannerView = mock(ScannerView::class.java)
@@ -202,7 +210,7 @@ internal class ScannerCommandArgumentsTest {
             scanDelayArguments = viewId to periodMs
         }
 
-        override suspend fun setZoom(viewId: Int, value: Float) {
+        override suspend fun setZoomRatio(viewId: Int, value: Float) {
             zoomArguments = viewId to value
         }
 

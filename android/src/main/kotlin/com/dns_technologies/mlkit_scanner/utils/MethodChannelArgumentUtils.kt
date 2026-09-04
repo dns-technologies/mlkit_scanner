@@ -28,11 +28,16 @@ internal fun Map<*, *>.optionalFiniteDouble(key: String): Double? = when (val va
 internal fun Map<*, *>.requireFiniteDouble(key: String): Double =
     this[key].requireFiniteDouble()
 
-internal fun Map<*, *>.requireInt(key: String): Int = when (val value = this[key]) {
-    is Int -> value
-    is Long -> value.toInt().takeIf { it.toLong() == value }
-    else -> null
-} ?: throw PluginError.InvalidArguments
+internal fun Map<*, *>.requireInt(key: String): Int =
+    (this[key] as? Number)
+        ?.toDouble()
+        ?.takeIf { value ->
+            value.isFinite() &&
+                value % 1.0 == 0.0 &&
+                value in Int.MIN_VALUE.toDouble()..Int.MAX_VALUE.toDouble()
+        }
+        ?.toInt()
+        ?: throw PluginError.InvalidArguments
 
 private fun Any?.requireFiniteDouble(): Double {
     val value = (this as? Number)?.toDouble() ?: throw PluginError.InvalidArguments

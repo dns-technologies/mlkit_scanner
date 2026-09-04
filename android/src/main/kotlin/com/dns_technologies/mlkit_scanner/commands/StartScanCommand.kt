@@ -21,7 +21,7 @@ internal class StartScanCommand(
         if (recognitionType != BARCODE_RECOGNITION_TYPE || viewId < 0 || periodMs < 0) {
             throw PluginError.InvalidArguments
         }
-        requireScannerSession().startScan(viewId, periodMs)
+        scannerSession()?.startScan(viewId, periodMs)
         success(result)
     }
 

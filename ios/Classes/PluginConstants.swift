@@ -21,8 +21,8 @@ class PluginConstants {
     static let heightArgument = "height"
     /// Event key containing a recognized barcode.
     static let barcodeArgument = "barcode"
-    /// Optional platform-view registration argument containing retained zoom.
-    static let initialZoomArgument = "initialZoom"
+    /// Optional platform-view registration argument containing a retained zoom ratio.
+    static let initialZoomRatioArgument = "initialZoomRatio"
     /// Optional platform-view registration argument containing retained torch state.
     static let initialFlashEnabledArgument = "initialFlashEnabled"
     /// Optional platform-view registration argument containing a retained recognition area.
@@ -57,8 +57,8 @@ class PluginConstants {
     static let resumeCameraMethod = "resumeCameraMethod"
     /// Method name for inform flutter side when torch change state
     static let changeTorchStateMethod = "changeTorchStateMethod"
-    /// Method name for setting zoom scale of the camera
-    static let setZoomMethod = "setZoom"
+    /// Method name for setting the absolute camera zoom ratio.
+    static let setZoomRatioMethod = "setZoomRatio"
     /// Method name for setting crop area and adding overlay to the camera preview
     static let setCropAreaMethod = "setCropAreaMethod"
     /// Method name for getting available iOS cameras.

@@ -12,7 +12,7 @@ import com.dns_technologies.mlkit_scanner.utils.requireMap
 /** Initial configuration supplied while Flutter registers a scanner platform view. */
 internal data class ScannerViewRegistration(
     val viewId: Int,
-    val initialZoom: Double?,
+    val initialZoomRatio: Double?,
     val initialCropRect: RecognizeVisorCropRect?,
     val initialFlashEnabled: Boolean?,
 ) {
@@ -21,14 +21,14 @@ internal data class ScannerViewRegistration(
         fun from(arguments: Any?): ScannerViewRegistration {
             val map = arguments.requireMap()
             val viewId = map.requireInt(PluginConstants.viewIdArgument)
-            val initialZoom = map.optionalFiniteDouble(PluginConstants.initialZoomArgument)
-            if (viewId < 0 || initialZoom != null && initialZoom !in MIN_ZOOM..MAX_ZOOM) {
-                throw PluginError.InvalidArguments
-            }
+            val initialZoomRatio = map
+                .optionalFiniteDouble(PluginConstants.initialZoomRatioArgument)
+                ?.also(::requireValidZoomRatio)
+            if (viewId < 0) throw PluginError.InvalidArguments
 
             return ScannerViewRegistration(
                 viewId = viewId,
-                initialZoom = initialZoom,
+                initialZoomRatio = initialZoomRatio,
                 initialCropRect = map.optionalMap(PluginConstants.initialCropRectArgument)
                     ?.let { RecognizeVisorCropRect.fromMap(it) },
                 initialFlashEnabled = map.optionalBoolean(
@@ -37,7 +37,11 @@ internal data class ScannerViewRegistration(
             )
         }
 
-        private const val MIN_ZOOM = 0.0
-        private const val MAX_ZOOM = 1.0
+        private fun requireValidZoomRatio(value: Double) {
+            val floatValue = value.toFloat()
+            if (!floatValue.isFinite() || floatValue <= 0.0F) {
+                throw PluginError.InvalidArguments
+            }
+        }
     }
 }

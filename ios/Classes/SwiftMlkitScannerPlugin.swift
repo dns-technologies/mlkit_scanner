@@ -77,8 +77,8 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         case PluginConstants.setScanDelayMethod:
             SetScanDelayCommand(scannerSession: scannerSession)
                 .execute(call, result: result)
-        case PluginConstants.setZoomMethod:
-            SetZoomCommand(scannerSession: scannerSession)
+        case PluginConstants.setZoomRatioMethod:
+            SetZoomRatioCommand(scannerSession: scannerSession)
                 .execute(call, result: result)
         case PluginConstants.setCropAreaMethod:
             SetCropAreaCommand(scannerSession: scannerSession)

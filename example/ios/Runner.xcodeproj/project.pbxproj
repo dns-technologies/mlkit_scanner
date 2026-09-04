@@ -11,10 +11,57 @@
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
 		5259B04DF191B0C1266D6EA4 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 91DC70DBCA876A06F0C61653 /* Pods_Runner.framework */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
+		7A5309C4DA2F9824AACDF233 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 751B766C27108250BDE826B8 /* Pods_RunnerTests.framework */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		A1000001A1000001A1000001 /* PreviewGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000011A1000011A1000011 /* PreviewGeometryTests.swift */; };
+		A1000002A1000002A1000002 /* FrameAnalysisGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000012A1000012A1000012 /* FrameAnalysisGateTests.swift */; };
+		A1000003A1000003A1000003 /* ScannerSessionImplTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000013A1000013A1000013 /* ScannerSessionImplTests.swift */; };
+		A1000005A1000005A1000005 /* ScannerMethodArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000015A1000015A1000015 /* ScannerMethodArgumentsTests.swift */; };
+		B3000001B3000001B3000001 /* CameraPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001B2000001B2000001 /* CameraPreviewTests.swift */; };
+		B3000002B3000002B3000002 /* CameraUtilTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002B2000002B2000002 /* CameraUtilTests.swift */; };
+		B3000003B3000003B3000003 /* BaseScannerCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003B2000003B2000003 /* BaseScannerCommandTests.swift */; };
+		B3000004B3000004B3000004 /* ScannerCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000004B2000004B2000004 /* ScannerCommandTests.swift */; };
+		B3000005B3000005B3000005 /* CancelScanCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000005B2000005B2000005 /* CancelScanCommandTests.swift */; };
+		B3000006B3000006B3000006 /* CaptureCameraCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000006B2000006B2000006 /* CaptureCameraCommandTests.swift */; };
+		B3000007B3000007B3000007 /* GetIosAvailableCamerasCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000007B2000007B2000007 /* GetIosAvailableCamerasCommandTests.swift */; };
+		B3000008B3000008B3000008 /* PauseCameraCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000008B2000008B2000008 /* PauseCameraCommandTests.swift */; };
+		B3000009B3000009B3000009 /* ReleaseCameraCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000009B2000009B2000009 /* ReleaseCameraCommandTests.swift */; };
+		B3000010B3000010B3000010 /* ResumeCameraCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000010B2000010B2000010 /* ResumeCameraCommandTests.swift */; };
+		B3000011B3000011B3000011 /* SetCropAreaCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000011B2000011B2000011 /* SetCropAreaCommandTests.swift */; };
+		B3000012B3000012B3000012 /* SetIosCameraCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000012B2000012B2000012 /* SetIosCameraCommandTests.swift */; };
+		B3000013B3000013B3000013 /* SetScanDelayCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000013B2000013B2000013 /* SetScanDelayCommandTests.swift */; };
+		B3000014B3000014B3000014 /* SetZoomRatioCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000014B2000014B2000014 /* SetZoomRatioCommandTests.swift */; };
+		B3000015B3000015B3000015 /* StartScanCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000015B2000015B2000015 /* StartScanCommandTests.swift */; };
+		B3000016B3000016B3000016 /* ToggleFlashCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000016B2000016B2000016 /* ToggleFlashCommandTests.swift */; };
+		B3000017B3000017B3000017 /* BarcodeExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000017B2000017B2000017 /* BarcodeExtensionTests.swift */; };
+		B3000018B3000018B3000018 /* CGRectExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000018B2000018B2000018 /* CGRectExtensionTests.swift */; };
+		B3000019B3000019B3000019 /* CaptureDeviceExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000019B2000019B2000019 /* CaptureDeviceExtensionTests.swift */; };
+		B3000020B3000020B3000020 /* DeviceTypeExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000020B2000020B2000020 /* DeviceTypeExtensionTests.swift */; };
+		B3000021B3000021B3000021 /* PositionExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000021B2000021B2000021 /* PositionExtensionTests.swift */; };
+		B3000022B3000022B3000022 /* UIImageExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000022B2000022B2000022 /* UIImageExtensionTests.swift */; };
+		B3000023B3000023B3000023 /* FocusViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000023B2000023B2000023 /* FocusViewTests.swift */; };
+		B3000024B3000024B3000024 /* CameraDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000024B2000024B2000024 /* CameraDataTests.swift */; };
+		B3000025B3000025B3000025 /* CropRectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000025B2000025B2000025 /* CropRectTests.swift */; };
+		B3000026B3000026B3000026 /* MlkitBarcodeScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000026B2000026B2000026 /* MlkitBarcodeScannerTests.swift */; };
+		B3000027B3000027B3000027 /* RecognitionTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000027B2000027B2000027 /* RecognitionTypeTests.swift */; };
+		B3000028B3000028B3000028 /* MlKitPluginErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000028B2000028B2000028 /* MlKitPluginErrorTests.swift */; };
+		B3000029B3000029B3000029 /* PlatformChannelScalarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000029B2000029B2000029 /* PlatformChannelScalarTests.swift */; };
+		B3000030B3000030B3000030 /* ScannerOverlayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000030B2000030B2000030 /* ScannerOverlayTests.swift */; };
+		B3000031B3000031B3000031 /* SwiftMlkitScannerPluginTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000031B2000031B2000031 /* SwiftMlkitScannerPluginTests.swift */; };
+		B3000032B3000032B3000032 /* ScannerViewStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000032B2000032B2000032 /* ScannerViewStateTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A1000050A1000050A1000050 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 97C146ED1CF9000F007C117D;
+			remoteInfo = Runner;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		9705A1C41CF9048500538489 /* Embed Frameworks */ = {
@@ -30,14 +77,17 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		11CC8BB38FEF46D3267513A0 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
+		0A1F3B606D5AD687BF625A11 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
+		153591EB027D411789DCFBA1 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
+		1BB3B8FD53B2EE724F2D4180 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
-		6E6B883043239C7E2929CBD8 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		751B766C27108250BDE826B8 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
+		8FB4041E88681D4051B9D23D /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		91DC70DBCA876A06F0C61653 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
 		9740EEB31CF90195004384FC /* Generated.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Generated.xcconfig; path = Flutter/Generated.xcconfig; sourceTree = "<group>"; };
@@ -46,7 +96,45 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A1168765C4D6F6A71F5374FC /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
+		999D4C0FFF45843DDD1C1A22 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
+		A1000011A1000011A1000011 /* PreviewGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewGeometryTests.swift; sourceTree = "<group>"; };
+		A1000012A1000012A1000012 /* FrameAnalysisGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameAnalysisGateTests.swift; sourceTree = "<group>"; };
+		A1000013A1000013A1000013 /* ScannerSessionImplTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerSessionImplTests.swift; sourceTree = "<group>"; };
+		A1000014A1000014A1000014 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000015A1000015A1000015 /* ScannerMethodArgumentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerMethodArgumentsTests.swift; sourceTree = "<group>"; };
+		B2000001B2000001B2000001 /* CameraPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewTests.swift; sourceTree = "<group>"; };
+		B2000002B2000002B2000002 /* CameraUtilTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraUtilTests.swift; sourceTree = "<group>"; };
+		B2000003B2000003B2000003 /* BaseScannerCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaseScannerCommandTests.swift; sourceTree = "<group>"; };
+		B2000004B2000004B2000004 /* ScannerCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerCommandTests.swift; sourceTree = "<group>"; };
+		B2000005B2000005B2000005 /* CancelScanCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CancelScanCommandTests.swift; sourceTree = "<group>"; };
+		B2000006B2000006B2000006 /* CaptureCameraCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCameraCommandTests.swift; sourceTree = "<group>"; };
+		B2000007B2000007B2000007 /* GetIosAvailableCamerasCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GetIosAvailableCamerasCommandTests.swift; sourceTree = "<group>"; };
+		B2000008B2000008B2000008 /* PauseCameraCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PauseCameraCommandTests.swift; sourceTree = "<group>"; };
+		B2000009B2000009B2000009 /* ReleaseCameraCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseCameraCommandTests.swift; sourceTree = "<group>"; };
+		B2000010B2000010B2000010 /* ResumeCameraCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumeCameraCommandTests.swift; sourceTree = "<group>"; };
+		B2000011B2000011B2000011 /* SetCropAreaCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetCropAreaCommandTests.swift; sourceTree = "<group>"; };
+		B2000012B2000012B2000012 /* SetIosCameraCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetIosCameraCommandTests.swift; sourceTree = "<group>"; };
+		B2000013B2000013B2000013 /* SetScanDelayCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetScanDelayCommandTests.swift; sourceTree = "<group>"; };
+		B2000014B2000014B2000014 /* SetZoomRatioCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetZoomRatioCommandTests.swift; sourceTree = "<group>"; };
+		B2000015B2000015B2000015 /* StartScanCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartScanCommandTests.swift; sourceTree = "<group>"; };
+		B2000016B2000016B2000016 /* ToggleFlashCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToggleFlashCommandTests.swift; sourceTree = "<group>"; };
+		B2000017B2000017B2000017 /* BarcodeExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeExtensionTests.swift; sourceTree = "<group>"; };
+		B2000018B2000018B2000018 /* CGRectExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CGRectExtensionTests.swift; sourceTree = "<group>"; };
+		B2000019B2000019B2000019 /* CaptureDeviceExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureDeviceExtensionTests.swift; sourceTree = "<group>"; };
+		B2000020B2000020B2000020 /* DeviceTypeExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTypeExtensionTests.swift; sourceTree = "<group>"; };
+		B2000021B2000021B2000021 /* PositionExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionExtensionTests.swift; sourceTree = "<group>"; };
+		B2000022B2000022B2000022 /* UIImageExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIImageExtensionTests.swift; sourceTree = "<group>"; };
+		B2000023B2000023B2000023 /* FocusViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusViewTests.swift; sourceTree = "<group>"; };
+		B2000024B2000024B2000024 /* CameraDataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraDataTests.swift; sourceTree = "<group>"; };
+		B2000025B2000025B2000025 /* CropRectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropRectTests.swift; sourceTree = "<group>"; };
+		B2000026B2000026B2000026 /* MlkitBarcodeScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MlkitBarcodeScannerTests.swift; sourceTree = "<group>"; };
+		B2000027B2000027B2000027 /* RecognitionTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionTypeTests.swift; sourceTree = "<group>"; };
+		B2000028B2000028B2000028 /* MlKitPluginErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MlKitPluginErrorTests.swift; sourceTree = "<group>"; };
+		B2000029B2000029B2000029 /* PlatformChannelScalarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformChannelScalarTests.swift; sourceTree = "<group>"; };
+		B2000030B2000030B2000030 /* ScannerOverlayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerOverlayTests.swift; sourceTree = "<group>"; };
+		B2000031B2000031B2000031 /* SwiftMlkitScannerPluginTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftMlkitScannerPluginTests.swift; sourceTree = "<group>"; };
+		B2000032B2000032B2000032 /* ScannerViewStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerViewStateTests.swift; sourceTree = "<group>"; };
+		E47E25FF1FC3348C4406B713 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,15 +146,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1000030A1000030A1000030 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A5309C4DA2F9824AACDF233 /* Pods_RunnerTests.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		1EB380944543D2ADBCA30640 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				11CC8BB38FEF46D3267513A0 /* Pods-Runner.debug.xcconfig */,
-				A1168765C4D6F6A71F5374FC /* Pods-Runner.release.xcconfig */,
-				6E6B883043239C7E2929CBD8 /* Pods-Runner.profile.xcconfig */,
+				E47E25FF1FC3348C4406B713 /* Pods-Runner.debug.xcconfig */,
+				153591EB027D411789DCFBA1 /* Pods-Runner.release.xcconfig */,
+				1BB3B8FD53B2EE724F2D4180 /* Pods-Runner.profile.xcconfig */,
+				8FB4041E88681D4051B9D23D /* Pods-RunnerTests.debug.xcconfig */,
+				999D4C0FFF45843DDD1C1A22 /* Pods-RunnerTests.release.xcconfig */,
+				0A1F3B606D5AD687BF625A11 /* Pods-RunnerTests.profile.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -75,6 +174,7 @@
 			isa = PBXGroup;
 			children = (
 				91DC70DBCA876A06F0C61653 /* Pods_Runner.framework */,
+				751B766C27108250BDE826B8 /* Pods_RunnerTests.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -95,6 +195,7 @@
 			children = (
 				9740EEB11CF90186004384FC /* Flutter */,
 				97C146F01CF9000F007C117D /* Runner */,
+				A1000020A1000020A1000020 /* RunnerTests */,
 				97C146EF1CF9000F007C117D /* Products */,
 				1EB380944543D2ADBCA30640 /* Pods */,
 				4681DABB34B1524DC54F6279 /* Frameworks */,
@@ -105,6 +206,7 @@
 			isa = PBXGroup;
 			children = (
 				97C146EE1CF9000F007C117D /* Runner.app */,
+				A1000014A1000014A1000014 /* RunnerTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -122,6 +224,89 @@
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
+			sourceTree = "<group>";
+		};
+		A1000020A1000020A1000020 /* RunnerTests */ = {
+			isa = PBXGroup;
+			children = (
+				B2000001B2000001B2000001 /* CameraPreviewTests.swift */,
+				B2000002B2000002B2000002 /* CameraUtilTests.swift */,
+				B4000001B4000001B4000001 /* Commands */,
+				B4000003B4000003B4000003 /* Extensions */,
+				B2000023B2000023B2000023 /* FocusViewTests.swift */,
+				B4000004B4000004B4000004 /* MlKit */,
+				B2000028B2000028B2000028 /* MlKitPluginErrorTests.swift */,
+				B4000005B4000005B4000005 /* Models */,
+				B2000029B2000029B2000029 /* PlatformChannelScalarTests.swift */,
+				A1000011A1000011A1000011 /* PreviewGeometryTests.swift */,
+				B2000030B2000030B2000030 /* ScannerOverlayTests.swift */,
+				B2000031B2000031B2000031 /* SwiftMlkitScannerPluginTests.swift */,
+			);
+			path = RunnerTests;
+			sourceTree = "<group>";
+		};
+		B4000001B4000001B4000001 /* Commands */ = {
+			isa = PBXGroup;
+			children = (
+				B4000002B4000002B4000002 /* Base */,
+				B2000005B2000005B2000005 /* CancelScanCommandTests.swift */,
+				B2000006B2000006B2000006 /* CaptureCameraCommandTests.swift */,
+				B2000007B2000007B2000007 /* GetIosAvailableCamerasCommandTests.swift */,
+				B2000008B2000008B2000008 /* PauseCameraCommandTests.swift */,
+				B2000009B2000009B2000009 /* ReleaseCameraCommandTests.swift */,
+				B2000010B2000010B2000010 /* ResumeCameraCommandTests.swift */,
+				B2000011B2000011B2000011 /* SetCropAreaCommandTests.swift */,
+				B2000012B2000012B2000012 /* SetIosCameraCommandTests.swift */,
+				B2000013B2000013B2000013 /* SetScanDelayCommandTests.swift */,
+				B2000014B2000014B2000014 /* SetZoomRatioCommandTests.swift */,
+				B2000015B2000015B2000015 /* StartScanCommandTests.swift */,
+				B2000016B2000016B2000016 /* ToggleFlashCommandTests.swift */,
+			);
+			path = Commands;
+			sourceTree = "<group>";
+		};
+		B4000002B4000002B4000002 /* Base */ = {
+			isa = PBXGroup;
+			children = (
+				B2000003B2000003B2000003 /* BaseScannerCommandTests.swift */,
+				B2000004B2000004B2000004 /* ScannerCommandTests.swift */,
+				A1000015A1000015A1000015 /* ScannerMethodArgumentsTests.swift */,
+			);
+			path = Base;
+			sourceTree = "<group>";
+		};
+		B4000003B4000003B4000003 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				B2000017B2000017B2000017 /* BarcodeExtensionTests.swift */,
+				B2000018B2000018B2000018 /* CGRectExtensionTests.swift */,
+				B2000019B2000019B2000019 /* CaptureDeviceExtensionTests.swift */,
+				B2000020B2000020B2000020 /* DeviceTypeExtensionTests.swift */,
+				B2000021B2000021B2000021 /* PositionExtensionTests.swift */,
+				B2000022B2000022B2000022 /* UIImageExtensionTests.swift */,
+			);
+			path = Extensions;
+			sourceTree = "<group>";
+		};
+		B4000004B4000004B4000004 /* MlKit */ = {
+			isa = PBXGroup;
+			children = (
+				B2000024B2000024B2000024 /* CameraDataTests.swift */,
+				B2000025B2000025B2000025 /* CropRectTests.swift */,
+				A1000012A1000012A1000012 /* FrameAnalysisGateTests.swift */,
+				B2000026B2000026B2000026 /* MlkitBarcodeScannerTests.swift */,
+				B2000027B2000027B2000027 /* RecognitionTypeTests.swift */,
+			);
+			path = MlKit;
+			sourceTree = "<group>";
+		};
+		B4000005B4000005B4000005 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A1000013A1000013A1000013 /* ScannerSessionImplTests.swift */,
+				B2000032B2000032B2000032 /* ScannerViewStateTests.swift */,
+			);
+			path = Models;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -150,6 +335,25 @@
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A1000040A1000040A1000040 /* RunnerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000063A1000063A1000063 /* Build configuration list for PBXNativeTarget "RunnerTests" */;
+			buildPhases = (
+				FC0EDBD060B2C544B39C4AA2 /* [CP] Check Pods Manifest.lock */,
+				A1000032A1000032A1000032 /* Sources */,
+				A1000030A1000030A1000030 /* Frameworks */,
+				A1000031A1000031A1000031 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1000051A1000051A1000051 /* PBXTargetDependency */,
+			);
+			name = RunnerTests;
+			productName = RunnerTests;
+			productReference = A1000014A1000014A1000014 /* RunnerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -163,6 +367,9 @@
 					97C146ED1CF9000F007C117D = {
 						CreatedOnToolsVersion = 7.3.1;
 						LastSwiftMigration = 1100;
+					};
+					A1000040A1000040A1000040 = {
+						CreatedOnToolsVersion = 15.3;
 					};
 				};
 			};
@@ -180,6 +387,7 @@
 			projectRoot = "";
 			targets = (
 				97C146ED1CF9000F007C117D /* Runner */,
+				A1000040A1000040A1000040 /* RunnerTests */,
 			);
 		};
 /* End PBXProject section */
@@ -193,6 +401,13 @@
 				3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */,
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1000031A1000031A1000031 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -285,6 +500,28 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
+		FC0EDBD060B2C544B39C4AA2 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-RunnerTests-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -297,7 +534,58 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1000032A1000032A1000032 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000001A1000001A1000001 /* PreviewGeometryTests.swift in Sources */,
+				A1000002A1000002A1000002 /* FrameAnalysisGateTests.swift in Sources */,
+				A1000003A1000003A1000003 /* ScannerSessionImplTests.swift in Sources */,
+				A1000005A1000005A1000005 /* ScannerMethodArgumentsTests.swift in Sources */,
+				B3000001B3000001B3000001 /* CameraPreviewTests.swift in Sources */,
+				B3000002B3000002B3000002 /* CameraUtilTests.swift in Sources */,
+				B3000003B3000003B3000003 /* BaseScannerCommandTests.swift in Sources */,
+				B3000004B3000004B3000004 /* ScannerCommandTests.swift in Sources */,
+				B3000005B3000005B3000005 /* CancelScanCommandTests.swift in Sources */,
+				B3000006B3000006B3000006 /* CaptureCameraCommandTests.swift in Sources */,
+				B3000007B3000007B3000007 /* GetIosAvailableCamerasCommandTests.swift in Sources */,
+				B3000008B3000008B3000008 /* PauseCameraCommandTests.swift in Sources */,
+				B3000009B3000009B3000009 /* ReleaseCameraCommandTests.swift in Sources */,
+				B3000010B3000010B3000010 /* ResumeCameraCommandTests.swift in Sources */,
+				B3000011B3000011B3000011 /* SetCropAreaCommandTests.swift in Sources */,
+				B3000012B3000012B3000012 /* SetIosCameraCommandTests.swift in Sources */,
+				B3000013B3000013B3000013 /* SetScanDelayCommandTests.swift in Sources */,
+				B3000014B3000014B3000014 /* SetZoomRatioCommandTests.swift in Sources */,
+				B3000015B3000015B3000015 /* StartScanCommandTests.swift in Sources */,
+				B3000016B3000016B3000016 /* ToggleFlashCommandTests.swift in Sources */,
+				B3000017B3000017B3000017 /* BarcodeExtensionTests.swift in Sources */,
+				B3000018B3000018B3000018 /* CGRectExtensionTests.swift in Sources */,
+				B3000019B3000019B3000019 /* CaptureDeviceExtensionTests.swift in Sources */,
+				B3000020B3000020B3000020 /* DeviceTypeExtensionTests.swift in Sources */,
+				B3000021B3000021B3000021 /* PositionExtensionTests.swift in Sources */,
+				B3000022B3000022B3000022 /* UIImageExtensionTests.swift in Sources */,
+				B3000023B3000023B3000023 /* FocusViewTests.swift in Sources */,
+				B3000024B3000024B3000024 /* CameraDataTests.swift in Sources */,
+				B3000025B3000025B3000025 /* CropRectTests.swift in Sources */,
+				B3000026B3000026B3000026 /* MlkitBarcodeScannerTests.swift in Sources */,
+				B3000027B3000027B3000027 /* RecognitionTypeTests.swift in Sources */,
+				B3000028B3000028B3000028 /* MlKitPluginErrorTests.swift in Sources */,
+				B3000029B3000029B3000029 /* PlatformChannelScalarTests.swift in Sources */,
+				B3000030B3000030B3000030 /* ScannerOverlayTests.swift in Sources */,
+				B3000031B3000031B3000031 /* SwiftMlkitScannerPluginTests.swift in Sources */,
+				B3000032B3000032B3000032 /* ScannerViewStateTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1000051A1000051A1000051 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 97C146ED1CF9000F007C117D /* Runner */;
+			targetProxy = A1000050A1000050A1000050 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		97C146FA1CF9000F007C117D /* Main.storyboard */ = {
@@ -576,6 +864,59 @@
 			};
 			name = Release;
 		};
+		A1000060A1000060A1000060 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8FB4041E88681D4051B9D23D /* Pods-RunnerTests.debug.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.exampssle.mlkitScannerExample.RunnerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
+			};
+			name = Debug;
+		};
+		A1000061A1000061A1000061 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 999D4C0FFF45843DDD1C1A22 /* Pods-RunnerTests.release.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.exampssle.mlkitScannerExample.RunnerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
+			};
+			name = Release;
+		};
+		A1000062A1000062A1000062 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0A1F3B606D5AD687BF625A11 /* Pods-RunnerTests.profile.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 12.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.exampssle.mlkitScannerExample.RunnerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
+			};
+			name = Profile;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -595,6 +936,16 @@
 				97C147061CF9000F007C117D /* Debug */,
 				97C147071CF9000F007C117D /* Release */,
 				249021D4217E4FDB00AE95B9 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000063A1000063A1000063 /* Build configuration list for PBXNativeTarget "RunnerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000060A1000060A1000060 /* Debug */,
+				A1000061A1000061A1000061 /* Release */,
+				A1000062A1000062A1000062 /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

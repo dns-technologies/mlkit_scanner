@@ -9,7 +9,7 @@ import 'package:mlkit_scanner/widgets/camera_preview.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('MLKit scanner', () {
+  group('$BarcodeScanner', () {
     const channel = MethodChannel('mlkit_channel');
     final calls = <MethodCall>[];
     Completer<void>? captureCompletion;
@@ -54,6 +54,47 @@ void main() {
         calls.firstWhere((call) => call.method == 'captureCamera').arguments,
         {'viewId': 17},
       );
+    });
+
+    testWidgets(
+        'exposes controller before capture and retains an initialization crop',
+        (tester) async {
+      BarcodeScannerController? controller;
+      captureCompletion = Completer<void>();
+      const cropRect = CropRect(scaleWidth: 0.7, scaleHeight: 0.4);
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) {
+            controller = value;
+            unawaited(value.setCropArea(cropRect));
+          },
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+
+      preview.onCameraInitialized(17);
+      await tester.pump();
+      await tester.pump();
+
+      expect(controller, isNotNull);
+      expect(
+        calls.map((call) => call.method),
+        containsAllInOrder(<String>['setCropAreaMethod', 'captureCamera']),
+      );
+      expect(
+        calls
+            .firstWhere((call) => call.method == 'setCropAreaMethod')
+            .arguments,
+        {
+          'viewId': 17,
+          'cropRect': cropRect.toJson(),
+        },
+      );
+
+      captureCompletion!.complete();
+      await tester.pumpAndSettle();
     });
 
     testWidgets('disposing a widget does not cancel the shared scan',
@@ -120,6 +161,87 @@ void main() {
           containsPair('viewId', 17),
         );
       }
+    });
+
+    testWidgets('controller forwards retained configuration to its preview',
+        (tester) async {
+      BarcodeScannerController? controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) => controller = value,
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized(17);
+      await tester.pump();
+      calls.clear();
+
+      await controller!.setDelay(250);
+      await controller!.setIosCamera(
+        position: IosCameraPosition.front,
+        type: IosCameraType.builtInUltraWideCamera,
+      );
+
+      expect(calls, hasLength(2));
+      expect(calls[0].method, 'setScanDelay');
+      expect(calls[0].arguments, {'viewId': 17, 'delay': 250});
+      expect(calls[1].method, 'setIosCamera');
+      expect(calls[1].arguments, {'viewId': 17, 'position': 2, 'type': 3});
+    });
+
+    testWidgets('detached controller commands complete without native calls',
+        (tester) async {
+      BarcodeScannerController? controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) => controller = value,
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized(17);
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(const TestApp(child: SizedBox.shrink()));
+      await tester.pump();
+      calls.clear();
+
+      await controller!.toggleFlash();
+      await controller!.startScan(100);
+      await controller!.cancelScan();
+      await controller!.setDelay(200);
+      await controller!.pauseCamera();
+      await controller!.resumeCamera();
+      await controller!.setZoomRatio(2);
+      await controller!.setCropArea(const CropRect(scaleWidth: 0.5));
+      await controller!.setIosCamera(
+        position: IosCameraPosition.back,
+        type: IosCameraType.builtInWideAngleCamera,
+      );
+
+      expect(calls, isEmpty);
+    });
+
+    testWidgets('controller rejects invalid zoom before invoking native code',
+        (tester) async {
+      BarcodeScannerController? controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) => controller = value,
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget(find.byType(CameraPreview)) as CameraPreview;
+      preview.onCameraInitialized(17);
+      await tester.pump();
+      calls.clear();
+
+      expect(() => controller!.setZoomRatio(0), throwsAssertionError);
+      expect(calls, isEmpty);
     });
 
     testWidgets('route visibility releases and recaptures the camera',
@@ -232,20 +354,20 @@ void main() {
       await tester.pumpAndSettle();
       calls.clear();
 
-      await firstController!.setZoom(0.25);
+      await firstController!.setZoomRatio(2.0);
       await firstController!.startScan(100);
-      await secondController!.setZoom(0.75);
+      await secondController!.setZoomRatio(3.0);
 
       expect(
         calls.map((call) => call.arguments),
         [
-          {'viewId': 11, 'value': 0.25},
+          {'viewId': 11, 'value': 2.0},
           {
             'viewId': 11,
             'type': 0,
             'delay': 100,
           },
-          {'viewId': 22, 'value': 0.75},
+          {'viewId': 22, 'value': 3.0},
         ],
       );
 
@@ -319,7 +441,7 @@ void main() {
       expect(tester.takeException(), isNull);
 
       calls.clear();
-      await controller!.setZoom(0.5);
+      await controller!.setZoomRatio(2.0);
       await controller!.toggleFlash();
       await controller!.setCropArea(const CropRect(scaleWidth: 0.5));
       await controller!.startScan(250);
@@ -327,7 +449,7 @@ void main() {
       expect(
         calls.map((call) => call.method),
         containsAll(<String>[
-          'setZoom',
+          'setZoomRatio',
           'toggleFlash',
           'setCropAreaMethod',
           'startScan',
@@ -339,7 +461,7 @@ void main() {
       );
     });
 
-    testWidgets('A B A waits for initialization and publishes controller once',
+    testWidgets('A B A publishes controller once while capture is pending',
         (tester) async {
       BarcodeScannerController? controller;
       var initializationCount = 0;
@@ -372,7 +494,8 @@ void main() {
         calls.where((call) => call.method == 'captureCamera'),
         hasLength(2),
       );
-      expect(controller, isNull);
+      expect(controller, isNotNull);
+      expect(initializationCount, 1);
 
       captureCompletion!.complete();
       await tester.pumpAndSettle();
@@ -425,7 +548,7 @@ void main() {
         CameraControlOperation.torch,
       );
       expect(reportedError.viewId, 17);
-      expect(controller, isNull);
+      expect(controller, isNotNull);
       expect(tester.takeException(), isNull);
     });
   });

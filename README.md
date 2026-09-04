@@ -65,15 +65,13 @@ regions are reset before the next preview is revealed. On iOS, physical
 capture-session start, stop, and reconfiguration are serialized across all
 scanner previews.
 
-`onScannerInitialized` means that the controller is safe to use, not that its
-camera is necessarily active. If native registration finishes while the route
-is hidden, the callback can be delivered immediately and controller commands
-only update retained state. A visible scanner receives the callback after a
-successful capture. If an in-flight capture fails after its route is covered,
-the original initialization or retained-control error is still delivered to
-`onCameraInitializeError`; it is never converted into a successful
-`onScannerInitialized` callback. Errors from later controller commands remain
-errors of the returned `Future`.
+`onScannerInitialized` means that the native platform view is registered and
+the controller is safe to use, not that its camera is already active. The
+callback is delivered before camera capture completes, so configuration and
+scan commands can update retained per-view state during initialization. If an
+in-flight capture fails, the controller remains valid and the initialization or
+retained-control error is delivered separately to `onCameraInitializeError`.
+Errors from controller commands remain errors of the returned `Future`.
 
 ### Example 
 
@@ -86,13 +84,13 @@ return SizedBox(
   height: 200.0                                 // CameraPreview needs height constraints, if you use widget 
                                                 // in Column use SizedBox or Container with height.
   child: BarcodeScanner(
-    initialZoom: 0.0,                           // Each scanner widget owns and restores
+    initialZoomRatio: 1.0,                      // Each scanner widget owns and restores
     initialFlashEnabled: false,                 // its own zoom, torch and crop configuration.
     cropOverlay: ScannerCropOverlay             // you can use default ScannerOverlay, create custom, or do not 
                                                 // use it at all
 
-    onScannerInitialized: _onScannerInitialized // Called once the controller can safely retain
-                                                // state; visible scanners first need a successful capture.
+    onScannerInitialized: _onScannerInitialized // Called once the native view is registered;
+                                                // camera capture may still be pending.
     
     onCameraInitializeError: (error) {          // Handles capture-time initialization/configuration errors.
       // handleError.
@@ -121,7 +119,8 @@ Future<void> _onScannerInitialized(BarcodeScannerController controller) async {
     await controller.resumeCamera()             // Resume camera intent for the active scanner.
                                                 // A hidden scanner retains the request until it returns.
 
-    await controller.setZoom(0.5)               // Set camera zoom. Values must be in range 0...1                            
+    await controller.setZoomRatio(2.0)          // Set absolute camera zoom to 2x.
+                                                // Supported ratios depend on the selected camera.
 }
 ```
 ## Contributing:

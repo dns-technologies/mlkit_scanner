@@ -17,46 +17,29 @@ import org.junit.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 
 internal class CaptureCameraCommandTest {
     @Test
-    fun `missing session keeps stable initialization state error`() = runBlocking {
-        val result = mock(MethodChannel.Result::class.java)
-        val command = CaptureCameraCommand(
-            scannerSessionProvider = { null },
-            permissionGateway = grantedPermissionGateway(),
-            commandScope = CoroutineScope(Dispatchers.Unconfined),
-        )
-
-        command.execute(
-            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID)),
-            result,
-        )
-
-        verify(result).error(
-            PluginError.CameraIsNotInitialized.errorCode,
-            PluginError.CameraIsNotInitialized.message,
-            null,
-        )
-    }
-
-    @Test
-    fun `invalid view id keeps stable invalid arguments error`() = runBlocking {
+    fun `invalid arguments are reported by inherited async error handling`() = runBlocking {
+        val permissionGateway = mock(PermissionGateway::class.java)
         val scannerSession = RecordingScannerSession()
         val result = mock(MethodChannel.Result::class.java)
 
-        command(scannerSession, grantedPermissionGateway()).execute(
-            MethodCall("captureCamera", mapOf("viewId" to -1)),
+        command(scannerSession, permissionGateway).execute(
+            MethodCall("captureCamera", emptyMap<String, Any>()),
             result,
         )
 
-        assertEquals(emptyList<String>(), scannerSession.calls)
         verify(result).error(
             PluginError.InvalidArguments.errorCode,
             PluginError.InvalidArguments.message,
             null,
         )
+        assertEquals(emptyList<String>(), scannerSession.calls)
+        verify(permissionGateway, never()).requestPermissions(anyValue())
+        Unit
     }
 
     @Test
@@ -72,6 +55,25 @@ internal class CaptureCameraCommandTest {
 
         assertEquals(listOf("capture:$VIEW_ID", "complete:$VIEW_ID"), scannerSession.calls)
         verify(result).success(true)
+    }
+
+    @Test
+    fun `capture is canceled successfully when platform view session is already gone`() = runBlocking {
+        val permissionGateway = mock(PermissionGateway::class.java)
+        val result = mock(MethodChannel.Result::class.java)
+
+        CaptureCameraCommand(
+            scannerSessionProvider = { null },
+            permissionGateway = permissionGateway,
+            commandScope = CoroutineScope(Dispatchers.Unconfined),
+        ).execute(
+            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID)),
+            result,
+        )
+
+        verify(result).success(true)
+        verify(permissionGateway, never()).requestPermissions(anyValue())
+        Unit
     }
 
     @Test
@@ -153,7 +155,7 @@ internal class CaptureCameraCommandTest {
         override fun createView(
             context: Context,
             viewId: Int,
-            initialZoom: Double?,
+            initialZoomRatio: Double?,
             initialCropRect: RecognizeVisorCropRect?,
             initialFlashEnabled: Boolean?,
         ): ScannerView = mock(ScannerView::class.java)
@@ -177,7 +179,7 @@ internal class CaptureCameraCommandTest {
         override fun startScan(viewId: Int, periodMs: Int) = Unit
         override fun pauseScan(viewId: Int) = Unit
         override fun updateScanPeriod(viewId: Int, periodMs: Int) = Unit
-        override suspend fun setZoom(viewId: Int, value: Float) = Unit
+        override suspend fun setZoomRatio(viewId: Int, value: Float) = Unit
         override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) = Unit
         override fun release() = Unit
     }

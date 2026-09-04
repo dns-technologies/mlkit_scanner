@@ -10,7 +10,7 @@ import com.dns_technologies.mlkit_scanner.commands.ReleaseCameraCommand
 import com.dns_technologies.mlkit_scanner.commands.ResumeCameraCommand
 import com.dns_technologies.mlkit_scanner.commands.SetCropAreaCommand
 import com.dns_technologies.mlkit_scanner.commands.SetScanDelayCommand
-import com.dns_technologies.mlkit_scanner.commands.SetZoomCommand
+import com.dns_technologies.mlkit_scanner.commands.SetZoomRatioCommand
 import com.dns_technologies.mlkit_scanner.commands.StartScanCommand
 import com.dns_technologies.mlkit_scanner.commands.ToggleFlashCommand
 import com.dns_technologies.mlkit_scanner.controllers.ScanResultSink
@@ -126,7 +126,7 @@ class MlkitScannerPlugin internal constructor(
                 CancelScanCommand(scannerController::session).execute(call, result)
             PluginConstants.setScanDelayMethod ->
                 SetScanDelayCommand(scannerController::session).execute(call, result)
-            PluginConstants.setZoomMethod -> SetZoomCommand(
+            PluginConstants.setZoomRatioMethod -> SetZoomRatioCommand(
                 scannerSessionProvider = scannerController::session,
                 commandScope = commandScope,
             ).execute(call, result)

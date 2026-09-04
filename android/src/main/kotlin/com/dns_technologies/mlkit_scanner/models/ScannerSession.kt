@@ -11,14 +11,15 @@ internal interface ScannerSession {
     fun createView(
         context: Context,
         viewId: Int,
-        initialZoom: Double?,
+        initialZoomRatio: Double?,
         initialCropRect: RecognizeVisorCropRect?,
         initialFlashEnabled: Boolean?,
     ): ScannerView
 
     /**
      * Selects one view, awaits that view's reusable initialization, then applies its retained state
-     * only if it still owns the camera.
+     * only if it still owns the camera. A request whose platform view was already disposed is
+     * treated as superseded work and completes without changing another view.
      */
     suspend fun captureCamera(
         viewId: Int,
@@ -52,8 +53,8 @@ internal interface ScannerSession {
     /** Updates the requesting view's cooldown applied after successful recognition. */
     fun updateScanPeriod(viewId: Int, periodMs: Int)
 
-    /** Updates the requesting view's normalized zoom and applies it when active. */
-    suspend fun setZoom(viewId: Int, value: Float)
+    /** Updates the requesting view's absolute zoom ratio and applies it when active. */
+    suspend fun setZoomRatio(viewId: Int, value: Float)
 
     /** Updates the requesting view's barcode recognition region. */
     fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect)

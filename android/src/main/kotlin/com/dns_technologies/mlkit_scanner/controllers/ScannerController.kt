@@ -41,7 +41,7 @@ internal class ScannerController(
         return activeSession.createView(
             context = context,
             viewId = platformViewId,
-            initialZoom = registration.initialZoom,
+            initialZoomRatio = registration.initialZoomRatio,
             initialCropRect = registration.initialCropRect,
             initialFlashEnabled = registration.initialFlashEnabled,
         )
@@ -74,7 +74,7 @@ internal class ScannerController(
         ),
         mainHandler = mainHandler,
         onScanResult = scanResultSink::emit,
-        onReleased = { session = null },
+        onReleaseRequested = { session = null },
     ).also { newSession ->
         session = newSession
         hostLifecycle?.let(newSession::attachHostLifecycle)

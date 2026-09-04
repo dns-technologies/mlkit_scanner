@@ -22,14 +22,14 @@ protocol ScannerSession: AnyObject {
     func resumeCamera(viewId: Int64, completion: @escaping ScannerSessionCompletion)
     /// Toggles retained torch state and touches hardware only while the view is active.
     func toggleFlash(viewId: Int64) throws
-    /// Starts recognition with the platform-specific initial and result cooldown.
+    /// Starts recognition immediately, then uses result-based cooldowns.
     func startScan(viewId: Int64, type: RecognitionType, delay: Int) throws
     /// Stops recognition requested by a view without pausing its camera.
     func cancelScan(viewId: Int64)
     /// Updates the successful-recognition cooldown retained by a view.
     func updateScanPeriod(viewId: Int64, delay: Int) throws
-    /// Updates normalized zoom retained by a view.
-    func setZoom(viewId: Int64, value: Double) throws
+    /// Updates the absolute zoom ratio retained by a view.
+    func setZoomRatio(viewId: Int64, value: Double) throws
     /// Updates normalized recognition geometry retained by a view.
     func setCropArea(viewId: Int64, cropRect: CropRect) throws
     /// Updates the camera retained by a view.
