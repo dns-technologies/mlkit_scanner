@@ -13,15 +13,10 @@ import com.dns_technologies.mlkit_scanner.commands.SetScanDelayCommand
 import com.dns_technologies.mlkit_scanner.commands.SetZoomCommand
 import com.dns_technologies.mlkit_scanner.commands.StartScanCommand
 import com.dns_technologies.mlkit_scanner.commands.ToggleFlashCommand
-import com.dns_technologies.mlkit_scanner.commands.base.ScannerMethodArguments
-import com.dns_technologies.mlkit_scanner.models.ScannerSession
-import com.dns_technologies.mlkit_scanner.models.ScannerSessionImpl
+import com.dns_technologies.mlkit_scanner.controllers.ScanResultSink
+import com.dns_technologies.mlkit_scanner.controllers.ScannerController
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
-import com.dns_technologies.mlkit_scanner.scanner.Scanner
-import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.ScannerViewFactory
-import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.MlkitImageBarcodeAnalyzer
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.x.XCamera
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,8 +44,10 @@ class MlkitScannerPlugin internal constructor(
     private var activityBinding: ActivityPluginBinding? = null
     private var commandScope = createCommandScope()
 
-    @Volatile
-    private var scannerSession: ScannerSession? = null
+    private val scannerController = ScannerController(
+        mainHandler = mainHandler,
+        scanResultSink = ScanResultSink(::emitScanResult),
+    )
 
     private val permissionGateway = PermissionGateway()
     private val permissionResultListener =
@@ -70,14 +67,14 @@ class MlkitScannerPlugin internal constructor(
             .platformViewRegistry
             .registerViewFactory(
                 PluginConstants.cameraPlatformViewName,
-                ScannerViewFactory(::createScannerView),
+                ScannerViewFactory(scannerController::createView),
             )
     }
 
     /** Releases scanner state and disconnects the method channel from the Flutter engine. */
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         detachActivity(isFinal = true)
-        disposeScanner()
+        scannerController.release()
         commandScope.cancel()
         mainHandler.removeCallbacksAndMessages(null)
         channel?.setMethodCallHandler(null)
@@ -92,7 +89,7 @@ class MlkitScannerPlugin internal constructor(
     /** Detaches Android Activity dependencies when the plugin loses its Activity. */
     override fun onDetachedFromActivity() {
         detachActivity(isFinal = true)
-        disposeScanner()
+        scannerController.release()
     }
 
     /** Reattaches Activity dependencies after a configuration change. */
@@ -109,26 +106,32 @@ class MlkitScannerPlugin internal constructor(
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
             PluginConstants.captureCameraMethod -> CaptureCameraCommand(
-                scannerSessionProvider = ::scannerSession,
+                scannerSessionProvider = scannerController::session,
                 permissionGateway = permissionGateway,
                 commandScope = commandScope,
             ).execute(call, result)
             PluginConstants.releaseCameraMethod ->
-                ReleaseCameraCommand(::scannerSession).execute(call, result)
-            PluginConstants.resumeCameraMethod -> ResumeCameraCommand(::scannerSession).execute(call, result)
-            PluginConstants.pauseCameraMethod -> PauseCameraCommand(::scannerSession).execute(call, result)
+                ReleaseCameraCommand(scannerController::session).execute(call, result)
+            PluginConstants.resumeCameraMethod ->
+                ResumeCameraCommand(scannerController::session).execute(call, result)
+            PluginConstants.pauseCameraMethod ->
+                PauseCameraCommand(scannerController::session).execute(call, result)
             PluginConstants.toggleFlashMethod -> ToggleFlashCommand(
-                scannerSessionProvider = ::scannerSession,
+                scannerSessionProvider = scannerController::session,
                 commandScope = commandScope,
             ).execute(call, result)
-            PluginConstants.startScanMethod -> StartScanCommand(::scannerSession).execute(call, result)
-            PluginConstants.cancelScanMethod -> CancelScanCommand(::scannerSession).execute(call, result)
-            PluginConstants.setScanDelayMethod -> SetScanDelayCommand(::scannerSession).execute(call, result)
+            PluginConstants.startScanMethod ->
+                StartScanCommand(scannerController::session).execute(call, result)
+            PluginConstants.cancelScanMethod ->
+                CancelScanCommand(scannerController::session).execute(call, result)
+            PluginConstants.setScanDelayMethod ->
+                SetScanDelayCommand(scannerController::session).execute(call, result)
             PluginConstants.setZoomMethod -> SetZoomCommand(
-                scannerSessionProvider = ::scannerSession,
+                scannerSessionProvider = scannerController::session,
                 commandScope = commandScope,
             ).execute(call, result)
-            PluginConstants.setCropAreaMethod -> SetCropAreaCommand(::scannerSession).execute(call, result)
+            PluginConstants.setCropAreaMethod ->
+                SetCropAreaCommand(scannerController::session).execute(call, result)
             else -> result.notImplemented()
         }
     }
@@ -137,14 +140,14 @@ class MlkitScannerPlugin internal constructor(
     private fun attachActivity(binding: ActivityPluginBinding) {
         activityBinding = binding
         permissionGateway.attach(binding)
-        scannerSession?.attachHostLifecycle(binding.activityLifecycle)
+        scannerController.attachHostLifecycle(binding.activityLifecycle)
         binding.addRequestPermissionsResultListener(permissionResultListener)
     }
 
     /** Detaches Activity-scoped permissions and lifecycle delegates. */
     private fun detachActivity(isFinal: Boolean) {
         val binding = activityBinding
-        scannerSession?.detachHostLifecycle()
+        scannerController.detachHostLifecycle()
         binding?.removeRequestPermissionsResultListener(permissionResultListener)
         activityBinding = null
         if (isFinal) {
@@ -152,42 +155,6 @@ class MlkitScannerPlugin internal constructor(
         } else {
             permissionGateway.detachForConfigChange()
         }
-    }
-
-    /** Creates a platform view inside the one scanner session owned by this engine. */
-    private fun createScannerView(
-        context: android.content.Context,
-        viewId: Int,
-        creationParams: Any?,
-    ): ScannerView {
-        val registration = ScannerMethodArguments.viewRegistration(creationParams)
-        if (registration.viewId != viewId) throw PluginError.InvalidArguments
-        val session = scannerSession ?: ScannerSessionImpl(
-            scanner = Scanner(
-                camera = XCamera(context),
-                analyzer = MlkitImageBarcodeAnalyzer(TAG),
-            ),
-            mainHandler = mainHandler,
-            onScanResult = ::emitScanResult,
-            onReleased = { scannerSession = null },
-        ).also { newSession ->
-            scannerSession = newSession
-            activityBinding?.activityLifecycle?.let(newSession::attachHostLifecycle)
-        }
-        return session.createView(
-            context = context,
-            viewId = viewId,
-            initialZoom = registration.initialZoom,
-            initialCropRect = registration.initialCropRect,
-            initialFlashEnabled = registration.initialFlashEnabled,
-        )
-    }
-
-    /** Releases the engine's scanner session and removes it as the active command target. */
-    private fun disposeScanner() {
-        val activeSession = scannerSession
-        scannerSession = null
-        activeSession?.release()
     }
 
     /** Sends a recognized barcode result to Dart on the main thread. */
@@ -202,8 +169,6 @@ class MlkitScannerPlugin internal constructor(
     }
 
     private companion object {
-        const val TAG = "MLKIT_SCANNER_PLUGIN"
-
         /** Creates a main-thread supervisor scope for asynchronous method-channel commands. */
         fun createCommandScope(): CoroutineScope =
             CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)

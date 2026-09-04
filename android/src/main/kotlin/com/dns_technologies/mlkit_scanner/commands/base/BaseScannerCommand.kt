@@ -6,14 +6,17 @@ import io.flutter.plugin.common.MethodChannel.Result
 
 /** Shared command functionality that does not define sync or async execution policy. */
 internal abstract class BaseScannerCommand(
-    protected val scannerSessionProvider: () -> ScannerSession?,
+    private val scannerSessionProvider: () -> ScannerSession?,
 ) {
     /** Sends a successful command completion. */
     protected fun success(result: Result) = result.success(true)
 
+    /** Returns the active scanner session when it exists. */
+    protected fun scannerSession(): ScannerSession? = scannerSessionProvider()
+
     /** Returns the active scanner session or reports an invalid command state. */
     protected fun requireScannerSession(): ScannerSession =
-        scannerSessionProvider() ?: throw PluginError.CameraIsNotInitialized
+        scannerSession() ?: throw PluginError.CameraIsNotInitialized
 
     /** Sends a typed plugin error response. */
     protected fun reportError(
