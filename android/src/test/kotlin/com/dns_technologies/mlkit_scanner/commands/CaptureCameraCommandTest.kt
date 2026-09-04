@@ -21,6 +21,45 @@ import org.mockito.Mockito.verify
 
 internal class CaptureCameraCommandTest {
     @Test
+    fun `missing session keeps stable initialization state error`() = runBlocking {
+        val result = mock(MethodChannel.Result::class.java)
+        val command = CaptureCameraCommand(
+            scannerSessionProvider = { null },
+            permissionGateway = grantedPermissionGateway(),
+            commandScope = CoroutineScope(Dispatchers.Unconfined),
+        )
+
+        command.execute(
+            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID)),
+            result,
+        )
+
+        verify(result).error(
+            PluginError.CameraIsNotInitialized.errorCode,
+            PluginError.CameraIsNotInitialized.message,
+            null,
+        )
+    }
+
+    @Test
+    fun `invalid view id keeps stable invalid arguments error`() = runBlocking {
+        val scannerSession = RecordingScannerSession()
+        val result = mock(MethodChannel.Result::class.java)
+
+        command(scannerSession, grantedPermissionGateway()).execute(
+            MethodCall("captureCamera", mapOf("viewId" to -1)),
+            result,
+        )
+
+        assertEquals(emptyList<String>(), scannerSession.calls)
+        verify(result).error(
+            PluginError.InvalidArguments.errorCode,
+            PluginError.InvalidArguments.message,
+            null,
+        )
+    }
+
+    @Test
     fun `capture delegates one permission-aware transaction to session`() = runBlocking {
         val permissionGateway = grantedPermissionGateway()
         val scannerSession = RecordingScannerSession()
