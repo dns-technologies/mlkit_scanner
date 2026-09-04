@@ -20,7 +20,7 @@ void main() {
 
     Widget buildApp({
       required ValueChanged<int> onCameraInitialized,
-      double? initialZoom,
+      double? initialZoomRatio,
       bool? initialFlashEnabled,
       CropRect? initialCropRect,
       IosCamera? initialCamera,
@@ -28,7 +28,7 @@ void main() {
       return MaterialApp(
         home: CameraPreview(
           onCameraInitialized: onCameraInitialized,
-          initialZoom: initialZoom,
+          initialZoomRatio: initialZoomRatio,
           initialFlashEnabled: initialFlashEnabled,
           initialCropRect: initialCropRect,
           initialCamera: initialCamera,
@@ -70,7 +70,7 @@ void main() {
 
       await tester.pumpWidget(buildApp(
         onCameraInitialized: (viewId) => initializedViewId = viewId,
-        initialZoom: 0.4,
+        initialZoomRatio: 2.0,
         initialFlashEnabled: false,
         initialCropRect: const CropRect(
           scaleWidth: 0.5,
@@ -102,7 +102,7 @@ void main() {
         'viewId': initializedViewId,
         'width': 800.0,
         'height': 600.0,
-        'initialZoom': 0.4,
+        'initialZoomRatio': 2.0,
         'initialFlashEnabled': false,
         'initialCropRect': {
           'scaleWidth': 0.5,
@@ -137,7 +137,7 @@ void main() {
 
       await tester.pumpWidget(buildApp(
         onCameraInitialized: (_) {},
-        initialZoom: 0.4,
+        initialZoomRatio: 2.0,
         initialFlashEnabled: true,
         initialCropRect: const CropRect(
           scaleWidth: 0.5,
@@ -163,7 +163,7 @@ void main() {
       expect(creationParams, {
         'width': 800.0,
         'height': 600.0,
-        'initialZoom': 0.4,
+        'initialZoomRatio': 2.0,
         'initialFlashEnabled': true,
         'initialCropRect': {
           'scaleWidth': 0.5,

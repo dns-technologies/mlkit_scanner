@@ -18,7 +18,7 @@ internal class SetScanDelayCommand(
         val viewId = arguments.requireInt(PluginConstants.viewIdArgument)
         val periodMs = arguments.requireInt(PluginConstants.delayArgument)
         if (viewId < 0 || periodMs < 0) throw PluginError.InvalidArguments
-        requireScannerSession().updateScanPeriod(viewId, periodMs)
+        scannerSession()?.updateScanPeriod(viewId, periodMs)
         success(result)
     }
 }

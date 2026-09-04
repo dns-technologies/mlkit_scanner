@@ -2,7 +2,7 @@ package com.dns_technologies.mlkit_scanner.models
 
 import android.content.Context
 import android.os.Handler
-import android.util.Log
+import androidx.camera.core.CameraControl
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -11,59 +11,62 @@ import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraCommand
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /**
- * Owns one camera and scanner pipeline shared by every registered platform view.
+ * Owns the desired scanner configuration and every operation submitted to the shared camera.
  *
- * Runtime intent and configuration belong to each registered platform view. Camera ownership is an
- * explicit view-id claim: capture moves the preview and release drops ownership without
- * deleting the view state. Registration, manual resume, and disposal never infer route order. A
- * temporary empty registry pauses work while retaining resources across a short route transition.
+ * All mutable session state is reduced by one actor on the supplied main scope. Each view retains
+ * its desired configuration, while only the current [OwnerActivation] may apply it. Camera
+ * callbacks only enqueue facts; they never restore controls themselves.
  */
 internal class ScannerSessionImpl(
     private val scanner: Scanner,
     private val mainHandler: Handler,
     private val onScanResult: (Int, Barcode) -> Unit,
-    private val onReleased: () -> Unit,
+    private val onReleaseRequested: (ScannerSession) -> Unit,
     private val initializationScope: CoroutineScope = MainScope(),
     lifecycleRegistryFactory: (LifecycleOwner) -> LifecycleRegistry = ::LifecycleRegistry,
 ) : ScannerSession, LifecycleOwner, DefaultLifecycleObserver {
     private val lifecycleRegistry = lifecycleRegistryFactory(this)
+    private val events = Channel<SessionEvent>(Channel.UNLIMITED)
     private val views = mutableMapOf<Int, ScannerViewState>()
-    private val resultDeliveryLock = Any()
     private val pendingResultDeliveries = mutableSetOf<Runnable>()
-    /** Current owner-specific execution context; replacing it preempts obsolete camera work. */
-    private var activeCameraExecution: CameraExecution? = null
-    private var scanSubscription: ScanResultSubscription? =
-        scanner.subscribeToScanResults(::enqueueScanResult)
+    private val resultDeliveryLock = Any()
+
     private var hostLifecycle: Lifecycle? = null
-    private var cameraInitialization: CompletableDeferred<Unit>? = null
+    private var owner: OwnerActivation? = null
+    private var cameraConnection: CameraConnection = CameraConnection.Unbound
+    private var handoff: Handoff? = null
     private var deferredRelease: Runnable? = null
     private var hostPaused = true
 
     @Volatile
-    private var deliverScanResults = false
+    private var scanTargetViewId: Int? = null
 
     @Volatile
+    private var releaseRequested = false
+
     private var isReleased = false
+    private var scanSubscription: ScanResultSubscription? =
+        scanner.subscribeToScanResults(::enqueueScanResult)
+
+    private val actorJob: Job = initializationScope.launch(start = CoroutineStart.UNDISPATCHED) {
+        for (event in events) reduce(event)
+    }
 
     init {
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
@@ -75,343 +78,933 @@ internal class ScannerSessionImpl(
     override fun createView(
         context: Context,
         viewId: Int,
-        initialZoom: Double?,
+        initialZoomRatio: Double?,
         initialCropRect: RecognizeVisorCropRect?,
         initialFlashEnabled: Boolean?,
     ): ScannerView {
-        val view = ScannerView(context, scanner) { disposePlatformView(viewId) }
-        registerView(
-            viewId = viewId,
-            view = view,
-            initialZoom = initialZoom,
-            initialCropRect = initialCropRect,
-            initialFlashEnabled = initialFlashEnabled,
+        check(!releaseRequested) { "Cannot add a scanner view to a released session" }
+        lateinit var view: ScannerView
+        view = ScannerView(
+            context = context,
+            scanner = scanner,
+            onFocusRequest = { resetDelayMs, offsetX, offsetY ->
+                requestFocus(viewId, resetDelayMs, offsetX, offsetY)
+            },
+            onDispose = { disposePlatformView(viewId, view) },
         )
+        registerView(viewId, view, initialZoomRatio, initialCropRect, initialFlashEnabled)
         return view
     }
 
-    /** Attaches and registers an already-created view; exposed to keep JVM tests Android-free. */
+    /** Attaches an already-created view; exposed to keep JVM tests Android-free. */
     internal fun attachView(
         viewId: Int,
         view: ScannerView,
-        initialZoom: Double? = null,
+        initialZoomRatio: Double? = null,
         initialCropRect: RecognizeVisorCropRect? = null,
         initialFlashEnabled: Boolean? = null,
     ) {
-        registerView(
-            viewId = viewId,
-            view = view,
-            initialZoom = initialZoom,
-            initialCropRect = initialCropRect,
-            initialFlashEnabled = initialFlashEnabled,
-        )
+        check(!releaseRequested) { "Cannot add a scanner view to a released session" }
+        registerView(viewId, view, initialZoomRatio, initialCropRect, initialFlashEnabled)
     }
 
-    /** Registers retained state for one production or test platform view. */
     private fun registerView(
         viewId: Int,
         view: ScannerView,
-        initialZoom: Double?,
+        initialZoomRatio: Double?,
         initialCropRect: RecognizeVisorCropRect?,
         initialFlashEnabled: Boolean?,
     ) {
-        check(!isReleased) { "Cannot add a scanner view to a released session" }
-        check(viewId !in views) { "Scanner platform view $viewId already exists" }
-        views[viewId] = ScannerViewState(
-            viewId = viewId,
-            view = view,
-            zoom = initialZoom?.toFloat(),
-            torchEnabled = initialFlashEnabled,
-            cropArea = initialCropRect,
+        dispatch(
+            SessionEvent.RegisterView(
+                viewId,
+                view,
+                initialZoomRatio?.toFloat(),
+                initialCropRect,
+                initialFlashEnabled,
+            ),
         )
-        initialCropRect?.let(view::setCropArea)
-        cancelDeferredRelease()
     }
 
     override suspend fun captureCamera(
         viewId: Int,
         requestCameraPermission: suspend () -> Boolean,
     ) {
-        if (isReleased) throw PluginError.CameraSessionDisposed
-        val viewState = requireView(viewId)
-        val wasInitialized = viewState.cameraInitialized
-        val previousCapture = capturedViewState()
-        views.values.forEach { it.isCameraOwner = it === viewState }
-        val execution = replaceCameraExecution(viewState)
-        moveCamera(previousCapture, viewState)
-
-        viewState.awaitInitialization {
-            if (!requestCameraPermission()) throw PluginError.AuthorizationCameraError
-            if (isReleased) throw PluginError.CameraSessionDisposed
-            viewState.cameraStarted = true
-            updateCameraLifecycle()
-            if (!scanner.isActive()) initializeCamera().await()
-        }
-        if (!isCurrentCameraExecution(execution) || !viewState.cameraRequested) return
-        updateCameraLifecycle()
-
-        if (!scanner.isActive()) initializeCamera().await()
-        if (!isCurrentCameraExecution(execution) || !viewState.cameraRequested) return
-        if (wasInitialized) {
-            applyRestoredCameraControls(execution)
-        } else {
-            applyCameraControlsIfActive(execution)
-        }
+        if (releaseRequested) return
+        val result = CompletableDeferred<Unit>()
+        dispatch(SessionEvent.Capture(viewId, requestCameraPermission, result))
+        result.await()
     }
 
     override fun releaseCamera(viewId: Int) {
-        if (views[viewId]?.isCameraOwner == true) releaseCapturedCamera()
+        dispatch(SessionEvent.ReleaseCamera(viewId))
     }
 
     override fun resumeCamera(viewId: Int) {
-        val viewState = requireView(viewId)
-        viewState.cameraRequested = true
-        if (viewState !== capturedViewState()) return
-        val execution = replaceCameraExecution(viewState)
+        dispatch(SessionEvent.ResumeCamera(viewId))
+    }
 
-        viewState.cameraStarted = true
+    override fun pauseCamera(viewId: Int) {
+        dispatch(SessionEvent.PauseCamera(viewId))
+    }
+
+    override fun attachHostLifecycle(lifecycle: Lifecycle) {
+        dispatch(SessionEvent.AttachHostLifecycle(lifecycle))
+    }
+
+    override fun detachHostLifecycle() {
+        dispatch(SessionEvent.DetachHostLifecycle)
+    }
+
+    override fun onResume(owner: LifecycleOwner) {
+        dispatch(SessionEvent.HostPaused(false))
+    }
+
+    override fun onPause(owner: LifecycleOwner) {
+        dispatch(SessionEvent.HostPaused(true))
+    }
+
+    override suspend fun toggleFlashLight(viewId: Int) {
+        if (releaseRequested) return
+        val result = CompletableDeferred<Unit>()
+        dispatch(SessionEvent.ToggleTorch(viewId, result))
+        result.await()
+    }
+
+    override fun startScan(viewId: Int, periodMs: Int) {
+        dispatch(SessionEvent.StartScan(viewId, periodMs))
+    }
+
+    override fun pauseScan(viewId: Int) {
+        dispatch(SessionEvent.PauseScan(viewId))
+    }
+
+    override fun updateScanPeriod(viewId: Int, periodMs: Int) {
+        dispatch(SessionEvent.UpdateScanPeriod(viewId, periodMs))
+    }
+
+    override suspend fun setZoomRatio(viewId: Int, value: Float) {
+        if (releaseRequested) return
+        val result = CompletableDeferred<Unit>()
+        dispatch(SessionEvent.SetZoomRatio(viewId, value, result))
+        result.await()
+    }
+
+    override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) {
+        dispatch(SessionEvent.SetCropArea(viewId, cropRect))
+    }
+
+    /** Routes a preview focus gesture through the session actor. */
+    internal fun requestFocus(
+        viewId: Int,
+        resetDelayMs: Long,
+        offsetX: Float,
+        offsetY: Float,
+    ) {
+        dispatch(SessionEvent.FocusRequested(viewId, resetDelayMs, offsetX, offsetY))
+    }
+
+    /** Mirrors Flutter's native PlatformView disposal in JVM tests. */
+    internal fun disposeView(viewId: Int, view: ScannerView? = null) {
+        dispatch(SessionEvent.DisposeView(viewId, view))
+    }
+
+    override fun release() {
+        if (!markReleaseRequested()) return
+        dispatch(SessionEvent.ReleaseSession)
+    }
+
+    private fun markReleaseRequested(): Boolean {
+        if (releaseRequested) return false
+        releaseRequested = true
+        onReleaseRequested(this)
+        return true
+    }
+
+    /** Serial reducer. This is the only method allowed to mutate session/camera state. */
+    private fun reduce(event: SessionEvent) {
+        if (isReleased && event !== SessionEvent.ReleaseSession) return
+        when (event) {
+            is SessionEvent.RegisterView -> onRegisterView(event)
+            is SessionEvent.Capture -> onCapture(event)
+            is SessionEvent.PermissionCompleted -> onPermissionCompleted(event)
+            is SessionEvent.ReleaseCamera -> onReleaseCamera(event.viewId)
+            is SessionEvent.ResumeCamera -> onResumeCamera(event.viewId)
+            is SessionEvent.PauseCamera -> onPauseCamera(event.viewId)
+            is SessionEvent.AttachHostLifecycle -> onAttachHostLifecycle(event.lifecycle)
+            SessionEvent.DetachHostLifecycle -> onDetachHostLifecycle()
+            is SessionEvent.HostPaused -> updateHostPaused(event.paused)
+            is SessionEvent.ToggleTorch -> onToggleTorch(event)
+            is SessionEvent.SetZoomRatio -> onSetZoomRatio(event)
+            is SessionEvent.SetCropArea -> onSetCropArea(event)
+            is SessionEvent.StartScan -> onStartScan(event)
+            is SessionEvent.PauseScan -> onPauseScan(event.viewId)
+            is SessionEvent.UpdateScanPeriod -> onUpdateScanPeriod(event)
+            is SessionEvent.FocusRequested -> onFocusRequested(event)
+            is SessionEvent.PreviewReady -> onPreviewReady(event)
+            SessionEvent.CameraBound -> onCameraBound()
+            is SessionEvent.CameraBindingFailed -> onCameraBindingFailed(event.error)
+            is SessionEvent.CameraAvailabilityChanged -> onCameraAvailabilityChanged(event.value)
+            is SessionEvent.OperationCompleted -> onOperationCompleted(event)
+            is SessionEvent.HandoffExpired -> onHandoffExpired(event.handoff)
+            is SessionEvent.DisposeView -> onDisposeView(event)
+            SessionEvent.ReleaseSession -> releaseSession()
+        }
+    }
+
+    private fun onRegisterView(event: SessionEvent.RegisterView) {
+        check(event.viewId !in views) { "Scanner platform view ${event.viewId} already exists" }
+        views[event.viewId] = ScannerViewState(
+            viewId = event.viewId,
+            view = event.view,
+            desired = DesiredConfiguration(
+                zoomRatio = event.initialZoomRatio,
+                torchEnabled = event.initialFlashEnabled,
+                cropArea = event.initialCropRect,
+            ),
+        )
+        event.initialCropRect?.let(event.view::setCropArea)
+        cancelDeferredRelease()
+    }
+
+    private fun onCapture(event: SessionEvent.Capture) {
+        val viewState = views[event.viewId]
+        if (viewState == null) {
+            event.result.complete(Unit)
+            return
+        }
+
+        val inheritsWarmLifecycle = handoff != null &&
+            lifecycleRegistry.currentState == Lifecycle.State.RESUMED
+        cancelDeferredLifecycleStop(keepLifecycleWarm = inheritsWarmLifecycle)
+        val previousOwner = owner
+        previousOwner?.invalidateConfiguration()
+        val activation = OwnerActivation(viewState)
+        owner = activation
+        completeSupersededOwnerWork()
+
+        if (previousOwner?.viewState !== viewState) {
+            previousOwner?.viewState?.let {
+                it.view.setScanActive(false)
+                it.view.detachPreview()
+            }
+            attachPreview(activation)
+        } else {
+            viewState.view.setScanActive(false)
+            if (cameraConnection.isBound) scanner.hidePreview()
+        }
+
+        val captureRequest = CaptureRequest(activation, event.result)
+        viewState.captureRequests += captureRequest
+        when (val initialization = viewState.initialization) {
+            is ViewInitialization.Failed -> {
+                handoff = null
+                event.result.completeExceptionally(initialization.error)
+                viewState.captureRequests -= captureRequest
+            }
+            ViewInitialization.Ready -> {
+                handoff = null
+                afterViewInitialized(viewState)
+            }
+            ViewInitialization.New -> startViewInitialization(viewState, event.requestCameraPermission)
+            is ViewInitialization.Pending -> Unit
+        }
         updateCameraLifecycle()
         applyScanState()
+    }
+
+    private fun startViewInitialization(
+        viewState: ScannerViewState,
+        requestCameraPermission: suspend () -> Boolean,
+    ) {
+        val pending = ViewInitialization.Pending()
+        viewState.initialization = pending
         initializationScope.launch {
-            try {
-                if (!scanner.isActive()) {
-                    initializeCamera().await()
+            val result = runCatching {
+                if (requestCameraPermission()) Unit else throw PluginError.AuthorizationCameraError
+            }
+            dispatch(
+                SessionEvent.PermissionCompleted(
+                    viewState.viewId,
+                    pending,
+                    result.exceptionOrNull(),
+                ),
+            )
+        }
+    }
+
+    private fun onPermissionCompleted(event: SessionEvent.PermissionCompleted) {
+        val viewState = views[event.viewId] ?: return
+        if (viewState.initialization !== event.pending) return
+        if (event.error != null) {
+            if (owner?.viewState === viewState) handoff = null
+            viewState.initialization = ViewInitialization.Failed(event.error)
+            viewState.captureRequests.toList().forEach {
+                it.result.completeExceptionally(event.error)
+            }
+            viewState.captureRequests.clear()
+            updateCameraLifecycle()
+            return
+        }
+
+        viewState.initialization = ViewInitialization.Ready
+        if (owner?.viewState === viewState) handoff = null
+        updateCameraLifecycle()
+        ensureCameraBinding()
+        afterViewInitialized(viewState)
+    }
+
+    private fun afterViewInitialized(viewState: ScannerViewState) {
+        ensureCameraBinding()
+        completeCaptureRequestsThatDoNotNeedConfiguration()
+        reconcileCamera()
+    }
+
+    private fun ensureCameraBinding() {
+        if (isReleased || cameraConnection !== CameraConnection.Unbound) return
+        if (views.values.none { it.initialization === ViewInitialization.Ready }) return
+        cameraConnection = CameraConnection.Binding(CameraAvailabilityState.Closed)
+        try {
+            scanner.startCamera(
+                lifecycleOwner = this,
+                onAvailabilityChanged = {
+                    dispatch(SessionEvent.CameraAvailabilityChanged(it))
+                },
+                onInit = { dispatch(SessionEvent.CameraBound) },
+                onError = { dispatch(SessionEvent.CameraBindingFailed(it)) },
+            )
+        } catch (error: Exception) {
+            dispatch(SessionEvent.CameraBindingFailed(error))
+        }
+    }
+
+    private fun onCameraBound() {
+        val binding = cameraConnection as? CameraConnection.Binding ?: return
+        cameraConnection = CameraConnection.Bound(binding.availability)
+        completeCaptureRequestsThatDoNotNeedConfiguration()
+        reconcileCamera()
+    }
+
+    private fun onCameraBindingFailed(error: Exception) {
+        cameraConnection = CameraConnection.Unbound
+        views.values.forEach { viewState ->
+            viewState.captureRequests.toList().forEach { it.result.completeExceptionally(error) }
+            viewState.captureRequests.clear()
+            viewState.configurationWaiters.toList().forEach { it.result.completeExceptionally(error) }
+            viewState.configurationWaiters.clear()
+        }
+        markReleaseRequested()
+        releaseSession()
+    }
+
+    private fun onCameraAvailabilityChanged(availability: CameraAvailability) {
+        when (availability) {
+            CameraAvailability.Open -> {
+                if (cameraConnection.availability !is CameraAvailabilityState.Open) {
+                    cameraConnection = cameraConnection.withAvailability(CameraAvailabilityState.Open())
+                    owner?.invalidateConfiguration()
                 }
-                if (isCurrentCameraExecution(execution) && viewState.cameraRequested) {
-                    applyRestoredCameraControls(execution)
+                reconcileCamera()
+            }
+            is CameraAvailability.Closed -> {
+                cameraConnection = cameraConnection.withAvailability(CameraAvailabilityState.Closed)
+                owner?.let { activation ->
+                    activation.invalidateConfiguration()
+                    val viewState = activation.viewState
+                    viewState.view.unbindFocus()
+                    if (cameraConnection.isBound) scanner.hidePreview()
+                    availability.errorCode?.let { errorCode ->
+                        val error = PluginError.CameraControlError(
+                            operation = CameraControlOperation.AWAIT_OPEN,
+                            viewId = viewState.viewId,
+                            cause = availability.cause,
+                            cameraStateErrorCode = errorCode,
+                        )
+                        activation.configuration = ConfigurationState.Failed(
+                            open = null,
+                            desired = viewState.desired,
+                            previewUsable = false,
+                        )
+                        failCurrentOwnerWork(activation, error)
+                    }
                 }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                if (!isReleased && isCurrentCameraExecution(execution)) {
-                    Log.w(TAG, "Unable to resume captured scanner camera", error)
-                }
+                applyScanState()
             }
         }
     }
 
-    override fun pauseCamera(viewId: Int) {
-        val viewState = views[viewId] ?: return
-        viewState.cameraRequested = false
-        if (viewState.isCameraOwner) cancelCameraExecution(viewState)
-        if (viewState.view.hasPreview()) {
-            viewState.configurationApplied = false
-            viewState.view.unbindFocus()
-        }
-        applyViewStateIfCaptured(viewState)
+    private fun onReleaseCamera(viewId: Int) {
+        if (owner?.viewState?.viewId != viewId) return
+        releaseCurrentOwner(scheduleHandoff = true)
     }
 
-    override fun attachHostLifecycle(lifecycle: Lifecycle) {
-        if (isReleased) return
+    private fun releaseCurrentOwner(scheduleHandoff: Boolean) {
+        val releasedOwner = owner
+        owner = null
+        releasedOwner?.invalidateConfiguration()
+        releasedOwner?.viewState?.let { viewState ->
+            viewState.view.setScanActive(false)
+            viewState.view.unbindFocus()
+            if (cameraConnection.isBound) scanner.hidePreview()
+            viewState.view.detachPreview()
+        }
+        completeSupersededOwnerWork()
+        if (scheduleHandoff && !hostPaused && lifecycleRegistry.currentState == Lifecycle.State.RESUMED) {
+            scheduleDeferredLifecycleStop()
+        } else {
+            updateCameraLifecycle()
+        }
+        applyScanState()
+    }
+
+    private fun onResumeCamera(viewId: Int) {
+        val viewState = views[viewId] ?: return
+        viewState.cameraRequested = true
+        val activation = owner?.takeIf { it.viewState === viewState } ?: return
+        cancelDeferredLifecycleStop()
+        activation.invalidateConfiguration()
+        updateCameraLifecycle()
+        ensureCameraBinding()
+        reconcileCamera()
+        applyScanState()
+    }
+
+    private fun onPauseCamera(viewId: Int) {
+        val viewState = views[viewId] ?: return
+        viewState.cameraRequested = false
+        val activation = owner?.takeIf { it.viewState === viewState } ?: return
+        cancelDeferredLifecycleStop()
+        activation.invalidateConfiguration()
+        viewState.view.unbindFocus()
+        completeCaptureRequestsThatDoNotNeedConfiguration()
+        updateCameraLifecycle()
+        applyScanState()
+    }
+
+    private fun onAttachHostLifecycle(lifecycle: Lifecycle) {
         if (hostLifecycle === lifecycle) {
             updateHostPaused(!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
             return
         }
-
         hostLifecycle?.removeObserver(this)
         hostLifecycle = lifecycle
         updateHostPaused(!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         lifecycle.addObserver(this)
     }
 
-    override fun detachHostLifecycle() {
+    private fun onDetachHostLifecycle() {
         hostLifecycle?.removeObserver(this)
         hostLifecycle = null
         updateHostPaused(true)
     }
 
-    override fun onResume(owner: LifecycleOwner) {
-        updateHostPaused(false)
+    private fun updateHostPaused(paused: Boolean) {
+        if (hostPaused == paused) return
+        hostPaused = paused
+        cancelDeferredLifecycleStop()
+        owner?.let { activation ->
+            activation.invalidateConfiguration()
+            val viewState = activation.viewState
+            viewState.view.unbindFocus()
+            if (paused && cameraConnection.isBound) scanner.hidePreview()
+        }
+        updateCameraLifecycle()
+        completeCaptureRequestsThatDoNotNeedConfiguration()
+        if (!paused) reconcileCamera()
+        applyScanState()
     }
 
-    override fun onPause(owner: LifecycleOwner) {
-        updateHostPaused(true)
-    }
-
-    override suspend fun toggleFlashLight(viewId: Int) {
-        val viewState = requireView(viewId)
-        val enabled = viewState.torchEnabled != true
-        viewState.torchEnabled = enabled
-        val execution = currentCameraExecution(viewState) ?: return
-        runCameraOperation(execution) {
-            if (canApplyCameraControls(viewState)) {
-                awaitCameraControl(viewId, CameraControlOperation.TORCH) {
-                    scanner.setTorch(enabled)
-                }
-                if (isReleased) throw PluginError.CameraSessionDisposed
-            }
+    private fun onSetZoomRatio(event: SessionEvent.SetZoomRatio) {
+        val viewState = views[event.viewId]
+        if (viewState == null) {
+            event.result.complete(Unit)
+            return
+        }
+        if (!event.value.isFinite() || event.value <= 0.0F) {
+            event.result.completeExceptionally(PluginError.InvalidArguments)
+            return
+        }
+        val activation = owner?.takeIf { it.viewState === viewState }
+        val wasApplied = activation?.hasUsablePreview(viewState.desired) == true
+        val desired = updateDesiredConfiguration(viewState) { it.copy(zoomRatio = event.value) }
+        if (!shouldAwaitConfiguration(viewState)) {
+            event.result.complete(Unit)
+            reconcileCamera()
+            return
+        }
+        viewState.configurationWaiters += ConfigurationWaiter(desired, event.result)
+        if (wasApplied) {
+            startSingleCameraOperation(
+                activation = activation,
+                command = CameraCommand.SetZoomRatio(event.value),
+            )
+        } else {
+            reconcileCamera()
         }
     }
 
-    override fun startScan(viewId: Int, periodMs: Int) {
-        val viewState = requireView(viewId)
-        viewState.scanPeriodMs = periodMs
-        viewState.scanRequestedByView = true
-        if (canApplyCameraControls(viewState)) applyScanPeriodIfActive(viewState)
-        applyViewStateIfCaptured(viewState)
+    private fun onToggleTorch(event: SessionEvent.ToggleTorch) {
+        val viewState = views[event.viewId]
+        if (viewState == null) {
+            event.result.complete(Unit)
+            return
+        }
+        val activation = owner?.takeIf { it.viewState === viewState }
+        val wasApplied = activation?.hasUsablePreview(viewState.desired) == true
+        val desired = updateDesiredConfiguration(viewState) {
+            it.copy(torchEnabled = it.torchEnabled != true)
+        }
+        if (!shouldAwaitConfiguration(viewState)) {
+            event.result.complete(Unit)
+            reconcileCamera()
+            return
+        }
+        viewState.configurationWaiters += ConfigurationWaiter(desired, event.result)
+        if (wasApplied) {
+            startSingleCameraOperation(
+                activation = activation,
+                command = CameraCommand.SetTorch(desired.torchEnabled == true),
+            )
+        } else {
+            reconcileCamera()
+        }
     }
 
-    override fun pauseScan(viewId: Int) {
+    private fun onFocusRequested(event: SessionEvent.FocusRequested) {
+        val viewState = views[event.viewId] ?: return
+        val activation = owner?.takeIf { it.viewState === viewState } ?: return
+        if (!activation.hasUsablePreview(viewState.desired)) return
+        activation.invalidateConfiguration()
+        startSingleCameraOperation(
+            activation = activation,
+            command = CameraCommand.Focus(event.resetDelayMs, event.offsetX, event.offsetY),
+        )
+    }
+
+    private fun onSetCropArea(event: SessionEvent.SetCropArea) {
+        val viewState = views[event.viewId] ?: return
+        val activation = owner?.takeIf { it.viewState === viewState }
+        val wasApplied = activation?.hasUsablePreview(viewState.desired) == true
+        val desired = updateDesiredConfiguration(viewState) { it.copy(cropArea = event.cropRect) }
+        viewState.view.setCropArea(event.cropRect)
+        if (wasApplied && canOperateCamera(activation)) {
+            scanner.setCropArea(desired.cropArea)
+            markConfigurationApplied(activation, desired)
+        } else {
+            reconcileCamera()
+        }
+    }
+
+    private fun onStartScan(event: SessionEvent.StartScan) {
+        val viewState = views[event.viewId] ?: return
+        val activation = owner?.takeIf { it.viewState === viewState }
+        val wasApplied = activation?.hasUsablePreview(viewState.desired) == true
+        val desired = updateDesiredConfiguration(viewState) {
+            it.copy(scanPeriodMs = event.periodMs)
+        }
+        viewState.scanRequestedByView = true
+        if (wasApplied && canOperateCamera(activation)) {
+            scanner.updateScanPeriod(event.periodMs)
+            markConfigurationApplied(activation, desired)
+        } else {
+            reconcileCamera()
+        }
+        applyScanState()
+    }
+
+    private fun onPauseScan(viewId: Int) {
         val viewState = views[viewId] ?: return
         viewState.scanRequestedByView = false
-        applyViewStateIfCaptured(viewState)
-    }
-
-    override fun updateScanPeriod(viewId: Int, periodMs: Int) {
-        val viewState = requireView(viewId)
-        viewState.scanPeriodMs = periodMs
-        if (canApplyCameraControls(viewState)) applyScanPeriodIfActive(viewState)
-    }
-
-    override suspend fun setZoom(viewId: Int, value: Float) {
-        val viewState = requireView(viewId)
-        viewState.zoom = value
-        val execution = currentCameraExecution(viewState) ?: return
-        runCameraOperation(execution) {
-            if (canApplyCameraControls(viewState)) {
-                awaitCameraControl(viewId, CameraControlOperation.ZOOM) {
-                    scanner.setZoom(value)
-                }
-                if (isReleased) throw PluginError.CameraSessionDisposed
-            }
-        }
-    }
-
-    override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) {
-        val viewState = requireView(viewId)
-        viewState.cropArea = cropRect
-        viewState.view.setCropArea(cropRect)
-        if (canApplyCameraControls(viewState)) applyCropAreaIfActive(viewState)
-    }
-
-    /** Applies retained crop processing when [viewState] currently owns the camera. */
-    private fun applyCropAreaIfActive(viewState: ScannerViewState) {
-        if (!canApplyCameraControls(viewState)) return
-        scanner.setCropArea(viewState.cropArea)
-    }
-
-    /** Applies the retained recognition cooldown for the active view. */
-    private fun applyScanPeriodIfActive(viewState: ScannerViewState) {
-        if (!canApplyCameraControls(viewState)) return
-        viewState.scanPeriodMs?.let(scanner::updateScanPeriod)
-    }
-
-    /** Mirrors Flutter's native PlatformView disposal in JVM tests. */
-    internal fun disposeView(viewId: Int) {
-        val viewState = views[viewId] ?: return
-        if (viewState.isCameraOwner) releaseCapturedCamera()
-        views.remove(viewId)
-        viewState.view.setScanActive(false)
-        if (views.isEmpty()) {
-            scheduleDeferredRelease()
-        }
         applyScanState()
     }
 
-    override fun release() {
-        if (isReleased) return
-        detachHostLifecycle()
-        isReleased = true
-        cancelDeferredRelease()
-        deliverScanResults = false
-        cancelPendingResultDeliveries()
-
-        cameraInitialization?.completeExceptionally(PluginError.CameraSessionDisposed)
-        cameraInitialization = null
-        cancelCameraExecution()
-        views.values.forEach { viewState ->
-            viewState.failInitialization(PluginError.CameraSessionDisposed)
+    private fun onUpdateScanPeriod(event: SessionEvent.UpdateScanPeriod) {
+        val viewState = views[event.viewId] ?: return
+        val activation = owner?.takeIf { it.viewState === viewState }
+        val wasApplied = activation?.hasUsablePreview(viewState.desired) == true
+        val desired = updateDesiredConfiguration(viewState) {
+            it.copy(scanPeriodMs = event.periodMs)
         }
-        initializationScope.cancel()
-        scanSubscription?.cancel()
-        scanSubscription = null
-
-        views.values.forEach { it.view.disposeFromSession() }
-        views.clear()
-
-        scanner.dispose()
-        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
-        onReleased()
-    }
-
-    /** Moves preview ownership and restores retained state for an explicit capture request. */
-    private fun moveCamera(previousHost: ScannerViewState?, viewState: ScannerViewState) {
-        if (previousHost !== viewState) {
-            previousHost?.let {
-                scanner.pauseScan()
-                cancelPendingResultDeliveries()
-                it.configurationApplied = false
-                it.view.detachPreview()
-            }
-            attachPreview(viewState)
-        } else if (viewState.configurationApplied) {
-            // A repeated capture is an explicit request to restore this view's retained state.
-            // Invalidate the applied marker so captureCamera reapplies zoom and torch too.
-            viewState.configurationApplied = false
-            viewState.view.setScanActive(false)
-            if (scanner.isActive()) scanner.hidePreview()
-        }
-        updateCameraLifecycle()
-        applyScanState()
-    }
-
-    /** Handles disposal initiated by Flutter's native platform-view wrapper. */
-    private fun disposePlatformView(viewId: Int) {
-        disposeView(viewId)
-    }
-
-    /** Drops current ownership while retaining the registered view's configuration. */
-    private fun releaseCapturedCamera() {
-        val captured = capturedViewState()
-        captured?.let { viewState ->
-            cancelCameraExecution(viewState)
-            viewState.isCameraOwner = false
-            viewState.configurationApplied = false
-            viewState.view.setScanActive(false)
-            if (scanner.isActive()) scanner.hidePreview()
-            viewState.view.detachPreview()
-        }
-        updateCameraLifecycle()
-        applyScanState()
-    }
-
-    /** Attaches the shared preview to a view without applying state before initialization. */
-    private fun attachPreview(viewState: ScannerViewState) {
-        viewState.configurationApplied = false
-        viewState.view.attachPreview(::applyScanState)
-        viewState.view.setScanActive(false)
-        if (scanner.isActive()) {
-            scanner.hidePreview()
-        }
-    }
-
-    /** Reconciles user scan intent with ownership, lifecycle, and preview readiness. */
-    private fun applyScanState() {
-        val shouldScan = capturedViewState()?.let { viewState ->
-            viewState.scanRequestedByView &&
-                viewState.cameraRequested &&
-                viewState.configurationApplied &&
-                viewState.view.isPreviewReady() &&
-                currentCameraExecution(viewState) != null &&
-                !hostPaused &&
-                !isReleased
-        } == true
-        deliverScanResults = shouldScan
-        if (shouldScan) {
-            scanner.resumeScan()
+        if (wasApplied && canOperateCamera(activation)) {
+            scanner.updateScanPeriod(event.periodMs)
+            markConfigurationApplied(activation, desired)
         } else {
-            scanner.pauseScan()
-            cancelPendingResultDeliveries()
+            reconcileCamera()
         }
-        capturedViewState()?.view?.setScanActive(shouldScan)
     }
 
-    /** Drives the camera lifecycle from active-view and host state. */
+    private fun updateDesiredConfiguration(
+        viewState: ScannerViewState,
+        update: (DesiredConfiguration) -> DesiredConfiguration,
+    ): DesiredConfiguration {
+        val desired = update(viewState.desired)
+        viewState.desired = desired
+        viewState.configurationWaiters.forEach { it.result.complete(Unit) }
+        viewState.configurationWaiters.clear()
+        owner?.takeIf { it.viewState === viewState }?.invalidateConfiguration()
+        return desired
+    }
+
+    private fun shouldAwaitConfiguration(viewState: ScannerViewState): Boolean =
+        owner?.viewState === viewState &&
+            viewState.initialization === ViewInitialization.Ready &&
+            viewState.cameraRequested &&
+            !hostPaused &&
+            cameraConnection.isBound
+
+    /** Starts or advances the exact OPEN configuration order. */
+    private fun reconcileCamera() {
+        val activation = owner ?: return
+        val open = cameraConnection.open ?: return
+        if (!canOperateCamera(activation)) return
+        val desired = activation.viewState.desired
+        when (val configuration = activation.configuration) {
+            is ConfigurationState.Applied -> if (
+                configuration.open === open && configuration.desired === desired
+            ) {
+                completeCaptureRequestsThatDoNotNeedConfiguration()
+                applyScanState()
+                return
+            }
+            is ConfigurationState.Failed -> if (
+                configuration.open === open && configuration.desired === desired
+            ) {
+                completeCaptureRequestsThatDoNotNeedConfiguration()
+                applyScanState()
+                return
+            }
+            is ConfigurationState.AwaitingReopen -> if (
+                configuration.open === open && configuration.desired === desired
+            ) return
+            is ConfigurationState.Applying -> return
+            ConfigurationState.Pending -> Unit
+        }
+        startConfigurationPipeline(
+            activation,
+            ApplyStage.Focus,
+            allowTorchFallback = activation.viewState.hasBeenConfigured,
+            hidePreview = true,
+            previewRemainsUsable = false,
+        )
+    }
+
+    private fun startConfigurationPipeline(
+        activation: OwnerActivation,
+        stage: ApplyStage,
+        allowTorchFallback: Boolean,
+        hidePreview: Boolean,
+        previewRemainsUsable: Boolean,
+    ) {
+        val open = cameraConnection.open ?: return
+        if (owner !== activation || !canOperateCamera(activation)) return
+        val execution = StartupConfigurationExecution(
+            activation = activation,
+            open = open,
+            desired = activation.viewState.desired,
+            allowTorchFallback = allowTorchFallback,
+            previewRemainsUsable = previewRemainsUsable,
+        )
+        if (hidePreview) {
+            scanner.hidePreview()
+            activation.viewState.view.unbindFocus()
+        }
+        startStartupCameraOperation(execution, stage)
+        applyScanState()
+    }
+
+    /** Executes one runtime command without replaying the startup configuration pipeline. */
+    private fun startSingleCameraOperation(
+        activation: OwnerActivation,
+        command: CameraCommand,
+    ) {
+        val open = cameraConnection.open ?: return
+        if (owner !== activation || !canOperateCamera(activation)) return
+        val execution = SingleCameraExecution(
+            activation = activation,
+            open = open,
+            desired = activation.viewState.desired,
+            previewRemainsUsable = true,
+        )
+        startCameraOperation(execution, command.stage, command)
+        applyScanState()
+    }
+
+    private fun startStartupCameraOperation(
+        execution: StartupConfigurationExecution,
+        stage: ApplyStage,
+    ) {
+        startCameraOperation(execution, stage, startupCommand(execution, stage))
+    }
+
+    private fun startCameraOperation(
+        execution: CameraExecution,
+        stage: ApplyStage,
+        command: CameraCommand,
+    ) {
+        if (!isCurrent(execution)) return
+        val operation = CameraOperation(execution, stage, command)
+        execution.activation.configuration = ConfigurationState.Applying(operation)
+        try {
+            val result = when (command) {
+                CameraCommand.ResetFocus -> scanner.resetFocus()
+                is CameraCommand.Focus -> scanner.focusOnCenter(
+                    command.resetDelayMs,
+                    command.offsetX,
+                    command.offsetY,
+                )
+                is CameraCommand.SetZoomRatio -> scanner.setZoomRatio(command.value)
+                is CameraCommand.SetTorch -> scanner.setTorch(command.enabled)
+            }
+            operation.task = result
+            result.invokeOnCompletion { error ->
+                dispatch(SessionEvent.OperationCompleted(operation, error))
+            }
+        } catch (error: Exception) {
+            dispatch(SessionEvent.OperationCompleted(operation, error))
+        }
+    }
+
+    private fun startupCommand(
+        execution: StartupConfigurationExecution,
+        stage: ApplyStage,
+    ): CameraCommand = when (stage) {
+        ApplyStage.Focus -> CameraCommand.ResetFocus
+        ApplyStage.Zoom -> CameraCommand.SetZoomRatio(
+            execution.desired.zoomRatio ?: DEFAULT_ZOOM_RATIO,
+        )
+        ApplyStage.Torch -> CameraCommand.SetTorch(execution.desired.torchEnabled == true)
+    }
+
+    private fun onOperationCompleted(event: SessionEvent.OperationCompleted) {
+        val operation = event.operation
+        val execution = operation.execution
+        val applying = execution.activation.configuration as? ConfigurationState.Applying
+        if (owner !== execution.activation || applying?.operation !== operation || !isCurrent(execution)) {
+            return
+        }
+        val viewState = execution.activation.viewState
+        val error = event.error
+        if (error != null) {
+            if (error.isCameraOperationCanceled()) {
+                execution.activation.configuration = ConfigurationState.AwaitingReopen(
+                    execution.open,
+                    execution.desired,
+                )
+                scanner.hidePreview()
+                viewState.view.unbindFocus()
+                applyScanState()
+                return
+            }
+            if (
+                operation.stage == ApplyStage.Torch &&
+                execution is StartupConfigurationExecution &&
+                execution.allowTorchFallback &&
+                execution.desired.torchEnabled == true &&
+                error === PluginError.DeviceHasNotFlash
+            ) {
+                updateDesiredConfiguration(viewState) { it.copy(torchEnabled = false) }
+                reconcileCamera()
+                return
+            }
+            val contextualized = contextualizeCameraError(
+                operation.command.operation,
+                viewState.viewId,
+                error,
+            )
+            execution.activation.configuration = ConfigurationState.Failed(
+                open = execution.open,
+                desired = execution.desired,
+                previewUsable = execution.previewRemainsUsable,
+            )
+            failCurrentOwnerWork(execution.activation, contextualized)
+            applyScanState()
+            return
+        }
+
+        if (execution is SingleCameraExecution) {
+            markConfigurationApplied(execution.activation, execution.desired)
+            applyScanState()
+            return
+        }
+        execution as StartupConfigurationExecution
+
+        when (operation.stage) {
+            ApplyStage.Focus -> {
+                applyCropAndDelay(execution.desired)
+                startStartupCameraOperation(execution, ApplyStage.Zoom)
+            }
+            ApplyStage.Zoom -> startStartupCameraOperation(execution, ApplyStage.Torch)
+            ApplyStage.Torch -> finishConfiguration(execution)
+        }
+    }
+
+    private fun finishConfiguration(execution: StartupConfigurationExecution) {
+        if (!isCurrent(execution)) return
+        val activation = execution.activation
+        try {
+            activation.viewState.hasBeenConfigured = true
+            activation.viewState.view.bindFocus()
+            scanner.showPreview()
+            markConfigurationApplied(activation, execution.desired)
+        } catch (error: Exception) {
+            activation.configuration = ConfigurationState.Failed(
+                open = execution.open,
+                desired = execution.desired,
+                previewUsable = false,
+            )
+            failCurrentOwnerWork(activation, error)
+        }
+        applyScanState()
+    }
+
+    private fun applyCropAndDelay(desired: DesiredConfiguration) {
+        scanner.setCropArea(desired.cropArea)
+        desired.scanPeriodMs?.let(scanner::updateScanPeriod)
+    }
+
+    private fun markConfigurationApplied(
+        activation: OwnerActivation,
+        desired: DesiredConfiguration,
+    ) {
+        val open = cameraConnection.open ?: return
+        if (owner !== activation || activation.viewState.desired !== desired) return
+        activation.configuration = ConfigurationState.Applied(open, desired)
+        completeAppliedConfiguration(activation, desired)
+    }
+
+    private fun completeAppliedConfiguration(
+        activation: OwnerActivation,
+        desired: DesiredConfiguration,
+    ) {
+        val viewState = activation.viewState
+        viewState.configurationWaiters.removeAll { waiter ->
+            if (waiter.desired === desired) {
+                waiter.result.complete(Unit)
+                true
+            } else {
+                false
+            }
+        }
+        viewState.captureRequests.removeAll { request ->
+            if (request.activation === activation) {
+                request.result.complete(Unit)
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    private fun completeCaptureRequestsThatDoNotNeedConfiguration() {
+        if (!cameraConnection.isBound) return
+        views.values.forEach { viewState ->
+            if (viewState.initialization !== ViewInitialization.Ready) return@forEach
+            viewState.captureRequests.removeAll { request ->
+                val isCurrentOwner = owner === request.activation
+                val needsConfiguration = isCurrentOwner && viewState.cameraRequested && !hostPaused
+                if (!needsConfiguration) {
+                    request.result.complete(Unit)
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    private fun completeSupersededOwnerWork() {
+        views.values.forEach { viewState ->
+            viewState.configurationWaiters.forEach { it.result.complete(Unit) }
+            viewState.configurationWaiters.clear()
+        }
+        completeCaptureRequestsThatDoNotNeedConfiguration()
+    }
+
+    private fun failCurrentOwnerWork(activation: OwnerActivation, error: Throwable) {
+        if (owner !== activation) return
+        val viewState = activation.viewState
+        viewState.configurationWaiters.forEach { it.result.completeExceptionally(error) }
+        viewState.configurationWaiters.clear()
+        viewState.captureRequests.removeAll { request ->
+            if (request.activation === activation) {
+                request.result.completeExceptionally(error)
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    private fun contextualizeCameraError(
+        operation: CameraControlOperation,
+        viewId: Int,
+        error: Throwable,
+    ): Throwable = when (error) {
+        is PluginError.CameraControlError -> error.contextualize(operation, viewId)
+        is PluginError -> error
+        else -> PluginError.CameraControlError(operation, viewId, error)
+    }
+
+    private fun Throwable.isCameraOperationCanceled(): Boolean {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current is CameraControl.OperationCanceledException) return true
+            current = current.cause
+        }
+        return false
+    }
+
+    private val CameraCommand.operation: CameraControlOperation
+        get() = when (this) {
+            CameraCommand.ResetFocus, is CameraCommand.Focus -> CameraControlOperation.FOCUS
+            is CameraCommand.SetZoomRatio -> CameraControlOperation.ZOOM
+            is CameraCommand.SetTorch -> CameraControlOperation.TORCH
+        }
+
+    private val CameraCommand.stage: ApplyStage
+        get() = when (this) {
+            CameraCommand.ResetFocus, is CameraCommand.Focus -> ApplyStage.Focus
+            is CameraCommand.SetZoomRatio -> ApplyStage.Zoom
+            is CameraCommand.SetTorch -> ApplyStage.Torch
+        }
+
+    private fun canOperateCamera(activation: OwnerActivation): Boolean =
+        !isReleased &&
+            owner === activation &&
+            activation.viewState.initialization === ViewInitialization.Ready &&
+            activation.viewState.cameraRequested &&
+            !hostPaused &&
+            cameraConnection.isBound
+
+    private fun isCurrent(execution: CameraExecution): Boolean =
+        owner === execution.activation &&
+            execution.activation.viewState.desired === execution.desired &&
+            cameraConnection.open === execution.open &&
+            canOperateCamera(execution.activation)
+
+    private fun currentOwner(): ScannerViewState? = owner?.viewState
+
+    private fun attachPreview(activation: OwnerActivation) {
+        val viewState = activation.viewState
+        viewState.view.attachPreview {
+            dispatch(SessionEvent.PreviewReady(activation))
+        }
+        viewState.view.setScanActive(false)
+        if (cameraConnection.isBound) scanner.hidePreview()
+    }
+
+    private fun onPreviewReady(event: SessionEvent.PreviewReady) {
+        if (owner !== event.activation) return
+        applyScanState()
+    }
+
     private fun updateCameraLifecycle() {
         if (isReleased) return
-        val shouldRun = capturedViewState()?.let { viewState ->
-            viewState.cameraStarted && viewState.cameraRequested && !hostPaused
-        } == true
+        val shouldRun = currentOwner()?.let { viewState ->
+            viewState.initialization === ViewInitialization.Ready &&
+                viewState.cameraRequested &&
+                !hostPaused
+        } == true || handoff != null && !hostPaused && owner != null
         lifecycleRegistry.currentState = if (shouldRun) {
             Lifecycle.State.RESUMED
         } else {
@@ -419,303 +1012,69 @@ internal class ScannerSessionImpl(
         }
     }
 
-    /** Pauses or restores preview work when the Flutter Activity changes lifecycle state. */
-    private fun updateHostPaused(isPaused: Boolean) {
-        if (hostPaused == isPaused) return
-        hostPaused = isPaused
-        if (isPaused) {
-            cancelCameraExecution()
-            if (scanner.isActive()) {
-                capturedViewState()?.let { viewState ->
-                    viewState.configurationApplied = false
-                    viewState.view.unbindFocus()
-                    scanner.hidePreview()
-                }
-            }
+    private fun scheduleDeferredLifecycleStop() {
+        cancelDeferredLifecycleStop()
+        val pendingHandoff = Handoff()
+        val stopTask = Runnable { dispatch(SessionEvent.HandoffExpired(pendingHandoff)) }
+        pendingHandoff.stopTask = stopTask
+        handoff = pendingHandoff
+        if (!mainHandler.postDelayed(stopTask, CAMERA_HANDOFF_GRACE_PERIOD_MS)) {
+            dispatch(SessionEvent.HandoffExpired(pendingHandoff))
         }
+    }
+
+    private fun cancelDeferredLifecycleStop(keepLifecycleWarm: Boolean = false) {
+        handoff?.stopTask?.let(mainHandler::removeCallbacks)
+        if (!keepLifecycleWarm) handoff = null
+    }
+
+    private fun onHandoffExpired(expired: Handoff) {
+        if (handoff !== expired || owner != null) return
+        handoff = null
         updateCameraLifecycle()
-        applyScanState()
-        if (!isPaused) {
-            capturedViewState()?.takeIf { it.cameraRequested }?.let { viewState ->
-                replaceCameraExecution(viewState)
-                restoreCameraControlsIfActive(viewState)
-            }
-        }
     }
 
-    /** Reconciles shared state only when [viewState] owns the camera. */
-    private fun applyViewStateIfCaptured(viewState: ScannerViewState) {
-        if (viewState !== capturedViewState()) return
-        updateCameraLifecycle()
-        applyScanState()
+    private fun applyScanState() {
+        val activation = owner
+        val viewState = activation?.viewState
+        val shouldScan = activation?.let { current ->
+            val currentView = current.viewState
+            currentView.scanRequestedByView &&
+                currentView.cameraRequested &&
+                current.hasUsablePreview(currentView.desired) &&
+                currentView.view.isPreviewReady() &&
+                !hostPaused &&
+                !isReleased
+        } == true
+        scanTargetViewId = viewState?.viewId?.takeIf { shouldScan }
+        if (shouldScan) {
+            scanner.resumeScan()
+        } else {
+            scanner.pauseScan()
+            cancelPendingResultDeliveries()
+        }
+        viewState?.view?.setScanActive(shouldScan)
     }
 
-    /** Starts one shared camera initialization and returns its reusable completion signal. */
-    private fun initializeCamera(): CompletableDeferred<Unit> {
-        if (isReleased) return failedInitialization(PluginError.CameraSessionDisposed)
-        cameraInitialization?.let { return it }
-        if (scanner.isActive()) return CompletableDeferred(Unit)
-
-        val initialization = CompletableDeferred<Unit>()
-        cameraInitialization = initialization
-        initialization.invokeOnCompletion {
-            if (cameraInitialization === initialization) cameraInitialization = null
-        }
-
-        /** Completes this initialization exceptionally and releases an unusable session. */
-        fun fail(error: Throwable) {
-            if (!initialization.completeExceptionally(error)) return
-            // Preserve the actual camera error for every per-view initialization before release
-            // marks unfinished work as disposed.
-            views.values.forEach { it.failInitialization(error) }
-            release()
-        }
-
-        /** Completes shared camera initialization; per-view controls are applied afterwards. */
-        fun complete() {
-            if (isReleased || initialization.isCompleted) return
-            applyScanState()
-            initialization.complete(Unit)
-        }
-
-        try {
-            scanner.startCamera(
-                lifecycleOwner = this,
-                onInit = {
-                    if (isReleased) return@startCamera
-                    initializationScope.launch {
-                        complete()
-                    }
-                },
-                onError = ::fail,
-            )
-        } catch (error: Exception) {
-            fail(error)
-        }
-
-        return initialization
-    }
-
-    /** Creates an already-failed initialization result. */
-    private fun failedInitialization(error: Throwable): CompletableDeferred<Unit> =
-        CompletableDeferred<Unit>().also { it.completeExceptionally(error) }
-
-    /** Applies zoom and torch atomically before revealing the active preview. */
-    private suspend fun applyCameraControlsIfActive(execution: CameraExecution) {
-        runCameraOperation(execution) {
-            val viewState = execution.viewState
-            if (viewState.configurationApplied) return@runCameraOperation
-            if (
-                !awaitCameraControlIfActive(
-                    execution,
-                    CameraControlOperation.AWAIT_OPEN,
-                    scanner::awaitCameraOpen,
-                )
-            ) return@runCameraOperation
-            if (
-                !awaitCameraControlIfActive(
-                    execution,
-                    CameraControlOperation.FOCUS,
-                    scanner::resetFocus,
-                )
-            ) return@runCameraOperation
-            applyCropAreaIfActive(viewState)
-            applyScanPeriodIfActive(viewState)
-            if (
-                !awaitCameraControlIfActive(
-                    execution,
-                    CameraControlOperation.ZOOM,
-                ) {
-                    scanner.setZoom(viewState.zoom ?: DEFAULT_ZOOM)
-                }
-            ) return@runCameraOperation
-            if (
-                !awaitCameraControlIfActive(
-                    execution,
-                    CameraControlOperation.TORCH,
-                ) {
-                    scanner.setTorch(viewState.torchEnabled == true)
-                }
-            ) return@runCameraOperation
-            if (!canApplyCameraControls(execution)) return@runCameraOperation
-            viewState.configurationApplied = true
-            viewState.view.bindFocus()
-            scanner.showPreview()
-            applyScanState()
-        }
-    }
-
-    /** Starts restoration inside the current owner-specific execution context. */
-    private fun restoreCameraControlsIfActive(viewState: ScannerViewState) {
-        val execution = currentCameraExecution(viewState) ?: return
-        if (viewState.configurationApplied || !canApplyCameraControls(execution)) return
-        initializationScope.launch {
-            try {
-                applyRestoredCameraControls(execution)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                if (!isReleased && isCurrentCameraExecution(execution)) {
-                    Log.w(TAG, "Unable to restore scanner view camera controls", error)
-                }
-            }
-        }
-    }
-
-    /** Restores controls, disabling a retained torch request if flash is unavailable. */
-    private suspend fun applyRestoredCameraControls(execution: CameraExecution) {
-        val viewState = execution.viewState
-        try {
-            applyCameraControlsIfActive(execution)
-        } catch (error: PluginError) {
-            if (
-                error !== PluginError.DeviceHasNotFlash ||
-                viewState.torchEnabled != true ||
-                !canApplyCameraControls(execution)
-            ) {
-                throw error
-            }
-            viewState.torchEnabled = false
-            applyCameraControlsIfActive(execution)
-        }
-    }
-
-    /** Awaits one camera operation and attaches its exact operation and platform-view identity. */
-    private suspend fun awaitCameraControl(
-        viewId: Int,
-        operation: CameraControlOperation,
-        execute: () -> Deferred<Unit>,
-    ) {
-        try {
-            execute().await()
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: PluginError.CameraControlError) {
-            throw error.contextualize(operation, viewId)
-        } catch (error: PluginError) {
-            throw error
-        } catch (error: Exception) {
-            throw PluginError.CameraControlError(operation, viewId, error)
-        }
-    }
-
-    /**
-     * Runs one startup control only while [execution] remains the active camera execution.
-     *
-     * A newer capture cancels this execution immediately, so obsolete startup work cannot delay it.
-     */
-    private suspend fun awaitCameraControlIfActive(
-        execution: CameraExecution,
-        operation: CameraControlOperation,
-        execute: () -> Deferred<Unit>,
-    ): Boolean {
-        if (isReleased) throw PluginError.CameraSessionDisposed
-        if (!canApplyCameraControls(execution)) return false
-        awaitCameraControl(execution.viewState.viewId, operation, execute)
-        if (isReleased) throw PluginError.CameraSessionDisposed
-        return canApplyCameraControls(execution)
-    }
-
-    /** Executes one ordered operation for an owner without blocking a newer owner's execution. */
-    private suspend fun runCameraOperation(
-        execution: CameraExecution,
-        operation: suspend () -> Unit,
-    ): Boolean {
-        val task = execution.scope.async(start = CoroutineStart.UNDISPATCHED) {
-            execution.operationMutex.withLock {
-                if (!isCurrentCameraExecution(execution)) return@withLock false
-                operation()
-                true
-            }
-        }
-        return try {
-            task.await()
-        } catch (error: CancellationException) {
-            if (!currentCoroutineContext().isActive) {
-                task.cancel()
-                throw error
-            }
-            if (isReleased) throw PluginError.CameraSessionDisposed
-            if (!isCurrentCameraExecution(execution)) false else throw error
-        } catch (error: Exception) {
-            if (isReleased) throw PluginError.CameraSessionDisposed
-            if (!isCurrentCameraExecution(execution)) false else throw error
-        }
-    }
-
-    /** Replaces the current execution and cancels all controls owned by the previous view. */
-    private fun replaceCameraExecution(viewState: ScannerViewState): CameraExecution {
-        val replacement = CameraExecution(viewState)
-        val previous = activeCameraExecution
-        activeCameraExecution = replacement
-        previous?.cancel()
-        return replacement
-    }
-
-    /** Cancels the current execution, optionally only when owned by [viewState]. */
-    private fun cancelCameraExecution(viewState: ScannerViewState? = null) {
-        val execution = activeCameraExecution ?: return
-        if (viewState != null && execution.viewState !== viewState) return
-        activeCameraExecution = null
-        execution.cancel()
-    }
-
-    /** Returns the active execution only when it belongs to [viewState]. */
-    private fun currentCameraExecution(viewState: ScannerViewState): CameraExecution? =
-        activeCameraExecution?.takeIf {
-            it.viewState === viewState && it.isActive
-        }
-
-    /** Checks exact execution identity, including A -> B -> A navigation. */
-    private fun isCurrentCameraExecution(execution: CameraExecution): Boolean =
-        !isReleased && activeCameraExecution === execution && execution.isActive
-
-    /** Returns whether hardware controls may still run inside [execution]. */
-    private fun canApplyCameraControls(execution: CameraExecution): Boolean =
-        isCurrentCameraExecution(execution) && canApplyCameraControls(execution.viewState)
-
-    /** Returns whether camera controls may still be applied to [viewState]. */
-    private fun canApplyCameraControls(viewState: ScannerViewState): Boolean =
-        scanner.isActive() &&
-        !isReleased &&
-            currentCameraExecution(viewState) != null &&
-            viewState.cameraInitialized &&
-            viewState.cameraStarted &&
-            viewState.cameraRequested &&
-            !hostPaused &&
-            viewState === capturedViewState()
-
-    /** Returns the one registered view that currently owns the camera. */
-    private fun capturedViewState(): ScannerViewState? =
-        views.values.firstOrNull { it.isCameraOwner }
-
-    /** Posts a result to Flutter while allowing pause or release to cancel delivery. */
     private fun enqueueScanResult(result: Barcode) {
         lateinit var delivery: Runnable
         delivery = Runnable {
-            val shouldDeliver = synchronized(resultDeliveryLock) {
-                pendingResultDeliveries.remove(delivery) &&
-                    deliverScanResults
-            }
-            if (shouldDeliver) {
-                capturedViewState()?.viewId?.let { viewId ->
-                    onScanResult(viewId, result)
+            val viewId = synchronized(resultDeliveryLock) {
+                if (pendingResultDeliveries.remove(delivery)) {
+                    scanTargetViewId
+                } else {
+                    null
                 }
             }
+            viewId?.let { onScanResult(it, result) }
         }
-
         synchronized(resultDeliveryLock) {
-            if (!deliverScanResults || isReleased) return
+            if (scanTargetViewId == null || releaseRequested) return
             pendingResultDeliveries += delivery
             if (!mainHandler.post(delivery)) pendingResultDeliveries -= delivery
         }
     }
 
-    /** Returns a registered view or reports that its camera is unavailable. */
-    private fun requireView(viewId: Int): ScannerViewState =
-        views[viewId] ?: throw PluginError.CameraIsNotInitialized
-
-    /** Removes scan-result callbacks that have not yet reached Flutter. */
     private fun cancelPendingResultDeliveries() {
         val callbacks = synchronized(resultDeliveryLock) {
             pendingResultDeliveries.toList().also { pendingResultDeliveries.clear() }
@@ -723,7 +1082,26 @@ internal class ScannerSessionImpl(
         callbacks.forEach(mainHandler::removeCallbacks)
     }
 
-    /** Retains an empty session briefly so route replacement can reuse its camera pipeline. */
+    private fun onDisposeView(event: SessionEvent.DisposeView) {
+        val viewState = views[event.viewId] ?: return
+        if (event.view != null && viewState.view !== event.view) return
+        if (owner?.viewState === viewState) releaseCurrentOwner(scheduleHandoff = true)
+        views.remove(event.viewId)
+        viewState.captureRequests.toList().forEach {
+            it.result.complete(Unit)
+        }
+        viewState.configurationWaiters.toList().forEach {
+            it.result.complete(Unit)
+        }
+        viewState.view.setScanActive(false)
+        if (views.isEmpty()) scheduleDeferredRelease()
+        applyScanState()
+    }
+
+    private fun disposePlatformView(viewId: Int, view: ScannerView) {
+        disposeView(viewId, view)
+    }
+
     private fun scheduleDeferredRelease() {
         if (isReleased || deferredRelease != null) return
         val releaseTask = Runnable {
@@ -737,85 +1115,265 @@ internal class ScannerSessionImpl(
         }
     }
 
-    /** Cancels release when a new platform view registers within the grace period. */
     private fun cancelDeferredRelease() {
         deferredRelease?.let(mainHandler::removeCallbacks)
         deferredRelease = null
     }
 
-    internal companion object {
-        /** Time to retain a paused scanner pipeline while Flutter replaces its platform view. */
-        const val NAVIGATION_GRACE_PERIOD_MS = 300L
+    private fun releaseSession() {
+        if (isReleased) return
+        isReleased = true
+        releaseRequested = true
+        hostLifecycle?.removeObserver(this)
+        hostLifecycle = null
+        cancelDeferredLifecycleStop()
+        cancelDeferredRelease()
+        scanTargetViewId = null
+        cancelPendingResultDeliveries()
+        owner?.invalidateConfiguration()
+        owner = null
 
-        private const val DEFAULT_ZOOM = 0.0F
-        private const val TAG = "MlkitScannerSession"
+        views.values.forEach { viewState ->
+            viewState.captureRequests.toList().forEach {
+                it.result.completeExceptionally(PluginError.CameraSessionDisposed)
+            }
+            viewState.configurationWaiters.toList().forEach {
+                it.result.completeExceptionally(PluginError.CameraSessionDisposed)
+            }
+            viewState.view.disposeFromSession()
+        }
+        views.clear()
+        scanSubscription?.cancel()
+        scanSubscription = null
+        scanner.dispose()
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
+        events.close()
+        actorJob.cancel()
+        initializationScope.cancel()
     }
+
+    private fun dispatch(event: SessionEvent) {
+        events.trySend(event)
+    }
+
+    private sealed interface SessionEvent {
+        data class RegisterView(
+            val viewId: Int,
+            val view: ScannerView,
+            val initialZoomRatio: Float?,
+            val initialCropRect: RecognizeVisorCropRect?,
+            val initialFlashEnabled: Boolean?,
+        ) : SessionEvent
+
+        data class Capture(
+            val viewId: Int,
+            val requestCameraPermission: suspend () -> Boolean,
+            val result: CompletableDeferred<Unit>,
+        ) : SessionEvent
+
+        data class PermissionCompleted(
+            val viewId: Int,
+            val pending: ViewInitialization.Pending,
+            val error: Throwable?,
+        ) : SessionEvent
+
+        data class ReleaseCamera(val viewId: Int) : SessionEvent
+        data class ResumeCamera(val viewId: Int) : SessionEvent
+        data class PauseCamera(val viewId: Int) : SessionEvent
+        data class AttachHostLifecycle(val lifecycle: Lifecycle) : SessionEvent
+        data object DetachHostLifecycle : SessionEvent
+        data class HostPaused(val paused: Boolean) : SessionEvent
+        data class ToggleTorch(val viewId: Int, val result: CompletableDeferred<Unit>) : SessionEvent
+        data class SetZoomRatio(
+            val viewId: Int,
+            val value: Float,
+            val result: CompletableDeferred<Unit>,
+        ) : SessionEvent
+        data class SetCropArea(val viewId: Int, val cropRect: RecognizeVisorCropRect) : SessionEvent
+        data class StartScan(val viewId: Int, val periodMs: Int) : SessionEvent
+        data class PauseScan(val viewId: Int) : SessionEvent
+        data class UpdateScanPeriod(val viewId: Int, val periodMs: Int) : SessionEvent
+        data class FocusRequested(
+            val viewId: Int,
+            val resetDelayMs: Long,
+            val offsetX: Float,
+            val offsetY: Float,
+        ) : SessionEvent
+        data class PreviewReady(val activation: OwnerActivation) : SessionEvent
+        data object CameraBound : SessionEvent
+        data class CameraBindingFailed(val error: Exception) : SessionEvent
+        data class CameraAvailabilityChanged(val value: CameraAvailability) : SessionEvent
+        data class OperationCompleted(
+            val operation: CameraOperation,
+            val error: Throwable?,
+        ) : SessionEvent
+        data class HandoffExpired(val handoff: Handoff) : SessionEvent
+        data class DisposeView(
+            val viewId: Int,
+            val view: ScannerView?,
+        ) : SessionEvent
+        data object ReleaseSession : SessionEvent
+    }
+
+    private class CameraOperation(
+        val execution: CameraExecution,
+        val stage: ApplyStage,
+        val command: CameraCommand,
+    ) {
+        var task: Deferred<Unit>? = null
+    }
+
+    private sealed class CameraExecution(
+        val activation: OwnerActivation,
+        val open: CameraAvailabilityState.Open,
+        val desired: DesiredConfiguration,
+        val previewRemainsUsable: Boolean,
+    )
+
+    private class StartupConfigurationExecution(
+        activation: OwnerActivation,
+        open: CameraAvailabilityState.Open,
+        desired: DesiredConfiguration,
+        val allowTorchFallback: Boolean,
+        previewRemainsUsable: Boolean,
+    ) : CameraExecution(activation, open, desired, previewRemainsUsable)
+
+    private class SingleCameraExecution(
+        activation: OwnerActivation,
+        open: CameraAvailabilityState.Open,
+        desired: DesiredConfiguration,
+        previewRemainsUsable: Boolean,
+    ) : CameraExecution(activation, open, desired, previewRemainsUsable)
+
+    private enum class ApplyStage {
+        Focus,
+        Zoom,
+        Torch,
+    }
+
+    private class CaptureRequest(
+        val activation: OwnerActivation,
+        val result: CompletableDeferred<Unit>,
+    )
+
+    private class ConfigurationWaiter(
+        val desired: DesiredConfiguration,
+        val result: CompletableDeferred<Unit>,
+    )
+
+    private data class DesiredConfiguration(
+        val cropArea: RecognizeVisorCropRect? = null,
+        val scanPeriodMs: Int? = null,
+        val zoomRatio: Float? = null,
+        val torchEnabled: Boolean? = null,
+    )
 
     private class ScannerViewState(
         val viewId: Int,
         val view: ScannerView,
-        /** True only for the one registered view that currently owns the shared camera preview. */
-        var isCameraOwner: Boolean = false,
-        var cameraStarted: Boolean = false,
-        var cameraInitialized: Boolean = false,
+        var desired: DesiredConfiguration,
         var cameraRequested: Boolean = true,
-        /** User scan intent retained across capture, host-lifecycle, and preview system pauses. */
+        var initialization: ViewInitialization = ViewInitialization.New,
         var scanRequestedByView: Boolean = false,
-        var scanPeriodMs: Int? = null,
-        var zoom: Float? = null,
-        var torchEnabled: Boolean? = null,
-        var cropArea: RecognizeVisorCropRect? = null,
-        var configurationApplied: Boolean = false,
-    ) {
-        private val initializationMutex = Mutex()
-        private var initialization: CompletableDeferred<Unit>? = null
+        var hasBeenConfigured: Boolean = false,
+        val captureRequests: MutableList<CaptureRequest> = mutableListOf(),
+        val configurationWaiters: MutableList<ConfigurationWaiter> = mutableListOf(),
+    )
 
-        /** Starts this view's initialization once and shares its result with later captures. */
-        suspend fun awaitInitialization(initialize: suspend () -> Unit) {
-            var shouldInitialize = false
-            val currentInitialization = initializationMutex.withLock {
-                initialization ?: CompletableDeferred<Unit>().also {
-                    initialization = it
-                    shouldInitialize = true
-                }
-            }
-
-            if (shouldInitialize) {
-                try {
-                    initialize()
-                    cameraInitialized = true
-                    currentInitialization.complete(Unit)
-                } catch (error: CancellationException) {
-                    currentInitialization.completeExceptionally(error)
-                    throw error
-                } catch (error: Throwable) {
-                    currentInitialization.completeExceptionally(error)
-                }
-            }
-
-            currentInitialization.await()
-        }
-
-        /** Fails pending initialization when the owning scanner session is released. */
-        fun failInitialization(error: Throwable) {
-            initialization?.completeExceptionally(error)
-        }
-    }
-
-    /** Ordered, cancellable hardware work belonging to one concrete camera owner activation. */
-    private inner class CameraExecution(
+    private class OwnerActivation(
         val viewState: ScannerViewState,
-    ) {
-        private val job = SupervisorJob(initializationScope.coroutineContext[Job])
-        val scope = CoroutineScope(initializationScope.coroutineContext + job)
-        val operationMutex = Mutex()
+        var configuration: ConfigurationState = ConfigurationState.Pending,
+    )
 
-        val isActive: Boolean
-            get() = job.isActive
+    private sealed interface ViewInitialization {
+        data object New : ViewInitialization
+        class Pending : ViewInitialization
+        data object Ready : ViewInitialization
+        class Failed(val error: Throwable) : ViewInitialization
+    }
 
-        fun cancel() {
-            job.cancel()
+    private sealed interface ConfigurationState {
+        data object Pending : ConfigurationState
+        class Applying(val operation: CameraOperation) : ConfigurationState
+        class Applied(
+            val open: CameraAvailabilityState.Open,
+            val desired: DesiredConfiguration,
+        ) : ConfigurationState
+        class AwaitingReopen(
+            val open: CameraAvailabilityState.Open,
+            val desired: DesiredConfiguration,
+        ) : ConfigurationState
+        class Failed(
+            val open: CameraAvailabilityState.Open?,
+            val desired: DesiredConfiguration,
+            val previewUsable: Boolean,
+        ) : ConfigurationState
+    }
+
+    private sealed interface CameraAvailabilityState {
+        data object Closed : CameraAvailabilityState
+        class Open : CameraAvailabilityState
+    }
+
+    private sealed interface CameraConnection {
+        data object Unbound : CameraConnection
+        class Binding(val availability: CameraAvailabilityState) : CameraConnection
+        class Bound(val availability: CameraAvailabilityState) : CameraConnection
+    }
+
+    private val CameraConnection.availability: CameraAvailabilityState
+        get() = when (this) {
+            CameraConnection.Unbound -> CameraAvailabilityState.Closed
+            is CameraConnection.Binding -> availability
+            is CameraConnection.Bound -> availability
+        }
+
+    private val CameraConnection.isBound: Boolean
+        get() = this is CameraConnection.Bound
+
+    private val CameraConnection.open: CameraAvailabilityState.Open?
+        get() = (this as? CameraConnection.Bound)?.availability as? CameraAvailabilityState.Open
+
+    private fun CameraConnection.withAvailability(
+        availability: CameraAvailabilityState,
+    ): CameraConnection = when (this) {
+        CameraConnection.Unbound -> this
+        is CameraConnection.Binding -> CameraConnection.Binding(availability)
+        is CameraConnection.Bound -> CameraConnection.Bound(availability)
+    }
+
+    private fun OwnerActivation.invalidateConfiguration() {
+        val operation = (configuration as? ConfigurationState.Applying)?.operation
+        configuration = ConfigurationState.Pending
+        operation?.task?.cancel()
+    }
+
+    private fun OwnerActivation.hasUsablePreview(desired: DesiredConfiguration): Boolean {
+        val open = cameraConnection.open ?: return false
+        return when (val state = configuration) {
+            is ConfigurationState.Applied -> state.open === open && state.desired === desired
+            is ConfigurationState.Applying -> state.operation.execution.let { execution ->
+                execution.previewRemainsUsable &&
+                    execution.open === open &&
+                    execution.desired === desired
+            }
+            is ConfigurationState.Failed ->
+                state.previewUsable && state.open === open && state.desired === desired
+            else -> false
         }
     }
 
+    private class Handoff {
+        var stopTask: Runnable? = null
+    }
+
+    internal companion object {
+        /** Keeps the lifecycle hot briefly while Flutter hands the camera from A to B. */
+        const val CAMERA_HANDOFF_GRACE_PERIOD_MS = 180L
+
+        /** Retains an empty scanner session while Flutter replaces its platform view. */
+        const val NAVIGATION_GRACE_PERIOD_MS = 300L
+
+        private const val DEFAULT_ZOOM_RATIO = 1.0F
+    }
 }

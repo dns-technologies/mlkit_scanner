@@ -45,9 +45,8 @@ class FocusView: UIView {
     override func didMoveToSuperview() {
         super.didMoveToSuperview()
         if let superview = superview {
-            translatesAutoresizingMaskIntoConstraints = false
-            heightAnchor.constraint(equalTo: superview.heightAnchor).isActive = true
-            widthAnchor.constraint(equalTo: superview.widthAnchor).isActive = true
+            frame = superview.bounds
+            autoresizingMask = [.flexibleWidth, .flexibleHeight]
         }
     }
     
@@ -56,7 +55,8 @@ class FocusView: UIView {
     }
 
     /// Moves focus visuals to a new preview coordinate.
-    func changeFocusPoint(point: CGPoint) {
+    func moveFocus(to point: CGPoint) {
+        guard point.x.isFinite, point.y.isFinite else { return }
         circleLayer.path = FocusView.buildCirclePath(radius: circleRadius, point: point).cgPath
         lockInitialCenter = CGPoint(x: point.x - (circleRadius + lockImage.bounds.width), y: point.y)
         if (lockImage.alpha == 0) {
@@ -132,6 +132,7 @@ class FocusView: UIView {
     
     /// Reveals and moves the focus-lock indicator into its locked position.
     private func fadeInLock() {
+        guard lockInitialCenter.x.isFinite, lockInitialCenter.y.isFinite else { return }
         UIView.animateKeyframes(withDuration: 1, delay: 0, options: .calculationModeLinear) {
             UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.25) { [weak self] in
                 self?.lockImage.alpha = 1
@@ -145,6 +146,7 @@ class FocusView: UIView {
     
     /// Hides and resets the focus-lock indicator.
     private func fadeOutLock() {
+        guard lockInitialCenter.x.isFinite, lockInitialCenter.y.isFinite else { return }
         UIView.animate(withDuration: fadeDuration) { [weak self] in
             self?.lockImage.alpha = 0
         } completion: { [weak self] _ in

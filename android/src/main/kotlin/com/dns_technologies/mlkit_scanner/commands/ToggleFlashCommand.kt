@@ -19,10 +19,9 @@ internal class ToggleFlashCommand(
         call: MethodCall,
         result: Result,
     ) {
-        val session = requireScannerSession()
         val viewId = call.arguments.requireMap().requireInt(PluginConstants.viewIdArgument)
         if (viewId < 0) throw PluginError.InvalidArguments
-        session.toggleFlashLight(viewId)
+        scannerSession()?.toggleFlashLight(viewId)
         success(result)
     }
 }

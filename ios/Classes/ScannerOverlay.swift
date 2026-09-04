@@ -13,7 +13,7 @@ class ScannerOverlay: UIView {
     private var cornerLinelength: CGFloat = 0
     private var radius: CGFloat = 0
     private var borderRect: CGRect = CGRect.zero
-    private (set) var cropRect: CropRect
+    private(set) var cropRect: CropRect
 
     /// Controls whether the recognition border uses its active color.
     var isActive = false {
@@ -29,7 +29,7 @@ class ScannerOverlay: UIView {
     }
     
     /// Creates an overlay for normalized `cropRect` geometry.
-    required init( cropRect: CropRect) {
+    required init(cropRect: CropRect) {
         self.cropRect = cropRect
         super.init(frame: CGRect.zero)
         backgroundColor = .clear
@@ -38,9 +38,8 @@ class ScannerOverlay: UIView {
     override func didMoveToSuperview() {
         super.didMoveToSuperview()
         if let superview = superview {
-            translatesAutoresizingMaskIntoConstraints = false
-            heightAnchor.constraint(equalTo: superview.heightAnchor).isActive = true
-            widthAnchor.constraint(equalTo: superview.widthAnchor).isActive = true
+            frame = superview.bounds
+            autoresizingMask = [.flexibleWidth, .flexibleHeight]
         }
     }
     
@@ -162,10 +161,10 @@ class ScannerOverlay: UIView {
 
     /// Resolves normalized crop geometry against the current overlay bounds.
     private func updateOverlay() {
-        let width = frame.width * cropRect.scaleWidth
-        let height = frame.height * cropRect.scaleHeight
-        let x = frame.midX * (1 + cropRect.offsetX) - width / 2
-        let y = frame.midY * (1 + cropRect.offsetY) - height / 2
+        let width = bounds.width * cropRect.scaleWidth
+        let height = bounds.height * cropRect.scaleHeight
+        let x = bounds.midX * (1 + cropRect.offsetX) - width / 2
+        let y = bounds.midY * (1 + cropRect.offsetY) - height / 2
         borderRect = CGRect(x: x, y: y, width: width, height: height)
         cornerLinelength = width * 0.05
         radius = cornerLinelength / 4

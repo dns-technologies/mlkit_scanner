@@ -14,6 +14,40 @@ typealias OnError = (e: Exception) -> Unit
 /** Callback invoked with a frame scoped to the duration of the callback. */
 typealias OnCameraFrame = (frame: CameraFrame) -> Unit
 
+/** Callback invoked when the camera preview becomes ready or stops streaming. */
+typealias OnCameraAvailabilityChanged = (availability: CameraAvailability) -> Unit
+
+/** Device availability reported by the concrete camera adapter. */
+sealed interface CameraAvailability {
+    /** The camera is open and the preview has started delivering frames. */
+    data object Open : CameraAvailability
+
+    /** The device is not open; an optional CameraX state error explains the transition. */
+    data class Closed(
+        val errorCode: Int? = null,
+        val cause: Throwable? = null,
+    ) : CameraAvailability
+}
+
+/** One stateless command submitted to the active camera binding. */
+sealed interface CameraCommand {
+    /** Clears metering regions and restores continuous focus when supported. */
+    data object ResetFocus : CameraCommand
+
+    /** Focuses around a preview-relative point. */
+    data class Focus(
+        val resetDelayMs: Long,
+        val offsetX: Float,
+        val offsetY: Float,
+    ) : CameraCommand
+
+    /** Applies an absolute camera zoom ratio. */
+    data class SetZoomRatio(val value: Float) : CameraCommand
+
+    /** Applies an absolute torch state. */
+    data class SetTorch(val enabled: Boolean) : CameraCommand
+}
+
 /**
  * Minimal adapter implemented by a concrete camera library integration.
  */
@@ -21,39 +55,31 @@ interface Camera {
     /** Native preview view supplied by the concrete camera implementation. */
     val previewView: View
 
-    /** Starts frame analysis while keeping preview hidden until [showPreview] is called. */
-    fun start(
+    /** Binds frame analysis while preserving any frozen frame until [showPreview] is called. */
+    fun bind(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
         onFrame: OnCameraFrame,
+        onAvailabilityChanged: OnCameraAvailabilityChanged,
         onInit: OnInit,
         onError: OnError,
     )
 
-    /** Returns true when the camera has an active binding. */
-    fun isActive(): Boolean
+    /** Returns true when use cases have an active lifecycle binding. */
+    fun isBound(): Boolean
 
-    /** Completes when the lifecycle-bound camera device reaches its open state. */
-    fun awaitOpen(): Deferred<Unit>
-
-    /** Applies the camera torch state and completes after the camera accepts the change. */
-    fun setTorch(enabled: Boolean): Deferred<Unit>
-
-    /** Starts focus and metering and completes after the camera accepts the action. */
-    fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float): Deferred<Unit>
-
-    /** Cancels active focus/metering regions and restores continuous focus when supported. */
-    fun resetFocus(): Deferred<Unit>
-
-    /** Applies normalized zoom and completes after the camera accepts the new value. */
-    fun setZoom(value: Float): Deferred<Unit>
+    /** Executes exactly one command without retaining or restoring its desired value. */
+    fun execute(command: CameraCommand): Deferred<Unit>
 
     /** Reveals preview after startup camera controls have been applied. */
     fun showPreview()
 
-    /** Hides preview while another platform view's controls are being restored. */
+    /** Freezes preview intent while another platform view's controls are being restored. */
     fun hidePreview()
 
-    /** Releases resources owned by the concrete camera implementation. */
+    /** Removes the active CameraX use-case binding while keeping adapter resources reusable. */
+    fun unbind()
+
+    /** Releases every resource owned by the concrete camera implementation. */
     fun dispose()
 }

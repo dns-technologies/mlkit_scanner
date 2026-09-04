@@ -22,7 +22,7 @@ internal class SetCropAreaCommand(
             arguments.requireMap(PluginConstants.cropRectArgument),
         )
 
-        requireScannerSession().setCropArea(viewId, cropRect)
+        scannerSession()?.setCropArea(viewId, cropRect)
         success(result)
     }
 }

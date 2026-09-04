@@ -14,10 +14,9 @@ internal class ResumeCameraCommand(
     scannerSessionProvider: () -> ScannerSession?,
 ) : ScannerCommand(scannerSessionProvider) {
     override fun executeCommand(call: MethodCall, result: Result) {
-        val session = requireScannerSession()
         val viewId = call.arguments.requireMap().requireInt(PluginConstants.viewIdArgument)
         if (viewId < 0) throw PluginError.InvalidArguments
-        session.resumeCamera(viewId)
+        scannerSession()?.resumeCamera(viewId)
         success(result)
     }
 }

@@ -1,9 +1,7 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.ui
 
-import android.util.Log
 import android.view.MotionEvent
 import android.widget.FrameLayout
-import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.FocusController
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.focus.FocusView
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.visor.VisorController
@@ -12,7 +10,7 @@ import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 /** Coordinates scanner overlay UI and maps overlay interactions to scanner operations. */
 internal class OverlayController(
     private val boundsView: FrameLayout,
-    private val scanner: Scanner,
+    private val onFocusRequest: (resetDelayMs: Long, offsetX: Float, offsetY: Float) -> Unit,
 ) {
     private val focusView = FocusView(boundsView.context)
     private val focusController = FocusController(focusView)
@@ -22,7 +20,6 @@ internal class OverlayController(
         focusController::updateCenter,
     )
     private var isDisposed = false
-    private var focusBindingRevision = 0
 
     /** Connects focus UI callbacks to the active camera component. */
     fun bindFocus() {
@@ -41,7 +38,6 @@ internal class OverlayController(
     /** Invalidates focus work started while this preview owned the camera. */
     fun unbindFocus() {
         if (isDisposed) return
-        focusBindingRevision += 1
         focusController.unbind()
         focusView.resetIndicator()
     }
@@ -86,22 +82,9 @@ internal class OverlayController(
         boundsView.addView(focusView)
     }
 
-    /** Focus gestures have no Dart result channel, so failures are best-effort by contract. */
+    /** Routes focus intent to the session actor that owns all camera operations. */
     private fun requestFocus(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
-        val bindingRevision = focusBindingRevision
-        try {
-            scanner.focusOnCenter(resetDelayMs, offsetX, offsetY).invokeOnCompletion { error ->
-                if (
-                    error != null &&
-                    !isDisposed &&
-                    bindingRevision == focusBindingRevision
-                ) {
-                    Log.w(TAG, "Camera focus request failed", error)
-                }
-            }
-        } catch (error: Exception) {
-            Log.w(TAG, "Camera focus request failed", error)
-        }
+        if (!isDisposed) onFocusRequest(resetDelayMs, offsetX, offsetY)
     }
 
     private companion object {
@@ -110,7 +93,5 @@ internal class OverlayController(
 
         /** Default reset delay after a regular autofocus tap. */
         const val AUTO_FOCUS_RESET_DELAY_MS = 3000L
-
-        const val TAG = "MlkitScannerOverlay"
     }
 }

@@ -19,11 +19,16 @@ internal class CaptureCameraCommand(
     private val permissionGateway: PermissionGateway,
     commandScope: CoroutineScope,
 ) : AsyncScannerCommand(scannerSessionProvider, commandScope) {
-    /** Validates the request before running the single session capture transaction. */
+    /** Runs the single permission-aware session capture transaction. */
     override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
-        val scannerSession = requireScannerSession()
         val viewId = call.arguments.requireMap().requireInt(PluginConstants.viewIdArgument)
         if (viewId < 0) throw PluginError.InvalidArguments
+        val scannerSession = scannerSession() ?: run {
+            // The platform view may have been disposed while this method-channel message was
+            // already in flight. Treat it as superseded work instead of failing a new screen.
+            success(result)
+            return
+        }
 
         try {
             scannerSession.captureCamera(viewId) {
@@ -36,7 +41,6 @@ internal class CaptureCameraCommand(
         } catch (_: Exception) {
             throw PluginError.InitCameraError
         }
-
         success(result)
     }
 }

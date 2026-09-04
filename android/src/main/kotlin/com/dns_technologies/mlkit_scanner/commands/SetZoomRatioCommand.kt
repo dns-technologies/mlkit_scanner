@@ -11,22 +11,19 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.CoroutineScope
 
-/** Updates camera zoom ratio for the active scanner session. */
-internal class SetZoomCommand(
+/** Updates the absolute camera zoom ratio retained by one scanner view. */
+internal class SetZoomRatioCommand(
     scannerSessionProvider: () -> ScannerSession?,
     commandScope: CoroutineScope,
 ) : AsyncScannerCommand(scannerSessionProvider, commandScope) {
     override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
         val arguments = call.arguments.requireMap()
         val viewId = arguments.requireInt(PluginConstants.viewIdArgument)
-        val value = arguments.requireFiniteDouble(PluginConstants.valueArgument)
-        if (viewId < 0 || value !in MIN_ZOOM..MAX_ZOOM) throw PluginError.InvalidArguments
-        requireScannerSession().setZoom(viewId, value.toFloat())
+        val zoomRatio = arguments.requireFiniteDouble(PluginConstants.valueArgument).toFloat()
+        if (viewId < 0 || !zoomRatio.isFinite() || zoomRatio <= 0.0F) {
+            throw PluginError.InvalidArguments
+        }
+        scannerSession()?.setZoomRatio(viewId, zoomRatio)
         success(result)
-    }
-
-    private companion object {
-        const val MIN_ZOOM = 0.0
-        const val MAX_ZOOM = 1.0
     }
 }

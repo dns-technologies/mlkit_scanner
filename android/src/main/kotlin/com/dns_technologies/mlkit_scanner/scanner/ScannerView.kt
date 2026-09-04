@@ -21,9 +21,10 @@ import io.flutter.plugin.platform.PlatformView
 class ScannerView(
     context: Context,
     private val scanner: Scanner,
+    onFocusRequest: (resetDelayMs: Long, offsetX: Float, offsetY: Float) -> Unit,
     private val onDispose: () -> Unit,
 ) : FrameLayout(context), PlatformView {
-    private val overlayController = OverlayController(this, scanner)
+    private val overlayController = OverlayController(this, onFocusRequest)
     private var previewReadyListener: OneShotPreDrawListener? = null
     private var previewReady = false
     private var isDisposed = false

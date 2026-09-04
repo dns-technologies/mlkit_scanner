@@ -18,11 +18,9 @@ struct CameraData {
 
     /// Creates a validated camera selection from platform-channel arguments.
     init(arguments: [String: Any]) throws {
+        let typeNumber = try PlatformChannelScalar.number(from: arguments["type"])
+        let positionNumber = try PlatformChannelScalar.number(from: arguments["position"])
         guard
-            !(arguments["type"] is Bool),
-            !(arguments["position"] is Bool),
-            let typeNumber = arguments["type"] as? NSNumber,
-            let positionNumber = arguments["position"] as? NSNumber,
             typeNumber.doubleValue == Double(typeNumber.intValue),
             positionNumber.doubleValue == Double(positionNumber.intValue),
             let type = AVCaptureDevice.DeviceType.fromCode(typeNumber.intValue),

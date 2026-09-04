@@ -8,8 +8,8 @@ internal object PluginConstants {
     /** Event key containing the recognized barcode payload. */
     const val barcodeArgument = "barcode"
 
-    /** Optional view-registration argument containing normalized zoom. */
-    const val initialZoomArgument = "initialZoom"
+    /** Optional view-registration argument containing an absolute zoom ratio. */
+    const val initialZoomRatioArgument = "initialZoomRatio"
 
     /** Optional view-registration argument containing the initial torch state. */
     const val initialFlashEnabledArgument = "initialFlashEnabled"
@@ -59,8 +59,8 @@ internal object PluginConstants {
     /** Method name used to deliver recognized barcode values to Dart. */
     const val scanResultMethod = "onScanResult"
 
-    /** Method name used to update camera zoom. */
-    const val setZoomMethod = "setZoom"
+    /** Method name used to update the absolute camera zoom ratio. */
+    const val setZoomRatioMethod = "setZoomRatio"
 
     /** Method name used to update the recognized visor crop area. */
     const val setCropAreaMethod = "setCropAreaMethod"
