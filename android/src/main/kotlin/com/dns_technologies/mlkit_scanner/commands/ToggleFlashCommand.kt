@@ -3,7 +3,7 @@ package com.dns_technologies.mlkit_scanner.commands
 import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.commands.base.AsyncScannerCommand
-import com.dns_technologies.mlkit_scanner.models.ScannerSession
+import com.dns_technologies.mlkit_scanner.session.ScannerSession
 import com.dns_technologies.mlkit_scanner.utils.requireInt
 import com.dns_technologies.mlkit_scanner.utils.requireMap
 import io.flutter.plugin.common.MethodCall

@@ -1,9 +1,8 @@
 package com.dns_technologies.mlkit_scanner.commands.base
 
 import android.content.Context
-import androidx.lifecycle.Lifecycle
 import com.dns_technologies.mlkit_scanner.PluginError
-import com.dns_technologies.mlkit_scanner.models.ScannerSession
+import com.dns_technologies.mlkit_scanner.session.ScannerSession
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import io.flutter.plugin.common.MethodCall
@@ -107,9 +106,8 @@ internal open class RecordingScannerSession : ScannerSession {
         calls += SessionCall("pauseCamera", viewId)
     }
 
-    override fun attachHostLifecycle(lifecycle: Lifecycle) = Unit
-
-    override fun detachHostLifecycle() = Unit
+    override fun activate() = Unit
+    override fun deactivate() = Unit
 
     override suspend fun toggleFlashLight(viewId: Int) {
         calls += SessionCall("toggleFlashLight", viewId)

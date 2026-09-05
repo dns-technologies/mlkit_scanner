@@ -2,9 +2,9 @@ package com.dns_technologies.mlkit_scanner
 
 import android.os.Handler
 import androidx.lifecycle.Lifecycle
-import com.dns_technologies.mlkit_scanner.controllers.ScannerController
-import com.dns_technologies.mlkit_scanner.models.ScannerSession
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
+import com.dns_technologies.mlkit_scanner.session.ScannerSession
+import com.dns_technologies.mlkit_scanner.session.ScannerSessionController
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.lifecycle.HiddenLifecycleReference
@@ -109,6 +109,7 @@ internal class MlkitScannerPluginTest {
         val addedListeners = mutableListOf<PluginRegistry.RequestPermissionsResultListener>()
         val removedListeners = mutableListOf<PluginRegistry.RequestPermissionsResultListener>()
         val lifecycle = mock(Lifecycle::class.java)
+        doReturn(Lifecycle.State.RESUMED).`when`(lifecycle).currentState
         listOf(firstBinding, secondBinding).forEach { binding ->
             doAnswer { HiddenLifecycleReference(lifecycle) }.`when`(binding).lifecycle
             doAnswer { invocation: InvocationOnMock ->
@@ -139,38 +140,38 @@ internal class MlkitScannerPluginTest {
         val session = mock(ScannerSession::class.java)
         val binding = mock(ActivityPluginBinding::class.java)
         val lifecycle = mock(Lifecycle::class.java)
-        plugin.scannerController.setField("session", session)
+        plugin.sessionController.setField("session", session)
         doAnswer { HiddenLifecycleReference(lifecycle) }.`when`(binding).lifecycle
+        doReturn(Lifecycle.State.RESUMED).`when`(lifecycle).currentState
 
         plugin.onAttachedToActivity(binding)
 
-        verify(session).attachHostLifecycle(lifecycle)
+        verify(lifecycle).addObserver(anyValue())
+        verify(session).activate()
     }
 
     @Test
     fun `final activity detach releases activity scoped scanner session`() {
         val plugin = MlkitScannerPlugin(mock(Handler::class.java))
         val session = mock(ScannerSession::class.java)
-        plugin.scannerController.setField("session", session)
+        plugin.sessionController.setField("session", session)
 
         plugin.onDetachedFromActivity()
 
-        verify(session).detachHostLifecycle()
         verify(session).release()
-        assertEquals(null, plugin.scannerController.session)
+        assertEquals(null, plugin.sessionController.session)
     }
 
     @Test
     fun `configuration detach preserves scanner session`() {
         val plugin = MlkitScannerPlugin(mock(Handler::class.java))
         val session = mock(ScannerSession::class.java)
-        plugin.scannerController.setField("session", session)
+        plugin.sessionController.setField("session", session)
 
         plugin.onDetachedFromActivityForConfigChanges()
 
-        verify(session).detachHostLifecycle()
         verify(session, never()).release()
-        assertSame(session, plugin.scannerController.session)
+        assertSame(session, plugin.sessionController.session)
     }
 
     @Test
@@ -199,7 +200,7 @@ internal class MlkitScannerPluginTest {
         val result: MethodChannel.Result = mock(MethodChannel.Result::class.java)
 
         init {
-            plugin.scannerController.setField("session", session)
+            plugin.sessionController.setField("session", session)
             plugin.setField("channel", channel)
         }
 
@@ -224,7 +225,7 @@ internal class MlkitScannerPluginTest {
         fun <T> Any.getField(name: String): T =
             javaClass.getDeclaredField(name).apply { isAccessible = true }.get(this) as T
 
-        val MlkitScannerPlugin.scannerController: ScannerController
-            get() = getField("scannerController")
+        val MlkitScannerPlugin.sessionController: ScannerSessionController
+            get() = getField("sessionController")
     }
 }

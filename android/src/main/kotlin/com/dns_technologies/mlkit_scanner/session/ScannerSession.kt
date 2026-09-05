@@ -1,7 +1,6 @@
-package com.dns_technologies.mlkit_scanner.models
+package com.dns_technologies.mlkit_scanner.session
 
 import android.content.Context
-import androidx.lifecycle.Lifecycle
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 
@@ -35,11 +34,11 @@ internal interface ScannerSession {
     /** Pauses camera work requested by one platform view without releasing the shared camera. */
     fun pauseCamera(viewId: Int)
 
-    /** Observes the current Activity lifecycle that gates shared camera work. */
-    fun attachHostLifecycle(lifecycle: Lifecycle)
+    /** Allows this session to run shared camera work requested by its views. */
+    fun activate()
 
-    /** Stops observing the previous Activity lifecycle and pauses shared camera work. */
-    fun detachHostLifecycle()
+    /** Suspends shared camera work without releasing this session or its views. */
+    fun deactivate()
 
     /** Toggles the requesting view's torch state and applies it when that view is active. */
     suspend fun toggleFlashLight(viewId: Int)

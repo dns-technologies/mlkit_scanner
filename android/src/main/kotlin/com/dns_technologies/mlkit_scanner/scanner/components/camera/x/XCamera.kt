@@ -24,6 +24,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.Observer
 import com.dns_technologies.mlkit_scanner.CameraControlOperation
+import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
@@ -331,7 +332,7 @@ class XCamera(
             provider.unbind(current.preview, current.imageAnalysis)
         } catch (error: Exception) {
             observeCameraAvailability(current)
-            Log.w(TAG, "Unable to unbind CameraX use cases for viewport update", error)
+            Log.w(PluginConstants.LOG_TAG, "Unable to unbind CameraX use cases for viewport update", error)
             return
         }
 
@@ -369,9 +370,13 @@ class XCamera(
             } catch (restoreError: Exception) {
                 current.imageAnalysis.clearAnalyzer()
                 bindingState = BindingState.Idle
-                Log.e(TAG, "Unable to restore CameraX use cases after viewport update", restoreError)
+                Log.e(
+                    PluginConstants.LOG_TAG,
+                    "Unable to restore CameraX use cases after viewport update",
+                    restoreError,
+                )
             }
-            Log.w(TAG, "Unable to update CameraX viewport", error)
+            Log.w(PluginConstants.LOG_TAG, "Unable to update CameraX viewport", error)
         }
     }
 
@@ -408,7 +413,7 @@ class XCamera(
                     )
                     onFrame.invoke(frame)
                 } catch (error: Exception) {
-                    Log.e(TAG, "Camera frame processing failed", error)
+                    Log.e(PluginConstants.LOG_TAG, "Camera frame processing failed", error)
                 } finally {
                     frame?.close() ?: image.close()
                 }
@@ -421,7 +426,7 @@ class XCamera(
         try {
             cameraProvider?.unbind(current.preview, current.imageAnalysis)
         } catch (error: Exception) {
-            Log.w(TAG, "Unable to unbind CameraX use cases", error)
+            Log.w(PluginConstants.LOG_TAG, "Unable to unbind CameraX use cases", error)
         } finally {
             current.imageAnalysis.clearAnalyzer()
         }
@@ -571,8 +576,6 @@ class XCamera(
     )
 
     private companion object {
-        const val TAG = "MlkitScannerCamera"
-
         /** Default target resolution used by preview and analysis. */
         private val DEFAULT_TARGET_RESOLUTION = Size(720, 1280)
         private val DEFAULT_RESOLUTION_SELECTOR = ResolutionSelector.Builder()

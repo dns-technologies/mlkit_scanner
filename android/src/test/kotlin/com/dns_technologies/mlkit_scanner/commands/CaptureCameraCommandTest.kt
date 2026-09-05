@@ -1,9 +1,8 @@
 package com.dns_technologies.mlkit_scanner.commands
 
 import android.content.Context
-import androidx.lifecycle.Lifecycle
 import com.dns_technologies.mlkit_scanner.PluginError
-import com.dns_technologies.mlkit_scanner.models.ScannerSession
+import com.dns_technologies.mlkit_scanner.session.ScannerSession
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
@@ -173,8 +172,8 @@ internal class CaptureCameraCommandTest {
         override fun releaseCamera(viewId: Int) = Unit
         override fun resumeCamera(viewId: Int) = Unit
         override fun pauseCamera(viewId: Int) = Unit
-        override fun attachHostLifecycle(lifecycle: Lifecycle) = Unit
-        override fun detachHostLifecycle() = Unit
+        override fun activate() = Unit
+        override fun deactivate() = Unit
         override suspend fun toggleFlashLight(viewId: Int) = Unit
         override fun startScan(viewId: Int, periodMs: Int) = Unit
         override fun pauseScan(viewId: Int) = Unit

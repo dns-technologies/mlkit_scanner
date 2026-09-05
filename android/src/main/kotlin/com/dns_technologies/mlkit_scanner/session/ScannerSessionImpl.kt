@@ -1,9 +1,8 @@
-package com.dns_technologies.mlkit_scanner.models
+package com.dns_technologies.mlkit_scanner.session
 
 import android.content.Context
 import android.os.Handler
 import androidx.camera.core.CameraControl
-import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -40,19 +39,18 @@ internal class ScannerSessionImpl(
     private val onReleaseRequested: (ScannerSession) -> Unit,
     private val initializationScope: CoroutineScope = MainScope(),
     lifecycleRegistryFactory: (LifecycleOwner) -> LifecycleRegistry = ::LifecycleRegistry,
-) : ScannerSession, LifecycleOwner, DefaultLifecycleObserver {
+) : ScannerSession, LifecycleOwner {
     private val lifecycleRegistry = lifecycleRegistryFactory(this)
     private val events = Channel<SessionEvent>(Channel.UNLIMITED)
     private val views = mutableMapOf<Int, ScannerViewState>()
     private val pendingResultDeliveries = mutableSetOf<Runnable>()
     private val resultDeliveryLock = Any()
 
-    private var hostLifecycle: Lifecycle? = null
     private var owner: OwnerActivation? = null
     private var cameraConnection: CameraConnection = CameraConnection.Unbound
     private var handoff: Handoff? = null
     private var deferredRelease: Runnable? = null
-    private var hostPaused = true
+    private var isActive = false
 
     @Volatile
     private var scanTargetViewId: Int? = null
@@ -148,20 +146,12 @@ internal class ScannerSessionImpl(
         dispatch(SessionEvent.PauseCamera(viewId))
     }
 
-    override fun attachHostLifecycle(lifecycle: Lifecycle) {
-        dispatch(SessionEvent.AttachHostLifecycle(lifecycle))
+    override fun activate() {
+        dispatch(SessionEvent.Activate)
     }
 
-    override fun detachHostLifecycle() {
-        dispatch(SessionEvent.DetachHostLifecycle)
-    }
-
-    override fun onResume(owner: LifecycleOwner) {
-        dispatch(SessionEvent.HostPaused(false))
-    }
-
-    override fun onPause(owner: LifecycleOwner) {
-        dispatch(SessionEvent.HostPaused(true))
+    override fun deactivate() {
+        dispatch(SessionEvent.Deactivate)
     }
 
     override suspend fun toggleFlashLight(viewId: Int) {
@@ -231,9 +221,8 @@ internal class ScannerSessionImpl(
             is SessionEvent.ReleaseCamera -> onReleaseCamera(event.viewId)
             is SessionEvent.ResumeCamera -> onResumeCamera(event.viewId)
             is SessionEvent.PauseCamera -> onPauseCamera(event.viewId)
-            is SessionEvent.AttachHostLifecycle -> onAttachHostLifecycle(event.lifecycle)
-            SessionEvent.DetachHostLifecycle -> onDetachHostLifecycle()
-            is SessionEvent.HostPaused -> updateHostPaused(event.paused)
+            SessionEvent.Activate -> updateActiveState(true)
+            SessionEvent.Deactivate -> updateActiveState(false)
             is SessionEvent.ToggleTorch -> onToggleTorch(event)
             is SessionEvent.SetZoomRatio -> onSetZoomRatio(event)
             is SessionEvent.SetCropArea -> onSetCropArea(event)
@@ -449,7 +438,7 @@ internal class ScannerSessionImpl(
             viewState.view.detachPreview()
         }
         completeSupersededOwnerWork()
-        if (scheduleHandoff && !hostPaused && lifecycleRegistry.currentState == Lifecycle.State.RESUMED) {
+        if (scheduleHandoff && isActive && lifecycleRegistry.currentState == Lifecycle.State.RESUMED) {
             scheduleDeferredLifecycleStop()
         } else {
             updateCameraLifecycle()
@@ -481,36 +470,19 @@ internal class ScannerSessionImpl(
         applyScanState()
     }
 
-    private fun onAttachHostLifecycle(lifecycle: Lifecycle) {
-        if (hostLifecycle === lifecycle) {
-            updateHostPaused(!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-            return
-        }
-        hostLifecycle?.removeObserver(this)
-        hostLifecycle = lifecycle
-        updateHostPaused(!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-        lifecycle.addObserver(this)
-    }
-
-    private fun onDetachHostLifecycle() {
-        hostLifecycle?.removeObserver(this)
-        hostLifecycle = null
-        updateHostPaused(true)
-    }
-
-    private fun updateHostPaused(paused: Boolean) {
-        if (hostPaused == paused) return
-        hostPaused = paused
+    private fun updateActiveState(active: Boolean) {
+        if (isActive == active) return
+        isActive = active
         cancelDeferredLifecycleStop()
         owner?.let { activation ->
             activation.invalidateConfiguration()
             val viewState = activation.viewState
             viewState.view.unbindFocus()
-            if (paused && cameraConnection.isBound) scanner.hidePreview()
+            if (!active && cameraConnection.isBound) scanner.hidePreview()
         }
         updateCameraLifecycle()
         completeCaptureRequestsThatDoNotNeedConfiguration()
-        if (!paused) reconcileCamera()
+        if (active) reconcileCamera()
         applyScanState()
     }
 
@@ -649,7 +621,7 @@ internal class ScannerSessionImpl(
         owner?.viewState === viewState &&
             viewState.initialization === ViewInitialization.Ready &&
             viewState.cameraRequested &&
-            !hostPaused &&
+            isActive &&
             cameraConnection.isBound
 
     /** Starts or advances the exact OPEN configuration order. */
@@ -901,7 +873,7 @@ internal class ScannerSessionImpl(
             if (viewState.initialization !== ViewInitialization.Ready) return@forEach
             viewState.captureRequests.removeAll { request ->
                 val isCurrentOwner = owner === request.activation
-                val needsConfiguration = isCurrentOwner && viewState.cameraRequested && !hostPaused
+                val needsConfiguration = isCurrentOwner && viewState.cameraRequested && isActive
                 if (!needsConfiguration) {
                     request.result.complete(Unit)
                     true
@@ -973,7 +945,7 @@ internal class ScannerSessionImpl(
             owner === activation &&
             activation.viewState.initialization === ViewInitialization.Ready &&
             activation.viewState.cameraRequested &&
-            !hostPaused &&
+            isActive &&
             cameraConnection.isBound
 
     private fun isCurrent(execution: CameraExecution): Boolean =
@@ -1003,8 +975,8 @@ internal class ScannerSessionImpl(
         val shouldRun = currentOwner()?.let { viewState ->
             viewState.initialization === ViewInitialization.Ready &&
                 viewState.cameraRequested &&
-                !hostPaused
-        } == true || handoff != null && !hostPaused && owner != null
+                isActive
+        } == true || handoff != null && isActive && owner != null
         lifecycleRegistry.currentState = if (shouldRun) {
             Lifecycle.State.RESUMED
         } else {
@@ -1043,7 +1015,7 @@ internal class ScannerSessionImpl(
                 currentView.cameraRequested &&
                 current.hasUsablePreview(currentView.desired) &&
                 currentView.view.isPreviewReady() &&
-                !hostPaused &&
+                isActive &&
                 !isReleased
         } == true
         scanTargetViewId = viewState?.viewId?.takeIf { shouldScan }
@@ -1124,8 +1096,6 @@ internal class ScannerSessionImpl(
         if (isReleased) return
         isReleased = true
         releaseRequested = true
-        hostLifecycle?.removeObserver(this)
-        hostLifecycle = null
         cancelDeferredLifecycleStop()
         cancelDeferredRelease()
         scanTargetViewId = null
@@ -1180,9 +1150,8 @@ internal class ScannerSessionImpl(
         data class ReleaseCamera(val viewId: Int) : SessionEvent
         data class ResumeCamera(val viewId: Int) : SessionEvent
         data class PauseCamera(val viewId: Int) : SessionEvent
-        data class AttachHostLifecycle(val lifecycle: Lifecycle) : SessionEvent
-        data object DetachHostLifecycle : SessionEvent
-        data class HostPaused(val paused: Boolean) : SessionEvent
+        data object Activate : SessionEvent
+        data object Deactivate : SessionEvent
         data class ToggleTorch(val viewId: Int, val result: CompletableDeferred<Unit>) : SessionEvent
         data class SetZoomRatio(
             val viewId: Int,

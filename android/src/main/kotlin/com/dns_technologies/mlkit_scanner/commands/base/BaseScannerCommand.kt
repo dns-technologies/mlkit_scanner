@@ -1,7 +1,7 @@
 package com.dns_technologies.mlkit_scanner.commands.base
 
 import com.dns_technologies.mlkit_scanner.PluginError
-import com.dns_technologies.mlkit_scanner.models.ScannerSession
+import com.dns_technologies.mlkit_scanner.session.ScannerSession
 import io.flutter.plugin.common.MethodChannel.Result
 
 /** Shared command functionality that does not define sync or async execution policy. */

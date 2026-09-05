@@ -1,6 +1,6 @@
 package com.dns_technologies.mlkit_scanner.commands.base
 
-import com.dns_technologies.mlkit_scanner.models.ScannerSession
+import com.dns_technologies.mlkit_scanner.session.ScannerSession
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 

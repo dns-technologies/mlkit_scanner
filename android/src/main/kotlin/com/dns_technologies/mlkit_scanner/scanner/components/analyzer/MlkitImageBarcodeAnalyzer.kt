@@ -1,6 +1,7 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 
 import android.util.Log
+import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
@@ -24,11 +25,11 @@ class MlkitImageBarcodeAnalyzer internal constructor(
     private val fromByteArray: (ByteArray, Int, Int, Int, Int) -> InputImage =
         InputImage::fromByteArray,
 ) : ImageBarcodeAnalyzer(currentTimeMs) {
-    /** Creates the production analyzer and logs recognition failures under [logTag]. */
-    constructor(logTag: String) : this(
+    /** Creates the production analyzer and logs recognition failures under the plugin tag. */
+    constructor() : this(
         barcodeScanner = BarcodeScanning.getClient(),
         currentTimeMs = android.os.SystemClock::elapsedRealtime,
-        logError = { message -> Log.e(logTag, message) },
+        logError = { message -> Log.e(PluginConstants.LOG_TAG, message) },
     )
 
     /** Lazily creates one cropped recognition image for an accepted frame. */

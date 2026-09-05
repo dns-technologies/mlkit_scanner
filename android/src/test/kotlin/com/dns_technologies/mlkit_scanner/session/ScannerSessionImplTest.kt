@@ -1,9 +1,8 @@
-package com.dns_technologies.mlkit_scanner.models
+package com.dns_technologies.mlkit_scanner.session
 
 import android.os.Handler
 import androidx.camera.core.CameraControl
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
@@ -187,13 +186,11 @@ internal class ScannerSessionImplTest {
     @Test
     fun `session releases shared pipeline after registry remains empty`() {
         val fixture = Fixture()
-        assertEquals(1, fixture.hostLifecycleOwner.observerCount)
 
         fixture.session.disposeView(FIRST_VIEW_ID)
         fixture.delayedCallbacks.single().run()
 
         verify(fixture.scanner).dispose()
-        assertEquals(0, fixture.hostLifecycleOwner.observerCount)
         assertEquals(1, fixture.subscriptionCancelCalls)
         assertEquals(1, fixture.releaseCalls)
     }
@@ -1466,9 +1463,9 @@ internal class ScannerSessionImplTest {
     }
 
     @Test
-    fun `camera lifecycle stays created when session attaches to already paused host`() =
+    fun `camera lifecycle stays created while session is inactive`() =
         runSessionTest {
-            val fixture = Fixture(hostLifecycleState = Lifecycle.State.STARTED)
+            val fixture = Fixture(sessionActive = false)
             val initialization = async(start = CoroutineStart.UNDISPATCHED) {
                 fixture.captureCamera(FIRST_VIEW_ID, null, null)
             }
@@ -1481,16 +1478,16 @@ internal class ScannerSessionImplTest {
             verify(fixture.scanner).pauseScan()
 
             clearInvocations(fixture.scanner)
-            fixture.hostLifecycleOwner.moveTo(Lifecycle.State.RESUMED)
+            fixture.session.activate()
 
             assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
             verify(fixture.scanner).resumeScan()
         }
 
     @Test
-    fun `host resume restores crop processing without an overlay redraw workaround`() =
+    fun `session activation restores crop processing without an overlay redraw workaround`() =
         runSessionTest {
-            val fixture = Fixture(hostLifecycleState = Lifecycle.State.STARTED)
+            val fixture = Fixture(sessionActive = false)
             val cropRect = RecognizeVisorCropRect(scaleWidth = 0.5)
             val initialization = async(start = CoroutineStart.UNDISPATCHED) {
                 fixture.captureCamera(FIRST_VIEW_ID, null, cropRect)
@@ -1499,41 +1496,10 @@ internal class ScannerSessionImplTest {
             withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
             clearInvocations(fixture.scanner, fixture.view(FIRST_VIEW_ID))
 
-            fixture.hostLifecycleOwner.moveTo(Lifecycle.State.RESUMED)
+            fixture.session.activate()
 
             verify(fixture.scanner).setCropArea(cropRect)
             verify(fixture.view(FIRST_VIEW_ID), never()).setCropArea(cropRect)
-        }
-
-    @Test
-    fun `host lifecycle replacement pauses during detach and ignores old host afterwards`() =
-        runSessionTest {
-            val fixture = Fixture()
-            val initialization = async(start = CoroutineStart.UNDISPATCHED) {
-                fixture.captureCamera(FIRST_VIEW_ID, null, null)
-            }
-            fixture.completeInitialization()
-            withTimeout(TEST_TIMEOUT_MS) { initialization.await() }
-            fixture.session.startScan(FIRST_VIEW_ID, 0)
-            assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
-
-            clearInvocations(fixture.scanner)
-            fixture.session.detachHostLifecycle()
-
-            assertEquals(Lifecycle.State.CREATED, fixture.session.lifecycle.currentState)
-            assertEquals(0, fixture.hostLifecycleOwner.observerCount)
-            verify(fixture.scanner).pauseScan()
-
-            val replacementHost = TestHostLifecycleOwner(Lifecycle.State.RESUMED)
-            fixture.session.attachHostLifecycle(replacementHost.lifecycle)
-            assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
-
-            clearInvocations(fixture.scanner)
-            fixture.hostLifecycleOwner.moveTo(Lifecycle.State.CREATED)
-
-            assertEquals(Lifecycle.State.RESUMED, fixture.session.lifecycle.currentState)
-            verify(fixture.scanner, never()).pauseScan()
-
         }
 
     @Test
@@ -1890,7 +1856,7 @@ internal class ScannerSessionImplTest {
     }
 
     private class Fixture(
-        hostLifecycleState: Lifecycle.State = Lifecycle.State.RESUMED,
+        sessionActive: Boolean = true,
         onScanResult: (Int, Barcode) -> Unit = { _, _ -> },
     ) {
         val scanner: Scanner = mock(Scanner::class.java)
@@ -1898,7 +1864,6 @@ internal class ScannerSessionImplTest {
         val postedCallbacks = mutableListOf<Runnable>()
         val delayedCallbacks = mutableListOf<Runnable>()
         val scheduledDelays = mutableListOf<Long>()
-        val hostLifecycleOwner = TestHostLifecycleOwner(hostLifecycleState)
         val session: ScannerSessionImpl
         var startCalls = 0
             private set
@@ -1968,7 +1933,7 @@ internal class ScannerSessionImplTest {
                 initializationScope = CoroutineScope(Dispatchers.Unconfined),
                 lifecycleRegistryFactory = LifecycleRegistry::createUnsafe,
             )
-            session.attachHostLifecycle(hostLifecycleOwner.lifecycle)
+            if (sessionActive) session.activate() else session.deactivate()
             attach(FIRST_VIEW_ID)
         }
 
@@ -2137,24 +2102,6 @@ internal class ScannerSessionImplTest {
 
         fun enqueueTorchResult(result: CompletableDeferred<Unit>) {
             torchResults += result
-        }
-    }
-
-    private class TestHostLifecycleOwner(
-        initialState: Lifecycle.State,
-    ) : LifecycleOwner {
-        private val registry = LifecycleRegistry.createUnsafe(this).apply {
-            currentState = initialState
-        }
-
-        override val lifecycle: Lifecycle
-            get() = registry
-
-        val observerCount: Int
-            get() = registry.observerCount
-
-        fun moveTo(state: Lifecycle.State) {
-            registry.currentState = state
         }
     }
 
