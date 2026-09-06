@@ -77,8 +77,8 @@ class FocusView(
     /** Updates lock visibility before focus animations start. */
     override fun onAnimationStart(animation: Animation?) {
         when (animation) {
-            fadeInAnimation -> lock.visibility = View.VISIBLE
-            fadeOutAnimation -> lock.visibility = View.INVISIBLE
+            fadeInAnimation -> lock.visibility = VISIBLE
+            fadeOutAnimation -> lock.visibility = INVISIBLE
         }
     }
 

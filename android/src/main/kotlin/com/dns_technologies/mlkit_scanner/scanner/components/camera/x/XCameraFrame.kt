@@ -4,6 +4,7 @@ import androidx.camera.core.ImageProxy
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
+import kotlin.math.roundToInt
 
 /** Camera frame that materializes full or cropped images as scoped NV21 buffers. */
 internal class XCameraFrame(
@@ -11,34 +12,27 @@ internal class XCameraFrame(
     private val nv21Converter: ImageProxyNv21Converter,
     previewWidth: Int,
     previewHeight: Int,
-    previewCropState: PreviewCropState = PreviewCropState(),
 ) : CameraFrame {
     override val rotationDegree: Int = imageProxy.imageInfo.rotationDegrees
 
-    override val cropRect: Rect = imageProxy.cropRect.let { cropRect ->
-        previewCropState.resolve(
-            source = Rect(cropRect.left, cropRect.top, cropRect.right, cropRect.bottom),
-            rotationDegrees = rotationDegree,
-            previewWidth = previewWidth,
-            previewHeight = previewHeight,
-        )
-    }
+    override val cropRect: Rect = calculatePreviewCrop(previewWidth, previewHeight)
 
     override val width: Int = imageProxy.width
 
     override val height: Int = imageProxy.height
 
-    private var isMaterialized = false
+    private var isAccessed = false
     private var isClosed = false
 
+    // Keep close() from another thread from invalidating the image during conversion/use.
     @Synchronized
     override fun <T> useNv21(
         cropRect: Rect?,
         block: (ByteArray, Int, Int, Int) -> T,
     ): T {
         check(!isClosed) { "Camera frame is already closed" }
-        check(!isMaterialized) { "Camera frame is already materialized" }
-        isMaterialized = true
+        check(!isAccessed) { "Camera frame was already accessed" }
+        isAccessed = true
 
         return nv21Converter.convert(imageProxy, cropRect) { bytes, outputWidth, outputHeight ->
             block(
@@ -56,4 +50,28 @@ internal class XCameraFrame(
         isClosed = true
         imageProxy.close()
     }
+
+    /** Snapshots the centered source region visible in the current fill-center preview. */
+    private fun calculatePreviewCrop(previewWidth: Int, previewHeight: Int): Rect {
+        val crop = imageProxy.cropRect
+        val source = Rect(crop.left, crop.top, crop.right, crop.bottom)
+        if (source.isEmpty || previewWidth <= 0 || previewHeight <= 0) return source
+
+        val rotated = rotationDegree == 90 || rotationDegree == 270
+        // Express the preview aspect in source axes; offsets stay in unrotated image pixels.
+        val aspect = if (rotated) previewHeight.toDouble() / previewWidth else previewWidth.toDouble() / previewHeight
+        val horizontalInsetPixels = centeredInset(source.width, source.height * aspect)
+        val verticalInsetPixels = centeredInset(source.height, source.width / aspect)
+        return Rect(
+            left = source.left + horizontalInsetPixels,
+            top = source.top + verticalInsetPixels,
+            right = source.right - horizontalInsetPixels,
+            bottom = source.bottom - verticalInsetPixels,
+        )
+    }
+
+    // Symmetric integer insets preserve the center. Keep at least one source pixel even when
+    // the ideal visible strip is subpixel-sized (two pixels for an even-sized source axis).
+    private fun centeredInset(sourceSize: Int, visibleSize: Double): Int =
+        ((sourceSize - visibleSize) / 2).roundToInt().coerceIn(0, (sourceSize - 1) / 2)
 }

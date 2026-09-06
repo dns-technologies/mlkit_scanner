@@ -1,6 +1,5 @@
 package com.dns_technologies.mlkit_scanner.commands
 
-import android.Manifest
 import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.commands.base.AsyncScannerCommand
@@ -32,7 +31,7 @@ internal class CaptureCameraCommand(
 
         try {
             scannerSession.captureCamera(viewId) {
-                permissionGateway.requestPermissions(arrayOf(Manifest.permission.CAMERA))
+                permissionGateway.requestCameraPermission()
             }
         } catch (error: CancellationException) {
             throw error

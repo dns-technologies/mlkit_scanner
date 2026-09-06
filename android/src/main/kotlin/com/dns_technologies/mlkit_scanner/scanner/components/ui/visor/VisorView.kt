@@ -169,8 +169,8 @@ class VisorView @JvmOverloads constructor(
 
     private companion object {
         const val BORDER_WIDTH_DP = 2F
-        val ACTIVE_BORDER_COLOR = 0xFF43A047.toInt()
-        val INACTIVE_BORDER_COLOR = 0xFF616161.toInt()
+        const val ACTIVE_BORDER_COLOR = 0xFF43A047.toInt()
+        const val INACTIVE_BORDER_COLOR = 0xFF616161.toInt()
     }
 }
 

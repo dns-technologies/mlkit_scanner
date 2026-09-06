@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner
 
+import android.app.Activity
 import android.os.Handler
 import androidx.lifecycle.Lifecycle
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
@@ -25,6 +26,7 @@ import org.mockito.invocation.InvocationOnMock
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.inOrder
 import org.mockito.Mockito.never
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
@@ -111,6 +113,7 @@ internal class MlkitScannerPluginTest {
         val lifecycle = mock(Lifecycle::class.java)
         doReturn(Lifecycle.State.RESUMED).`when`(lifecycle).currentState
         listOf(firstBinding, secondBinding).forEach { binding ->
+            doReturn(mock(Activity::class.java)).`when`(binding).activity
             doAnswer { HiddenLifecycleReference(lifecycle) }.`when`(binding).lifecycle
             doAnswer { invocation: InvocationOnMock ->
                 addedListeners += invocation.getArgument<PluginRegistry.RequestPermissionsResultListener>(0)
@@ -140,13 +143,18 @@ internal class MlkitScannerPluginTest {
         val session = mock(ScannerSession::class.java)
         val binding = mock(ActivityPluginBinding::class.java)
         val lifecycle = mock(Lifecycle::class.java)
+        doReturn(mock(Activity::class.java)).`when`(binding).activity
         plugin.sessionController.setField("session", session)
         doAnswer { HiddenLifecycleReference(lifecycle) }.`when`(binding).lifecycle
         doReturn(Lifecycle.State.RESUMED).`when`(lifecycle).currentState
 
         plugin.onAttachedToActivity(binding)
 
-        verify(lifecycle).addObserver(anyValue())
+        // Attaching the lifecycle may resume work that requests a permission immediately.
+        inOrder(binding, lifecycle).apply {
+            verify(binding).addRequestPermissionsResultListener(anyValue())
+            verify(lifecycle).addObserver(anyValue())
+        }
         verify(session).activate()
     }
 

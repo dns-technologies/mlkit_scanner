@@ -6,12 +6,14 @@ import androidx.camera.core.ImageProxy
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doReturn
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
@@ -21,6 +23,76 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 internal class XCameraFrameTest {
+    @Test
+    fun `conversion failure consumes the only access attempt`() {
+        val converter = mock(ImageProxyNv21Converter::class.java)
+        val image = imageProxy()
+        val failure = IllegalArgumentException("Invalid image planes")
+        stubConversion(converter, ByteArray(0), 0, 0) { _, _ -> throw failure }
+        val frame = createFrame(image, converter)
+
+        assertSame(failure, runCatching { frame.useNv21(null) { _, _, _, _ -> } }.exceptionOrNull())
+        assertTrue(runCatching { frame.useNv21(null) { _, _, _, _ -> } }.exceptionOrNull() is IllegalStateException)
+        frame.close()
+        verify(image).close()
+    }
+
+    @Test
+    fun `frame snapshots mutable CameraX metadata`() {
+        val crop = cameraCropRect(0, 0, 8, 6)
+        val image = imageProxy(crop)
+        val info = image.imageInfo
+        val frame = createFrame(image, mock(ImageProxyNv21Converter::class.java))
+        crop.right = 2
+        doReturn(2).`when`(image).width
+        doReturn(180).`when`(info).rotationDegrees
+
+        assertEquals(Rect(0, 0, 8, 6), frame.cropRect)
+        assertEquals(8, frame.width)
+        assertEquals(90, frame.rotationDegree)
+        frame.close()
+    }
+
+    @Test
+    fun `failed proxy close is not attempted twice`() {
+        val image = imageProxy()
+        val failure = IllegalStateException("Image close failed")
+        doThrow(failure).`when`(image).close()
+        val frame = createFrame(image, mock(ImageProxyNv21Converter::class.java))
+
+        assertSame(failure, runCatching { frame.close() }.exceptionOrNull())
+        frame.close()
+        assertTrue(runCatching { frame.useNv21(null) { _, _, _, _ -> } }.isFailure)
+        verify(image).close()
+    }
+
+    @Test
+    fun `close from another thread waits until scoped access has returned`() {
+        val converter = mock(ImageProxyNv21Converter::class.java)
+        val image = imageProxy()
+        stubConversion(converter, ByteArray(72), 8, 6)
+        val frame = createFrame(image, converter)
+        val closeRequested = CountDownLatch(1)
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val closing = frame.useNv21(null) { _, _, _, _ ->
+                val result = executor.submit {
+                    closeRequested.countDown()
+                    frame.close()
+                }
+                assertTrue(closeRequested.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+                assertFalse(result.isDone)
+                verify(image, org.mockito.Mockito.never()).close()
+                result
+            }
+            closing.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            verify(image).close()
+        } finally {
+            executor.shutdownNow()
+            frame.close()
+        }
+    }
+
     @Test
     fun `full frame is converted through scoped nv21 callback`() {
         val converter = mock(ImageProxyNv21Converter::class.java)

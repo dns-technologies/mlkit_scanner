@@ -11,7 +11,6 @@ import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraCommand
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
@@ -1182,6 +1181,18 @@ internal class ScannerSessionImpl(
             val view: ScannerView?,
         ) : SessionEvent
         data object ReleaseSession : SessionEvent
+    }
+
+    /** Describes a session operation; camera adapters expose methods, not this command model. */
+    private sealed interface CameraCommand {
+        data object ResetFocus : CameraCommand
+        data class Focus(
+            val resetDelayMs: Long,
+            val offsetX: Float,
+            val offsetY: Float,
+        ) : CameraCommand
+        data class SetZoomRatio(val value: Float) : CameraCommand
+        data class SetTorch(val enabled: Boolean) : CameraCommand
     }
 
     private class CameraOperation(

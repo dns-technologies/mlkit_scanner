@@ -139,9 +139,9 @@ class MlkitScannerPlugin internal constructor(
     /** Attaches Activity-scoped permissions and lifecycle delegates. */
     private fun attachActivity(binding: ActivityPluginBinding) {
         activityBinding = binding
-        permissionGateway.attach(binding)
-        sessionController.attachHostLifecycle(binding.activityLifecycle)
         binding.addRequestPermissionsResultListener(permissionResultListener)
+        permissionGateway.attach(binding.activity)
+        sessionController.attachHostLifecycle(binding.activityLifecycle)
     }
 
     /** Detaches Activity-scoped permissions and lifecycle delegates. */

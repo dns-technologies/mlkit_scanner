@@ -4,7 +4,6 @@ import android.view.View
 import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraCommand
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraAvailabilityChanged
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
@@ -17,6 +16,7 @@ import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CompletableJob
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 
 /** Listener that receives decoded scanner results. */
@@ -39,10 +39,6 @@ class Scanner(
     @Volatile
     private var cropArea: RecognizeVisorCropRect? = null
     private val scanResultListeners = CopyOnWriteArraySet<OnScanResultListener>()
-
-    /** Indicates whether incoming frames should be sent to the analyzer. */
-    val isScanActive: Boolean
-        get() = synchronized(scanJobLock) { scanJob?.isActive == true }
 
     /** Native preview view supplied by the camera adapter. */
     val previewView: View
@@ -79,21 +75,24 @@ class Scanner(
     /** Returns true when the scanner camera is active. */
     fun isActive(): Boolean = camera.isBound()
 
-    /** Executes one stateless camera command selected by the owning scanner session. */
-    fun executeCameraCommand(command: CameraCommand) = camera.execute(command)
+    /** Applies an absolute torch state to the current camera. */
+    fun setTorch(enabled: Boolean) = camera.setTorch(enabled)
 
-    /** Applies torch through the stateless camera command boundary. */
-    fun setTorch(enabled: Boolean) = executeCameraCommand(CameraCommand.SetTorch(enabled))
+    /** Starts focus at pixel offsets from the preview center. */
+    fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float): Deferred<Unit> {
+        val preview = camera.previewView
+        return camera.focus(
+            resetDelayMs = resetDelayMs,
+            x = preview.width / 2F + offsetX,
+            y = preview.height / 2F + offsetY,
+        )
+    }
 
-    /** Starts focus through the stateless camera command boundary. */
-    fun focusOnCenter(resetDelayMs: Long, offsetX: Float, offsetY: Float) =
-        executeCameraCommand(CameraCommand.Focus(resetDelayMs, offsetX, offsetY))
+    /** Clears the current camera's focus and metering regions. */
+    fun resetFocus() = camera.resetFocus()
 
-    /** Clears focus through the stateless camera command boundary. */
-    fun resetFocus() = executeCameraCommand(CameraCommand.ResetFocus)
-
-    /** Applies an absolute zoom ratio through the stateless camera command boundary. */
-    fun setZoomRatio(value: Float) = executeCameraCommand(CameraCommand.SetZoomRatio(value))
+    /** Applies an absolute zoom ratio to the current camera. */
+    fun setZoomRatio(value: Float) = camera.setZoomRatio(value)
 
     /** Starts analysis with the configured analyzer component. */
     fun startScan(periodMs: Int) {

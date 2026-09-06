@@ -1,22 +1,130 @@
-package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
+package com.dns_technologies.mlkit_scanner.scanner.components.analyzer.mlkit
 
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
-import com.google.android.gms.tasks.Task
+import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
+import com.google.android.gms.tasks.CancellationTokenSource
+import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.common.MlKit
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.common.Barcode as MlkitBarcode
 import com.google.mlkit.vision.common.InputImage
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.mockito.ArgumentMatchers.any
+import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doReturn
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 internal class MlkitImageBarcodeAnalyzerTest {
+    private val analyzers = mutableListOf<MlkitImageBarcodeAnalyzer>()
+
+    @After
+    fun disposeAnalyzers() {
+        analyzers.forEach { it.dispose() }
+    }
+
+    @Test
+    fun `null raw values are skipped and result traversal stops at first usable barcode`() {
+        val missing = mock(MlkitBarcode::class.java)
+        val valid = mock(MlkitBarcode::class.java)
+        val tail = mock(MlkitBarcode::class.java)
+        doReturn(BARCODE_VALUE).`when`(valid).rawValue
+        val analyzer = analyzer(barcodeScanner(listOf(missing, valid, tail)))
+
+        assertEquals(BARCODE_VALUE, analyzer.analyzeOnWorker(FakeFrame(), null)?.rawValue)
+        verify(tail, never()).rawValue
+    }
+
+    @Test
+    fun `only null raw values produces no barcode`() {
+        val analyzer = analyzer(barcodeScanner(listOf(mock(MlkitBarcode::class.java))))
+
+        assertNull(analyzer.analyzeOnWorker(FakeFrame(), null))
+    }
+
+    @Test
+    fun `empty raw value remains valid and display value stays nullable`() {
+        val barcode = mock(MlkitBarcode::class.java)
+        doReturn("").`when`(barcode).rawValue
+        val analyzer = analyzer(barcodeScanner(listOf(barcode)))
+
+        val result = analyzer.analyzeOnWorker(FakeFrame(), null)
+        assertEquals("", result?.rawValue)
+        assertNull(result?.displayValue)
+    }
+
+    @Test
+    fun `completed task failure returns no result and logs the failure`() {
+        val scanner = barcodeScanner()
+        doReturn(Tasks.forException<List<MlkitBarcode>>(IllegalStateException("Recognition failed")))
+            .`when`(scanner).process(anyValue<InputImage>())
+        val errors = mutableListOf<String>()
+        val analyzer = analyzer(scanner, logError = errors::add)
+
+        assertNull(analyzer.analyzeOnWorker(FakeFrame(), null))
+        assertEquals(1, errors.size)
+        assertTrue(errors.single().contains("Recognition failed"))
+    }
+
+    @Test
+    fun `cancelled task returns no result and does not strand later analysis`() {
+        val cancellation = CancellationTokenSource()
+        val task = TaskCompletionSource<List<MlkitBarcode>>(cancellation.token)
+        cancellation.cancel()
+        ShadowLooper.idleMainLooper()
+        assertTrue(task.task.isCanceled)
+        val scanner = barcodeScanner()
+        doReturn(task.task).`when`(scanner).process(anyValue<InputImage>())
+        val clock = MutableClock()
+        val errors = mutableListOf<String>()
+        val analyzer = analyzer(scanner, currentTimeMs = clock::read, logError = errors::add)
+        assertNull(analyzer.analyzeOnWorker(FakeFrame(), null))
+        assertEquals(1, errors.size)
+
+        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS
+        doReturn(Tasks.forResult(emptyList<MlkitBarcode>())).`when`(scanner).process(anyValue<InputImage>())
+        val next = FakeFrame()
+        assertNull(analyzer.analyzeOnWorker(next, null))
+        assertEquals(1, next.accessCalls)
+    }
+
+    @Test
+    fun `production InputImage factory preserves NV21 dimensions and rotation`() {
+        // Robolectric does not run the app's ML Kit initialization provider here.
+        MlKit.initialize(RuntimeEnvironment.getApplication())
+        val scanner = barcodeScanner()
+        var received: InputImage? = null
+        doAnswer {
+            received = it.getArgument(0)
+            Tasks.forResult(emptyList<MlkitBarcode>())
+        }.`when`(scanner).process(anyValue<InputImage>())
+        val analyzer = MlkitImageBarcodeAnalyzer(scanner, { 0L }, {}).also { analyzers += it }
+
+        analyzer.analyzeOnWorker(FakeFrame(), null)
+
+        assertEquals(FRAME_WIDTH, received?.width)
+        assertEquals(FRAME_HEIGHT, received?.height)
+        assertEquals(ROTATION_DEGREES, received?.rotationDegrees)
+    }
+
     @Test
     fun `nv21 roi is created with mlkit format and processed`() {
         val scanner = barcodeScanner()
@@ -35,7 +143,7 @@ internal class MlkitImageBarcodeAnalyzerTest {
         val cropRect = Rect(2, 0, 6, 4)
         val frame = FakeFrame(nv21Bytes = bytes)
 
-        analyzer.analyze(frame, cropRect)
+        analyzer.analyzeOnWorker(frame, cropRect)
 
         assertSame(bytes, receivedBytes)
         assertEquals(
@@ -53,11 +161,11 @@ internal class MlkitImageBarcodeAnalyzerTest {
         val analyzer = analyzer(scanner, currentTimeMs = clock::read)
         val frames = List(3) { FakeFrame() }
 
-        analyzer.analyze(frames[0], null)
+        analyzer.analyzeOnWorker(frames[0], null)
         clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS - 1
-        analyzer.analyze(frames[1], null)
+        analyzer.analyzeOnWorker(frames[1], null)
         clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS
-        analyzer.analyze(frames[2], null)
+        analyzer.analyzeOnWorker(frames[2], null)
 
         assertEquals(listOf(1, 0, 1), frames.map(FakeFrame::accessCalls))
     }
@@ -72,7 +180,7 @@ internal class MlkitImageBarcodeAnalyzerTest {
         val errors = mutableListOf<String>()
         val analyzer = analyzer(barcodeScanner(listOf(mlkitBarcode)), logError = errors::add)
 
-        val result = analyzer.analyze(FakeFrame(), null)
+        val result = analyzer.analyzeOnWorker(FakeFrame(), null)
 
         assertTrue(errors.toString(), errors.isEmpty())
         assertEquals(
@@ -94,7 +202,7 @@ internal class MlkitImageBarcodeAnalyzerTest {
         doReturn(MlkitBarcode.TYPE_UNKNOWN).`when`(mlkitBarcode).valueType
         val analyzer = analyzer(barcodeScanner(listOf(mlkitBarcode)))
 
-        val result = analyzer.analyze(FakeFrame(), null)
+        val result = analyzer.analyzeOnWorker(FakeFrame(), null)
 
         assertEquals(UNKNOWN_FORMAT_CODE, result?.toMap()?.get("format"))
         assertEquals(null, result?.toMap()?.get("display_value"))
@@ -103,13 +211,11 @@ internal class MlkitImageBarcodeAnalyzerTest {
     @Test
     fun `mlkit failure without message is still logged`() {
         val errors = mutableListOf<String>()
-        val analyzer = analyzer(
-            scanner = barcodeScanner(),
-            logError = errors::add,
-            awaitBarcodes = { throw IllegalStateException() },
-        )
+        val scanner = barcodeScanner()
+        doThrow(IllegalStateException()).`when`(scanner).process(anyValue<InputImage>())
+        val analyzer = analyzer(scanner = scanner, logError = errors::add)
 
-        val result = analyzer.analyze(FakeFrame(), null)
+        val result = analyzer.analyzeOnWorker(FakeFrame(), null)
 
         assertEquals(null, result)
         assertEquals(listOf("IllegalStateException"), errors)
@@ -126,6 +232,15 @@ internal class MlkitImageBarcodeAnalyzerTest {
         verify(scanner).close()
     }
 
+    private fun MlkitImageBarcodeAnalyzer.analyzeOnWorker(frame: CameraFrame, crop: Rect?): Barcode? {
+        val executor = Executors.newSingleThreadExecutor()
+        return try {
+            executor.submit<Barcode?> { analyze(frame, crop) }.get(5, TimeUnit.SECONDS)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
     private fun barcodeScanner(barcodes: List<MlkitBarcode> = emptyList()): BarcodeScanner {
         val scanner = mock(BarcodeScanner::class.java)
         doReturn(Tasks.forResult(barcodes)).`when`(scanner).process(anyValue<InputImage>())
@@ -136,16 +251,14 @@ internal class MlkitImageBarcodeAnalyzerTest {
         scanner: BarcodeScanner,
         currentTimeMs: () -> Long = { 0L },
         logError: (String) -> Unit = {},
-        awaitBarcodes: (Task<List<MlkitBarcode>>) -> List<MlkitBarcode> = { it.result },
         fromByteArray: (ByteArray, Int, Int, Int, Int) -> InputImage =
             { _, _, _, _, _ -> mock(InputImage::class.java) },
     ): MlkitImageBarcodeAnalyzer = MlkitImageBarcodeAnalyzer(
         barcodeScanner = scanner,
         currentTimeMs = currentTimeMs,
         logError = logError,
-        awaitBarcodes = awaitBarcodes,
         fromByteArray = fromByteArray,
-    )
+    ).also { analyzers += it }
 
     private class MutableClock(var timeMs: Long = 0L) {
         fun read(): Long = timeMs

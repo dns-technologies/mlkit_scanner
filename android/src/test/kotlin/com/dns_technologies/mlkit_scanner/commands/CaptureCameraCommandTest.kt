@@ -13,7 +13,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
@@ -37,7 +36,7 @@ internal class CaptureCameraCommandTest {
             null,
         )
         assertEquals(emptyList<String>(), scannerSession.calls)
-        verify(permissionGateway, never()).requestPermissions(anyValue())
+        verify(permissionGateway, never()).requestCameraPermission()
         Unit
     }
 
@@ -71,14 +70,14 @@ internal class CaptureCameraCommandTest {
         )
 
         verify(result).success(true)
-        verify(permissionGateway, never()).requestPermissions(anyValue())
+        verify(permissionGateway, never()).requestCameraPermission()
         Unit
     }
 
     @Test
     fun `denied permission from capture transaction keeps stable error`() = runBlocking {
         val permissionGateway = mock(PermissionGateway::class.java)
-        doReturn(false).`when`(permissionGateway).requestPermissions(anyValue())
+        doReturn(false).`when`(permissionGateway).requestCameraPermission()
         val scannerSession = RecordingScannerSession()
         val result = mock(MethodChannel.Result::class.java)
 
@@ -135,7 +134,7 @@ internal class CaptureCameraCommandTest {
 
     private suspend fun grantedPermissionGateway(): PermissionGateway =
         mock(PermissionGateway::class.java).also { gateway ->
-            doReturn(true).`when`(gateway).requestPermissions(anyValue())
+            doReturn(true).`when`(gateway).requestCameraPermission()
         }
 
     private fun command(
@@ -182,8 +181,6 @@ internal class CaptureCameraCommandTest {
         override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) = Unit
         override fun release() = Unit
     }
-
-    private fun <T> anyValue(): T = any<T>()
 
     private companion object {
         const val VIEW_ID = 42

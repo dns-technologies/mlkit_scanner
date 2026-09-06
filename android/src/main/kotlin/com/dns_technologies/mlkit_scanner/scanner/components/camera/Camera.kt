@@ -29,27 +29,12 @@ sealed interface CameraAvailability {
     ) : CameraAvailability
 }
 
-/** One stateless command submitted to the active camera binding. */
-sealed interface CameraCommand {
-    /** Clears metering regions and restores continuous focus when supported. */
-    data object ResetFocus : CameraCommand
-
-    /** Focuses around a preview-relative point. */
-    data class Focus(
-        val resetDelayMs: Long,
-        val offsetX: Float,
-        val offsetY: Float,
-    ) : CameraCommand
-
-    /** Applies an absolute camera zoom ratio. */
-    data class SetZoomRatio(val value: Float) : CameraCommand
-
-    /** Applies an absolute torch state. */
-    data class SetTorch(val enabled: Boolean) : CameraCommand
-}
-
 /**
  * Minimal adapter implemented by a concrete camera library integration.
+ *
+ * Lifecycle and control calls run on the main thread. Controls act on the current binding and
+ * return their asynchronous completion; desired settings and operation ordering belong to the
+ * caller. Cancelling a returned result does not guarantee cancellation of hardware work.
  */
 interface Camera {
     /** Native preview view supplied by the concrete camera implementation. */
@@ -68,8 +53,20 @@ interface Camera {
     /** Returns true when use cases have an active lifecycle binding. */
     fun isBound(): Boolean
 
-    /** Executes exactly one command without retaining or restoring its desired value. */
-    fun execute(command: CameraCommand): Deferred<Unit>
+    /** Clears metering regions and restores continuous focus when supported. */
+    fun resetFocus(): Deferred<Unit>
+
+    /**
+     * Focuses at [x], [y] in [previewView] pixels, measured from its top-left corner.
+     * The caller chooses the point; a non-positive delay disables auto-reset.
+     */
+    fun focus(resetDelayMs: Long, x: Float, y: Float): Deferred<Unit>
+
+    /** Applies an absolute zoom ratio within the current device's supported range. */
+    fun setZoomRatio(ratio: Float): Deferred<Unit>
+
+    /** Applies an absolute torch state; disabling an absent flash unit is a no-op. */
+    fun setTorch(enabled: Boolean): Deferred<Unit>
 
     /** Reveals preview after startup camera controls have been applied. */
     fun showPreview()

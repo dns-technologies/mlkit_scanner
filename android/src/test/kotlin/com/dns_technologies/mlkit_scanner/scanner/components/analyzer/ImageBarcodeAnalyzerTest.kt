@@ -6,14 +6,162 @@ import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 internal class ImageBarcodeAnalyzerTest {
+    @Test
+    fun `dispose from analysis defers cleanup until that invocation returns`() {
+        lateinit var analyzer: TestAnalyzer
+        analyzer = TestAnalyzer {
+            analyzer.dispose()
+            assertEquals(0, analyzer.disposeCalls.get())
+            assertNull(analyzer.analyze(TEST_FRAME, null))
+            TEST_BARCODE
+        }
+
+        assertSame(TEST_BARCODE, analyzer.analyze(TEST_FRAME, null))
+        assertEquals(1, analyzer.disposeCalls.get())
+        analyzer.dispose()
+        assertEquals(1, analyzer.disposeCalls.get())
+    }
+
+    @Test
+    fun `cleanup may reenter disposal without running twice`() {
+        lateinit var analyzer: TestAnalyzer
+        analyzer = TestAnalyzer(onDispose = { analyzer.dispose() })
+        analyzer.dispose()
+
+        assertEquals(1, analyzer.disposeCalls.get())
+    }
+
+    @Test
+    fun `throwing cleanup leaves analyzer permanently disposed`() {
+        val failure = IllegalStateException("Close failed")
+        val analyzer = TestAnalyzer(onDispose = { throw failure })
+
+        assertSame(failure, runCatching { analyzer.dispose() }.exceptionOrNull())
+        analyzer.dispose()
+        assertNull(analyzer.analyze(TEST_FRAME, null))
+        assertEquals(1, analyzer.disposeCalls.get())
+    }
+
+    @Test
+    fun `disposal racing with analysis completion closes resources exactly once`() {
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            repeat(200) {
+                val barrier = CyclicBarrier(2)
+                val analyzer = TestAnalyzer {
+                    barrier.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    TEST_BARCODE
+                }
+                val analysis = executor.submit<Barcode?> { analyzer.analyze(TEST_FRAME, null) }
+                val disposal = executor.submit {
+                    barrier.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    analyzer.dispose()
+                }
+
+                analysis.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                disposal.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                assertEquals(1, analyzer.disposeCalls.get())
+                assertNull(analyzer.analyze(TEST_FRAME, null))
+                assertEquals(1, analyzer.analysisCalls.get())
+            }
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `slow cleanup does not hold lifecycle lock or block a repeated dispose`() {
+        val cleanupStarted = CountDownLatch(1)
+        val finishCleanup = CountDownLatch(1)
+        val analyzer = TestAnalyzer(onDispose = {
+            cleanupStarted.countDown()
+            assertTrue(finishCleanup.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+        })
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val disposal = executor.submit { analyzer.dispose() }
+            assertTrue(cleanupStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+            val reentry = executor.submit {
+                analyzer.dispose()
+                assertNull(analyzer.analyze(TEST_FRAME, null))
+            }
+            reentry.get(SHORT_WAIT_MS, TimeUnit.MILLISECONDS)
+            finishCleanup.countDown()
+            disposal.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            assertEquals(1, analyzer.disposeCalls.get())
+        } finally {
+            finishCleanup.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `clock failure during admission releases execution ownership`() {
+        var reads = 0
+        val failure = IllegalStateException("Clock failed")
+        val analyzer = TestAnalyzer(currentTimeMs = {
+            if (reads++ == 0) throw failure
+            0L
+        }) { TEST_BARCODE }
+
+        assertSame(failure, runCatching { analyzer.analyze(TEST_FRAME, null) }.exceptionOrNull())
+        assertSame(TEST_BARCODE, analyzer.analyze(TEST_FRAME, null))
+        assertEquals(1, analyzer.analysisCalls.get())
+        analyzer.dispose()
+        assertEquals(1, analyzer.disposeCalls.get())
+    }
+
+    @Test
+    fun `clock failure at completion does not strand analyzer ownership`() {
+        var reads = 0
+        val failure = IllegalStateException("Clock failed")
+        val analyzer = TestAnalyzer(currentTimeMs = {
+            if (reads++ == 1) throw failure
+            0L
+        }) {
+            TEST_BARCODE
+        }
+
+        assertSame(failure, runCatching { analyzer.analyze(TEST_FRAME, null) }.exceptionOrNull())
+        analyzer.dispose()
+        assertEquals(1, analyzer.disposeCalls.get())
+        assertNull(analyzer.analyze(TEST_FRAME, null))
+    }
+
+    @Test
+    fun `analyzer forwards borrowed frame and crop without closing or reading them itself`() {
+        val crop = Rect(1, 2, 3, 4)
+        val borrowedFrame = object : CameraFrame {
+            override val width = 4
+            override val height = 4
+            override val rotationDegree = 0
+            override fun <T> useNv21(cropRect: Rect?, block: (ByteArray, Int, Int, Int) -> T): T =
+                error("Base analyzer must not access frame bytes")
+            override fun close() = error("Base analyzer must not close a borrowed frame")
+        }
+        val analyzer = object : ImageBarcodeAnalyzer({ 0L }) {
+            override fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode {
+                assertSame(borrowedFrame, frame)
+                assertSame(crop, cropRect)
+                return TEST_BARCODE
+            }
+            override fun disposeAnalyzer() = Unit
+        }
+
+        assertSame(TEST_BARCODE, analyzer.analyze(borrowedFrame, crop))
+        analyzer.dispose()
+    }
+
     @Test
     fun `concurrent frame is skipped while analysis is running`() {
         val analysisStarted = CountDownLatch(1)
@@ -207,8 +355,10 @@ internal class ImageBarcodeAnalyzerTest {
 
     private class TestAnalyzer(
         clock: MutableClock = MutableClock(),
+        currentTimeMs: () -> Long = clock::read,
+        private val onDispose: () -> Unit = {},
         private val analysis: () -> Barcode? = { null },
-    ) : ImageBarcodeAnalyzer(currentTimeMs = clock::read) {
+    ) : ImageBarcodeAnalyzer(currentTimeMs = currentTimeMs) {
         val analysisCalls = AtomicInteger()
         val disposeCalls = AtomicInteger()
         val resourcesDisposed = CountDownLatch(1)
@@ -220,6 +370,7 @@ internal class ImageBarcodeAnalyzerTest {
 
         override fun disposeAnalyzer() {
             disposeCalls.incrementAndGet()
+            onDispose()
             resourcesDisposed.countDown()
         }
     }

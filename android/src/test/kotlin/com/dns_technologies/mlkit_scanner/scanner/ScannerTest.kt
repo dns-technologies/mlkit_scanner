@@ -5,7 +5,6 @@ import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraCommand
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraAvailabilityChanged
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
@@ -21,7 +20,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.verify
+import org.mockito.Mockito.verifyNoMoreInteractions
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -135,6 +137,58 @@ internal class ScannerTest {
         fixture.scanner.setZoomRatio(2.0F).await()
 
         assertEquals(listOf(2.0F), fixture.camera.zoomRatioValues)
+    }
+
+    @Test
+    fun `control methods forward arguments and return the original camera completions`() {
+        val camera = mock(Camera::class.java)
+        val scanner = Scanner(camera, mock(ImageBarcodeAnalyzer::class.java))
+        val preview = mock(View::class.java)
+        doReturn(preview).`when`(camera).previewView
+        doReturn(100).`when`(preview).width
+        doReturn(200).`when`(preview).height
+        val reset = CompletableDeferred<Unit>()
+        val focus = CompletableDeferred<Unit>()
+        val zoom = CompletableDeferred<Unit>()
+        val torch = CompletableDeferred<Unit>()
+        doReturn(reset).`when`(camera).resetFocus()
+        doReturn(focus).`when`(camera).focus(2500L, 62F, 66F)
+        doReturn(zoom).`when`(camera).setZoomRatio(2F)
+        doReturn(torch).`when`(camera).setTorch(true)
+
+        assertSame(reset, scanner.resetFocus())
+        assertSame(focus, scanner.focusOnCenter(2500L, 12F, -34F))
+        assertSame(zoom, scanner.setZoomRatio(2F))
+        assertSame(torch, scanner.setTorch(true))
+        verify(camera).resetFocus()
+        verify(camera).previewView
+        verify(camera).focus(2500L, 62F, 66F)
+        verify(camera).setZoomRatio(2F)
+        verify(camera).setTorch(true)
+        verifyNoMoreInteractions(camera)
+    }
+
+    @Test
+    fun `centered focus uses current preview size including fractional centers after resize`() {
+        val camera = mock(Camera::class.java)
+        val preview = mock(View::class.java)
+        val scanner = Scanner(camera, mock(ImageBarcodeAnalyzer::class.java))
+        doReturn(preview).`when`(camera).previewView
+        doReturn(100).`when`(preview).width
+        doReturn(200).`when`(preview).height
+        val initial = CompletableDeferred<Unit>()
+        doReturn(initial).`when`(camera).focus(3000L, 50F, 100F)
+
+        assertSame(initial, scanner.focusOnCenter(3000L, 0F, 0F))
+
+        doReturn(201).`when`(preview).width
+        doReturn(101).`when`(preview).height
+        val resized = CompletableDeferred<Unit>()
+        doReturn(resized).`when`(camera).focus(3000L, 112.5F, 16.5F)
+
+        assertSame(resized, scanner.focusOnCenter(3000L, 12F, -34F))
+        verify(camera).focus(3000L, 50F, 100F)
+        verify(camera).focus(3000L, 112.5F, 16.5F)
     }
 
     @Test
@@ -325,9 +379,20 @@ internal class ScannerTest {
 
         override fun isBound(): Boolean = onFrame != null
 
-        override fun execute(command: CameraCommand): Deferred<Unit> {
+        override fun resetFocus(): Deferred<Unit> = completedControl()
+
+        override fun focus(resetDelayMs: Long, x: Float, y: Float): Deferred<Unit> = completedControl()
+
+        override fun setZoomRatio(ratio: Float): Deferred<Unit> {
+            val result = completedControl()
+            zoomRatioValues += ratio
+            return result
+        }
+
+        override fun setTorch(enabled: Boolean): Deferred<Unit> = completedControl()
+
+        private fun completedControl(): Deferred<Unit> {
             if (!isBound()) throw PluginError.CameraIsNotInitialized
-            if (command is CameraCommand.SetZoomRatio) zoomRatioValues += command.value
             return CompletableDeferred(Unit)
         }
 
