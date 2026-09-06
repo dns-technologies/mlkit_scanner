@@ -1,10 +1,12 @@
 package com.dns_technologies.mlkit_scanner.session
 
 import android.content.Context
+import androidx.annotation.MainThread
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 
-/** Operations available for the single scanner session shared by platform views. */
+/** Main-thread operations for the single scanner session shared by platform views. */
+@MainThread
 internal interface ScannerSession {
     /** Creates the native platform view without assigning camera ownership. */
     fun createView(

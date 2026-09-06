@@ -9,7 +9,6 @@ import com.dns_technologies.mlkit_scanner.utils.requireInt
 import com.dns_technologies.mlkit_scanner.utils.requireMap
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 
 /** Transfers camera ownership to one view and starts/restores the shared Android pipeline. */
@@ -29,16 +28,8 @@ internal class CaptureCameraCommand(
             return
         }
 
-        try {
-            scannerSession.captureCamera(viewId) {
-                permissionGateway.requestCameraPermission()
-            }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: PluginError) {
-            throw error
-        } catch (_: Exception) {
-            throw PluginError.InitCameraError
+        scannerSession.captureCamera(viewId) {
+            permissionGateway.requestCameraPermission()
         }
         success(result)
     }

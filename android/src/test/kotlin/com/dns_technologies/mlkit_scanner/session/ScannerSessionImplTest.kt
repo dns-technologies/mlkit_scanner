@@ -11,12 +11,14 @@ import com.dns_technologies.mlkit_scanner.scanner.ScannerView
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
-import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
+import com.dns_technologies.mlkit_scanner.scanner.ScanResultSubscription
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -29,6 +31,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.After
 import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyBoolean
 import org.mockito.ArgumentMatchers.anyFloat
@@ -37,6 +40,7 @@ import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.Mockito.atLeastOnce
 import org.mockito.Mockito.clearInvocations
 import org.mockito.Mockito.doAnswer
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.inOrder
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
@@ -44,6 +48,17 @@ import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 
 internal class ScannerSessionImplTest {
+    private val fixtures = mutableListOf<Fixture>()
+
+    @After
+    fun releaseFixturesAndCheckActorFailures() {
+        for (fixture in fixtures) {
+            fixture.session.release()
+            fixture.flushEvents()
+            assertTrue("Unexpected actor failures: ${fixture.uncaughtErrors}", fixture.uncaughtErrors.isEmpty())
+        }
+    }
+
     @Test
     fun `registering views does not choose a preview host`() {
         val fixture = Fixture()
@@ -54,7 +69,7 @@ internal class ScannerSessionImplTest {
         verify(second, never()).attachPreview(anyValue())
         assertFalse(fixture.hasPreview(FIRST_VIEW_ID))
         assertFalse(fixture.hasPreview(SECOND_VIEW_ID))
-        verify(first, never()).disposeFromSession()
+        verify(first, never()).release()
         verify(fixture.scanner, never()).dispose()
     }
 
@@ -80,7 +95,7 @@ internal class ScannerSessionImplTest {
 
         fixture.session.disposeView(SECOND_VIEW_ID)
 
-        verify(second, never()).disposeFromSession()
+        verify(second, never()).release()
         verify(first, never()).detachPreview()
         verify(first, never()).attachPreview(anyValue())
         assertTrue(fixture.hasPreview(FIRST_VIEW_ID))
@@ -142,7 +157,7 @@ internal class ScannerSessionImplTest {
 
         fixture.session.disposeView(SECOND_VIEW_ID)
 
-        verify(second, never()).disposeFromSession()
+        verify(second, never()).release()
         verify(first, never()).attachPreview(anyValue())
         assertFalse(fixture.hasPreview(FIRST_VIEW_ID))
         verify(fixture.scanner, never()).dispose()
@@ -1851,12 +1866,394 @@ internal class ScannerSessionImplTest {
         assertEquals(0, fixture.startCalls)
     }
 
+    @Test
+    fun `crop change reapplies a zoom that has not completed`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        val pendingZoom = CompletableDeferred<Unit>()
+        fixture.enqueueZoomResult(pendingZoom)
+        clearInvocations(fixture.scanner)
+        val zoom = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.setZoomRatio(FIRST_VIEW_ID, 2F)
+        }
+
+        fixture.session.setCropArea(FIRST_VIEW_ID, RecognizeVisorCropRect(scaleWidth = 0.5))
+
+        withTimeout(TEST_TIMEOUT_MS) { zoom.await() }
+        assertTrue(pendingZoom.isCancelled)
+        verify(fixture.scanner, times(2)).setZoomRatio(2F)
+    }
+
+    @Test
+    fun `delay change reapplies a torch that has not completed`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        val pendingTorch = CompletableDeferred<Unit>()
+        fixture.enqueueTorchResult(pendingTorch)
+        clearInvocations(fixture.scanner)
+        val torch = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.toggleFlashLight(FIRST_VIEW_ID)
+        }
+
+        fixture.session.updateScanPeriod(FIRST_VIEW_ID, 250)
+
+        withTimeout(TEST_TIMEOUT_MS) { torch.await() }
+        assertTrue(pendingTorch.isCancelled)
+        verify(fixture.scanner, times(2)).setTorch(true)
+    }
+
+    @Test
+    fun `torch change reapplies a zoom that has not completed`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        val pendingZoom = CompletableDeferred<Unit>()
+        fixture.enqueueZoomResult(pendingZoom)
+        clearInvocations(fixture.scanner)
+        val zoom = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.setZoomRatio(FIRST_VIEW_ID, 2F)
+        }
+
+        fixture.session.toggleFlashLight(FIRST_VIEW_ID)
+
+        withTimeout(TEST_TIMEOUT_MS) { zoom.await() }
+        assertTrue(pendingZoom.isCancelled)
+        verify(fixture.scanner, times(2)).setZoomRatio(2F)
+        verify(fixture.scanner).setTorch(true)
+    }
+
+    @Test
+    fun `focus gesture cannot cancel an unapplied zoom`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        val pendingZoom = CompletableDeferred<Unit>()
+        fixture.enqueueZoomResult(pendingZoom)
+        val zoom = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.setZoomRatio(FIRST_VIEW_ID, 2F)
+        }
+
+        fixture.session.requestFocus(FIRST_VIEW_ID, 500L, 10F, 20F)
+
+        assertFalse(pendingZoom.isCancelled)
+        verify(fixture.scanner, never()).focusOnCenter(anyLong(), anyFloat(), anyFloat())
+        pendingZoom.complete(Unit)
+        withTimeout(TEST_TIMEOUT_MS) { zoom.await() }
+    }
+
+    @Test
+    fun `disposing view cancels its permission waiter without cancelling shared permission`() =
+        runSessionTest {
+            val fixture = Fixture()
+            val permission = CompletableDeferred<Boolean>()
+            var permissionWaitFinished = false
+            val capture = async(start = CoroutineStart.UNDISPATCHED) {
+                fixture.session.captureCamera(FIRST_VIEW_ID) {
+                    try {
+                        permission.await()
+                    } finally {
+                        permissionWaitFinished = true
+                    }
+                }
+            }
+
+            fixture.session.disposeView(FIRST_VIEW_ID)
+
+            withTimeout(TEST_TIMEOUT_MS) { capture.await() }
+            assertTrue(permissionWaitFinished)
+            assertFalse(permission.isCancelled)
+            permission.complete(true)
+            assertEquals(0, fixture.startCalls)
+        }
+
+    @Test
+    fun `obsolete empty-session timer cannot release a newer empty session interval`() {
+        val fixture = Fixture()
+        fixture.session.disposeView(FIRST_VIEW_ID)
+        val obsoleteRelease = fixture.delayedCallbacks.last()
+        fixture.attach(SECOND_VIEW_ID)
+        fixture.session.disposeView(SECOND_VIEW_ID)
+        val currentRelease = fixture.delayedCallbacks.last()
+
+        obsoleteRelease.run()
+
+        verify(fixture.scanner, never()).dispose()
+        currentRelease.run()
+        verify(fixture.scanner).dispose()
+    }
+
+    @Test
+    fun `view cleanup failure does not skip other views scanner or lifecycle cleanup`() {
+        val fixture = Fixture()
+        val second = fixture.attach(SECOND_VIEW_ID)
+        val firstFailure = IllegalStateException("view cleanup failed")
+        val secondFailure = IllegalStateException("scanner cleanup failed")
+        doThrow(firstFailure).`when`(fixture.view(FIRST_VIEW_ID)).release()
+        doThrow(secondFailure).`when`(fixture.scanner).dispose()
+
+        fixture.session.release()
+        fixture.session.release()
+
+        verify(second).release()
+        verify(fixture.scanner).dispose()
+        assertEquals(1, fixture.subscriptionCancelCalls)
+        assertEquals(Lifecycle.State.DESTROYED, fixture.session.lifecycle.currentState)
+        assertSame(firstFailure, fixture.uncaughtErrors.single())
+        assertTrue(firstFailure.suppressed.any { it === secondFailure })
+        fixture.uncaughtErrors.clear()
+    }
+
+    @Test
+    fun `throwing release notification does not skip session cleanup`() {
+        val failure = IllegalStateException("release callback failed")
+        val fixture = Fixture(onRelease = { throw failure })
+
+        assertSame(failure, runCatching { fixture.session.release() }.exceptionOrNull())
+
+        verify(fixture.scanner).dispose()
+        assertEquals(Lifecycle.State.DESTROYED, fixture.session.lifecycle.currentState)
+        fixture.session.release()
+        assertEquals(1, fixture.releaseCalls)
+    }
+
+    @Test
+    fun `unexpected capture reducer failure completes request and releases session`() = runSessionTest {
+        val fixture = Fixture()
+        val failure = IllegalStateException("preview attachment failed")
+        doThrow(failure).`when`(fixture.view(FIRST_VIEW_ID)).attachPreview(anyValue())
+
+        val error = runCatching {
+            withTimeout(TEST_TIMEOUT_MS) { fixture.captureCamera(FIRST_VIEW_ID, null, null) }
+        }.exceptionOrNull()
+
+        assertEquals(failure.javaClass, error?.javaClass)
+        assertEquals(failure.message, error?.message)
+        verify(fixture.scanner).dispose()
+        assertEquals(1, fixture.releaseCalls)
+        assertEquals(Lifecycle.State.DESTROYED, fixture.session.lifecycle.currentState)
+        assertSame(failure, fixture.uncaughtErrors.single())
+        fixture.uncaughtErrors.clear()
+    }
+
+    @Test
+    fun `cancelling owned scope releases the session and completes pending capture`() = runSessionTest {
+        val fixture = Fixture()
+        val capture = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.captureCamera(FIRST_VIEW_ID, null, null)
+        }
+
+        fixture.scope.cancel()
+
+        val error = runCatching { withTimeout(TEST_TIMEOUT_MS) { capture.await() } }.exceptionOrNull()
+        assertSame(PluginError.CameraSessionDisposed, error)
+        verify(fixture.scanner).dispose()
+        assertEquals(1, fixture.releaseCalls)
+    }
+
+    @Test
+    fun `scope cancellation completes a capture already taken from the queue`() = runSessionTest {
+        val dispatcher = QueuedDispatcher()
+        val fixture = Fixture(dispatcher = dispatcher)
+        dispatcher.runAll()
+        val capture = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.captureCamera(FIRST_VIEW_ID, null, null)
+        }
+
+        fixture.scope.cancel()
+        dispatcher.runAll()
+
+        val error = runCatching { withTimeout(TEST_TIMEOUT_MS) { capture.await() } }.exceptionOrNull()
+        assertSame(PluginError.CameraSessionDisposed, error)
+        verify(fixture.scanner).dispose()
+    }
+
+    @Test
+    fun `scope cancellation releases a view already taken from the queue`() {
+        val dispatcher = QueuedDispatcher()
+        val fixture = Fixture(dispatcher = dispatcher)
+        dispatcher.runAll()
+        val unregisteredView = fixture.attach(SECOND_VIEW_ID)
+
+        fixture.scope.cancel()
+        dispatcher.runAll()
+
+        verify(unregisteredView).release()
+        verify(fixture.view(FIRST_VIEW_ID)).release()
+        verify(fixture.scanner).dispose()
+    }
+
+    @Test
+    fun `fatal reducer failure drains queued requests and releases unregistered views`() = runSessionTest {
+        val dispatcher = QueuedDispatcher()
+        val fixture = Fixture(dispatcher = dispatcher)
+        dispatcher.runAll()
+        val failure = IllegalStateException("preview failed")
+        doThrow(failure).`when`(fixture.view(FIRST_VIEW_ID)).attachPreview(anyValue())
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.captureCamera(FIRST_VIEW_ID, null, null)
+        }
+        val second = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.captureCamera(FIRST_VIEW_ID, null, null)
+        }
+        val unregisteredView = fixture.attach(SECOND_VIEW_ID)
+
+        dispatcher.runAll()
+
+        for (capture in listOf(first, second)) {
+            val error = runCatching { withTimeout(TEST_TIMEOUT_MS) { capture.await() } }.exceptionOrNull()
+            assertEquals(failure.javaClass, error?.javaClass)
+            assertEquals(failure.message, error?.message)
+        }
+        verify(unregisteredView).release()
+        verify(fixture.scanner).dispose()
+        assertSame(failure, fixture.uncaughtErrors.single())
+        fixture.uncaughtErrors.clear()
+    }
+
+    @Test
+    fun `release notification cannot deliver an already posted barcode`() {
+        var delivery: Runnable? = null
+        val results = mutableListOf<Barcode>()
+        val fixture = Fixture(
+            onRelease = { delivery?.run() },
+            onScanResult = { _, barcode -> results += barcode },
+        )
+        fixture.activateCamera(FIRST_VIEW_ID)
+        fixture.session.startScan(FIRST_VIEW_ID, 100)
+        fixture.emitScanResult(BARCODE)
+        delivery = fixture.postedCallbacks.single()
+
+        fixture.session.release()
+
+        assertTrue(results.isEmpty())
+    }
+
+    @Test
+    fun `duplicate open does not retry a canceled operation before a close`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        val pendingZoom = CompletableDeferred<Unit>()
+        fixture.enqueueZoomResult(pendingZoom)
+        clearInvocations(fixture.scanner)
+        val zoom = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.setZoomRatio(FIRST_VIEW_ID, 2F)
+        }
+        pendingZoom.completeExceptionally(CameraControl.OperationCanceledException("camera closing"))
+
+        fixture.emitCameraOpen()
+
+        assertFalse(zoom.isCompleted)
+        verify(fixture.scanner).setZoomRatio(2F)
+        fixture.emitCameraClosed()
+        fixture.emitCameraOpen()
+        withTimeout(TEST_TIMEOUT_MS) { zoom.await() }
+        verify(fixture.scanner, times(2)).setZoomRatio(2F)
+    }
+
+    @Test
+    fun `open before binding completion is retained without applying controls early`() = runSessionTest {
+        val fixture = Fixture()
+        val capture = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.captureCamera(FIRST_VIEW_ID, null, null)
+        }
+
+        fixture.emitCameraOpen()
+
+        assertFalse(capture.isCompleted)
+        verify(fixture.scanner, never()).resetFocus()
+        fixture.completeInitialization()
+        withTimeout(TEST_TIMEOUT_MS) { capture.await() }
+        verify(fixture.scanner).resetFocus()
+        verify(fixture.scanner).showPreview()
+    }
+
+    @Test(timeout = 2_000L)
+    fun `cyclic camera error causes cannot stall the session queue`() = runSessionTest {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        val failure = IllegalStateException("outer error")
+        val nested = IllegalStateException("inner error", failure)
+        failure.initCause(nested)
+        val pendingZoom = CompletableDeferred<Unit>()
+        fixture.enqueueZoomResult(pendingZoom)
+        val zoom = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.session.setZoomRatio(FIRST_VIEW_ID, 2F)
+        }
+
+        pendingZoom.completeExceptionally(failure)
+
+        val error = runCatching { withTimeout(TEST_TIMEOUT_MS) { zoom.await() } }.exceptionOrNull()
+        assertTrue(error is PluginError.CameraControlError)
+        assertSame(failure, error?.cause)
+        fixture.session.pauseScan(FIRST_VIEW_ID)
+    }
+
+    @Test
+    fun `new focus gesture still supersedes a pending focus gesture`() {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        val pendingFocus = CompletableDeferred<Unit>()
+        fixture.enqueueFocusResult(pendingFocus)
+        clearInvocations(fixture.scanner)
+        fixture.session.requestFocus(FIRST_VIEW_ID, 500L, 10F, 20F)
+
+        fixture.session.requestFocus(FIRST_VIEW_ID, 500L, 30F, 40F)
+
+        assertTrue(pendingFocus.isCancelled)
+        verify(fixture.scanner).focusOnCenter(500L, 30F, 40F)
+        verify(fixture.scanner, never()).resetFocus()
+        verify(fixture.scanner, never()).setZoomRatio(anyFloat())
+        verify(fixture.scanner, never()).setTorch(anyBoolean())
+    }
+
+    @Test
+    fun `failed transient focus does not block another focus gesture`() {
+        val fixture = Fixture()
+        fixture.activateCamera(FIRST_VIEW_ID)
+        val pendingFocus = CompletableDeferred<Unit>()
+        fixture.enqueueFocusResult(pendingFocus)
+        fixture.session.requestFocus(FIRST_VIEW_ID, 500L, 10F, 20F)
+        pendingFocus.completeExceptionally(IllegalStateException("metering failed"))
+        clearInvocations(fixture.scanner)
+
+        fixture.session.requestFocus(FIRST_VIEW_ID, 500L, 30F, 40F)
+
+        verify(fixture.scanner).focusOnCenter(500L, 30F, 40F)
+        verify(fixture.scanner, never()).setZoomRatio(anyFloat())
+        verify(fixture.scanner, never()).setTorch(anyBoolean())
+    }
+
+    @Test
+    fun `cleanup failure during scope cancellation is still reported`() {
+        val fixture = Fixture()
+        val failure = IllegalStateException("scanner cleanup failed")
+        doThrow(failure).`when`(fixture.scanner).dispose()
+
+        fixture.scope.cancel()
+
+        assertEquals(Lifecycle.State.DESTROYED, fixture.session.lifecycle.currentState)
+        assertSame(failure, fixture.uncaughtErrors.single())
+        fixture.uncaughtErrors.clear()
+    }
+
+    private class QueuedDispatcher : CoroutineDispatcher() {
+        private val tasks = ArrayDeque<Runnable>()
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            tasks += block
+        }
+
+        fun runAll() {
+            for (task in generateSequence { tasks.removeFirstOrNull() }) task.run()
+        }
+    }
+
     private fun runSessionTest(block: suspend CoroutineScope.() -> Unit) {
         runBlocking { supervisorScope { block() } }
     }
 
-    private class Fixture(
+    private inner class Fixture(
         sessionActive: Boolean = true,
+        private val dispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
+        onRelease: (ScannerSession) -> Unit = {},
         onScanResult: (Int, Barcode) -> Unit = { _, _ -> },
     ) {
         val scanner: Scanner = mock(Scanner::class.java)
@@ -1865,6 +2262,10 @@ internal class ScannerSessionImplTest {
         val delayedCallbacks = mutableListOf<Runnable>()
         val scheduledDelays = mutableListOf<Long>()
         val session: ScannerSessionImpl
+        val uncaughtErrors = mutableListOf<Throwable>()
+        val scope = CoroutineScope(
+            dispatcher + CoroutineExceptionHandler { _, error -> uncaughtErrors += error },
+        )
         var startCalls = 0
             private set
         var subscriptionCancelCalls = 0
@@ -1929,12 +2330,20 @@ internal class ScannerSessionImplTest {
                 scanner = scanner,
                 mainHandler = mainHandler,
                 onScanResult = onScanResult,
-                onReleaseRequested = { releaseCalls += 1 },
-                initializationScope = CoroutineScope(Dispatchers.Unconfined),
+                onReleaseRequested = {
+                    releaseCalls += 1
+                    onRelease(it)
+                },
+                initializationScope = scope,
                 lifecycleRegistryFactory = LifecycleRegistry::createUnsafe,
             )
             if (sessionActive) session.activate() else session.deactivate()
             attach(FIRST_VIEW_ID)
+            fixtures += this
+        }
+
+        fun flushEvents() {
+            (dispatcher as? QueuedDispatcher)?.runAll()
         }
 
         fun attach(
@@ -1966,7 +2375,7 @@ internal class ScannerSessionImplTest {
             doAnswer {
                 clearPreview(viewId)
                 null
-            }.`when`(view).disposeFromSession()
+            }.`when`(view).release()
             doAnswer { previewState[viewId] == true }.`when`(view).hasPreview()
             doAnswer {
                 previewState[viewId] == true && previewReadyState[viewId] == true

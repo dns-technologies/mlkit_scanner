@@ -12,9 +12,6 @@ internal sealed class PluginError(
     cause: Throwable? = null,
     val details: Any? = null,
 ) : Exception(message, cause) {
-    /** Camera initialization failed due to an internal camera error. */
-    object InitCameraError : PluginError("1", "Internal camera initialisation error")
-
     /** The app has no granted camera permission. */
     object AuthorizationCameraError : PluginError("2", "The app does not have camera permission")
 

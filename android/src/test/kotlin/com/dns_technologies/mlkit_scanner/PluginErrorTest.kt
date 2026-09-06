@@ -9,7 +9,6 @@ internal class PluginErrorTest {
     @Test
     fun `stable errors expose their documented channel codes and messages`() {
         val errors = listOf(
-            PluginError.InitCameraError to "1",
             PluginError.AuthorizationCameraError to "2",
             PluginError.CameraIsNotInitialized to "3",
             PluginError.DeviceHasNotFlash to "4",

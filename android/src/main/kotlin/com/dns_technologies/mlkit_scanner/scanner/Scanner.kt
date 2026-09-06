@@ -1,7 +1,9 @@
 package com.dns_technologies.mlkit_scanner.scanner
 
 import android.view.View
+import androidx.annotation.MainThread
 import androidx.lifecycle.LifecycleOwner
+import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
@@ -10,11 +12,10 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
-import com.dns_technologies.mlkit_scanner.scanner.models.ScanResultSubscription
 import com.dns_technologies.mlkit_scanner.scanner.utils.ScanAreaState
-import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
@@ -25,6 +26,11 @@ typealias OnScanResultListener = (result: Barcode) -> Unit
 /**
  * Owns scanner behavior independent from Flutter platform view plumbing.
  *
+ * Camera lifecycle/controls run on the main thread; analysis runs on the owned serial executor.
+ * Scan state and subscriptions are synchronized separately from recognition. Result listeners run
+ * synchronously on the analysis thread: they must be short and must not wait for another thread
+ * to change scan state. Pause/cancellation cannot interrupt recognition already reading a frame.
+ *
  * @property camera Camera adapter used for preview, focus, flash and zoomRatio.
  * @property analyzer Barcode analyzer used for throttled frame recognition.
  */
@@ -34,26 +40,29 @@ class Scanner(
 ) {
     private var analysisExecutor: ExecutorService? = null
     private val scanJobLock = Any()
+    private var isDisposed = false
     private var scanJob: CompletableJob? = null
     private val scanAreaState = ScanAreaState()
     @Volatile
     private var cropArea: RecognizeVisorCropRect? = null
-    private val scanResultListeners = CopyOnWriteArraySet<OnScanResultListener>()
+    private val scanResultListeners = linkedSetOf<OnScanResultListener>()
 
     /** Native preview view supplied by the camera adapter. */
     val previewView: View
         get() = camera.previewView
 
     /** Starts the delegated camera and wires common frame handling. */
+    @MainThread
     fun startCamera(
         lifecycleOwner: LifecycleOwner,
         onAvailabilityChanged: OnCameraAvailabilityChanged,
         onInit: OnInit,
         onError: OnError,
     ) {
-        val executor = analysisExecutor
-            ?.takeUnless { it.isShutdown }
-            ?: Executors.newSingleThreadExecutor().also { analysisExecutor = it }
+        val executor = synchronized(scanJobLock) {
+            if (isDisposed) throw PluginError.CameraSessionDisposed
+            analysisExecutor ?: Executors.newSingleThreadExecutor().also { analysisExecutor = it }
+        }
 
         camera.bind(
             lifecycleOwner = lifecycleOwner,
@@ -65,7 +74,7 @@ class Scanner(
         )
     }
 
-    /** Compatibility overload for scanner-only callers that do not coordinate CameraX state. */
+    /** Starts the camera without subscribing to availability changes. */
     fun startCamera(
         lifecycleOwner: LifecycleOwner,
         onInit: OnInit,
@@ -96,14 +105,14 @@ class Scanner(
 
     /** Starts analysis with the configured analyzer component. */
     fun startScan(periodMs: Int) {
-        analyzer.updatePeriod(periodMs)
+        updateScanPeriod(periodMs)
         resumeScan()
     }
 
     /** Resumes analysis with the period already retained by the analyzer. */
     fun resumeScan() {
         synchronized(scanJobLock) {
-            if (scanJob?.isActive == true) return
+            if (isDisposed || scanJob?.isActive == true) return
             scanJob = Job()
         }
     }
@@ -118,13 +127,20 @@ class Scanner(
 
     /** Updates the analyzer cooldown applied after successful recognition. */
     fun updateScanPeriod(periodMs: Int) {
-        analyzer.updatePeriod(periodMs)
+        synchronized(scanJobLock) {
+            if (!isDisposed) analyzer.updatePeriod(periodMs)
+        }
     }
 
-    /** Subscribes to decoded scanner results and returns a cancellable subscription. */
+    /** Subscribes to decoded results; the same listener is registered at most once. */
     fun subscribeToScanResults(listener: OnScanResultListener): ScanResultSubscription {
-        scanResultListeners += listener
-        return ScanResultSubscription { scanResultListeners -= listener }
+        synchronized(scanJobLock) {
+            if (isDisposed) throw PluginError.CameraSessionDisposed
+            scanResultListeners += listener
+        }
+        return ScanResultSubscription {
+            synchronized(scanJobLock) { scanResultListeners -= listener }
+        }
     }
 
     /** Updates scanner crop settings used for frame preparation. */
@@ -135,17 +151,34 @@ class Scanner(
     /** Reveals camera preview after startup controls have been applied. */
     fun showPreview() = camera.showPreview()
 
-    /** Preserves the last camera frame until active-view configuration is restored. */
+    /** Preserves the last rendered camera frame while controls are being updated. */
     fun hidePreview() = camera.hidePreview()
 
-    /** Releases scanner components and stops pending analysis work. */
+    /** Invalidates work first, then attempts every owned cleanup once, even if one fails. */
+    @MainThread
     fun dispose() {
-        pauseScan()
-        camera.dispose()
-        analysisExecutor?.shutdownNow()
-        analysisExecutor = null
-        analyzer.dispose()
-        scanResultListeners.clear()
+        val executor = synchronized(scanJobLock) {
+            if (isDisposed) return
+            isDisposed = true
+            pauseScan()
+            scanResultListeners.clear()
+            analysisExecutor.also { analysisExecutor = null }
+        }
+        // Never hold the scan lock while releasing SDK resources or interrupting the executor.
+        var failure: Exception? = null
+        fun release(action: () -> Unit) {
+            try {
+                action()
+            } catch (error: Exception) {
+                val first = failure
+                if (first == null) failure = error
+                else if (first !== error) first.addSuppressed(error)
+            }
+        }
+        release(camera::dispose)
+        release { executor?.shutdownNow() }
+        release(analyzer::dispose)
+        failure?.let { throw it }
     }
 
     /** Processes a camera frame when scanning is active. */
@@ -156,24 +189,37 @@ class Scanner(
             val cropRect = scanAreaState.resolve(frame, cropArea)
             if (cropRect.isEmpty) return
             val result = analyzer.analyze(frame, cropRect) ?: return
-            synchronized(scanJobLock) {
-                if (analysisJob.isActive) emitScanResult(result)
-            }
+            emitScanResult(result, analysisJob)
         } finally {
             analysisJob.complete()
         }
     }
 
-    /** Creates one child job owned by the currently active scan run. */
+    /** The child represents this analysis invocation; pausing cancels its result eligibility. */
     private fun createAnalysisJob(): CompletableJob? = synchronized(scanJobLock) {
         val activeScanJob = scanJob?.takeIf { it.isActive } ?: return@synchronized null
         Job(activeScanJob)
     }
 
-    /** Notifies all active listeners about a recognized scanner result. */
-    private fun emitScanResult(result: Barcode) {
-        scanResultListeners.forEach { listener ->
-            listener.invoke(result)
+    private fun emitScanResult(result: Barcode, analysisJob: Job) = synchronized(scanJobLock) {
+        // A listener can synchronously pause/restart scanning or cancel another subscription.
+        // Snapshot iteration tolerates those edits; recheck eligibility before each delivery.
+        for (listener in scanResultListeners.toList()) {
+            if (!analysisJob.isActive) return
+            if (listener in scanResultListeners) listener(result)
         }
+    }
+}
+
+/** Handle used to stop receiving scanner results. */
+class ScanResultSubscription internal constructor(
+    onCancel: () -> Unit,
+) {
+    private val cancellation = AtomicReference<(() -> Unit)?>(onCancel)
+
+    /** Stops delivering scan results to the listener associated with this subscription. */
+    fun cancel() {
+        // Clear ownership before invoking user code, including reentrant or throwing cleanup.
+        cancellation.getAndSet(null)?.invoke()
     }
 }

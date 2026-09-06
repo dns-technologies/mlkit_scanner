@@ -5,8 +5,9 @@ import android.content.Context
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.FrameLayout
-import androidx.core.view.OneShotPreDrawListener
+import androidx.annotation.MainThread
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.OverlayController
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import io.flutter.plugin.platform.PlatformView
@@ -14,54 +15,68 @@ import io.flutter.plugin.platform.PlatformView
 /**
  * Android platform view that renders scanner preview and scanner overlays.
  *
- * @property scanner Shared scanner whose preview is hosted by this view.
- * @property onDispose Callback that unregisters this view from its scanner session.
+ * @property preview Borrowed preview hosted by this container; its resources belong to the caller.
+ * @property onDispose Notifies the caller when the platform view is disposed.
  */
 @SuppressLint("ViewConstructor")
+@MainThread
 class ScannerView(
     context: Context,
-    private val scanner: Scanner,
+    private val preview: View,
     onFocusRequest: (resetDelayMs: Long, offsetX: Float, offsetY: Float) -> Unit,
-    private val onDispose: () -> Unit,
+    onDispose: () -> Unit,
 ) : FrameLayout(context), PlatformView {
     private val overlayController = OverlayController(this, onFocusRequest)
-    private var previewReadyListener: OneShotPreDrawListener? = null
+    private var onDispose: (() -> Unit)? = onDispose
+    private var previewReadyListener: ViewTreeObserver.OnPreDrawListener? = null
     private var previewReady = false
     private var isDisposed = false
 
     init {
-        layoutParams = matchParentLayoutParams()
+        layoutParams = ViewGroup.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
     }
 
     /** Moves the shared preview here and reports when its current non-zero layout can be used. */
     fun attachPreview(onPreviewReady: () -> Unit) {
         if (isDisposed) return
-        val preview = scanner.previewView
         clearPreviewReadiness()
+        val listener = object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                // Android may already be iterating a snapshot containing a removed listener.
+                if (isDisposed || previewReadyListener !== this || !hasPreview()) return true
+                if (preview.width <= 0 || preview.height <= 0) return true
+                clearPreviewReadiness()
+                previewReady = true
+                onPreviewReady()
+                return true
+            }
+        }
+        previewReadyListener = listener
         (preview.parent as? ViewGroup)?.removeView(preview)
+        // Removing/adding a child may call external hierarchy listeners synchronously.
+        if (previewReadyListener !== listener) return
         addView(preview, 0)
-        awaitPreviewReady(onPreviewReady)
+        if (previewReadyListener === listener) observePreviewReadiness()
     }
 
-    /** Removes the shared preview without disposing the shared camera pipeline. */
+    /** Detaches the borrowed preview without releasing its resources. */
     fun detachPreview() {
         overlayController.setScanActive(false)
         overlayController.unbindFocus()
         clearPreviewReadiness()
-        val preview = scanner.previewView
         if (preview.parent === this) removeView(preview)
     }
 
     /** Returns whether this container currently hosts the one shared preview view. */
-    fun hasPreview(): Boolean = scanner.previewView.parent === this
+    fun hasPreview(): Boolean = preview.parent === this
 
     /** Returns whether the hosted preview has completed a non-zero layout in this container. */
     fun isPreviewReady(): Boolean = hasPreview() && previewReady
 
-    /** Connects focus UI to the shared camera after it is ready. */
+    /** Enables focus gestures and forwards requests through the supplied callback. */
     fun bindFocus() = overlayController.bindFocus()
 
-    /** Disconnects focus UI while this view does not own an active camera. */
+    /** Stops focus gestures and resets their visual state. */
     fun unbindFocus() = overlayController.unbindFocus()
 
     /** Updates the scan overlay state in this preview container. */
@@ -72,49 +87,55 @@ class ScannerView(
         overlayController.setCropArea(cropRect)
     }
 
-    /** Unregisters this platform view without releasing shared camera resources. */
-    override fun dispose() {
+    /** Notifies the caller once, then releases local resources even if the callback throws. */
+    override fun dispose() = dispose(notifyCaller = true)
+
+    /** Releases local resources without invoking [onDispose]; repeated release is harmless. */
+    fun release() = dispose(notifyCaller = false)
+
+    private fun dispose(notifyCaller: Boolean) {
         if (isDisposed) return
         isDisposed = true
+        val callback = onDispose
+        onDispose = null
         try {
-            onDispose.invoke()
+            if (notifyCaller) callback?.invoke()
         } finally {
-            disposeLocalView()
+            releaseViewResources()
         }
     }
 
-    /** Disposes the local view when the owning session is released. */
-    fun disposeFromSession() {
-        if (isDisposed) return
-        isDisposed = true
-        disposeLocalView()
+    private fun releaseViewResources() {
+        try {
+            detachPreview()
+        } finally {
+            overlayController.dispose()
+        }
     }
 
-    /** Clears preview attachment and overlay resources owned only by this view. */
-    private fun disposeLocalView() {
-        detachPreview()
-        overlayController.dispose()
+    // Observe this container, not the borrowed child's window attachment. Keep a pending wait
+    // across temporary window detaches; one-shot listeners would silently discard it there.
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        observePreviewReadiness()
     }
 
-    /** Waits for a non-zero preview layout before reporting that scanning may resume. */
-    private fun awaitPreviewReady(onPreviewReady: () -> Unit) {
-        val preview = scanner.previewView
-        previewReadyListener = OneShotPreDrawListener.add(preview) {
-            previewReadyListener = null
-            if (hasPreview()) {
-                if (preview.width > 0 && preview.height > 0) {
-                    previewReady = true
-                    onPreviewReady()
-                } else {
-                    awaitPreviewReady(onPreviewReady)
-                }
-            }
+    override fun onDetachedFromWindow() {
+        previewReadyListener?.let(viewTreeObserver::removeOnPreDrawListener)
+        super.onDetachedFromWindow()
+    }
+
+    private fun observePreviewReadiness() {
+        previewReadyListener?.let { listener ->
+            // A floating observer may have been merged into the window observer on attachment.
+            viewTreeObserver.removeOnPreDrawListener(listener)
+            viewTreeObserver.addOnPreDrawListener(listener)
         }
     }
 
     /** Cancels the pending layout callback and marks the preview as unavailable. */
     private fun clearPreviewReadiness() {
-        previewReadyListener?.removeListener()
+        previewReadyListener?.let(viewTreeObserver::removeOnPreDrawListener)
         previewReadyListener = null
         previewReady = false
     }
@@ -134,10 +155,4 @@ class ScannerView(
         super.performClick()
         return true
     }
-
-    /** Creates layout parameters that fill the platform view container. */
-    private fun matchParentLayoutParams(): ViewGroup.LayoutParams = ViewGroup.LayoutParams(
-        LayoutParams.MATCH_PARENT,
-        LayoutParams.MATCH_PARENT,
-    )
 }

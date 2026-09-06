@@ -10,8 +10,9 @@ import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 /** Coordinates scanner overlay UI and maps overlay interactions to scanner operations. */
 internal class OverlayController(
     private val boundsView: FrameLayout,
-    private val onFocusRequest: (resetDelayMs: Long, offsetX: Float, offsetY: Float) -> Unit,
+    onFocusRequest: (resetDelayMs: Long, offsetX: Float, offsetY: Float) -> Unit,
 ) {
+    private var onFocusRequest: ((Long, Float, Float) -> Unit)? = onFocusRequest
     private val focusView = FocusView(boundsView.context)
     private val focusController = FocusController(focusView)
     private val visorController = VisorController(
@@ -70,6 +71,7 @@ internal class OverlayController(
     fun dispose() {
         if (isDisposed) return
         isDisposed = true
+        onFocusRequest = null
         focusController.dispose()
         focusView.dispose()
         visorController.dispose()
@@ -82,9 +84,9 @@ internal class OverlayController(
         boundsView.addView(focusView)
     }
 
-    /** Routes focus intent to the session actor that owns all camera operations. */
+    /** Forwards focus intent through the supplied callback while this overlay is active. */
     private fun requestFocus(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
-        if (!isDisposed) onFocusRequest(resetDelayMs, offsetX, offsetY)
+        onFocusRequest?.invoke(resetDelayMs, offsetX, offsetY)
     }
 
     private companion object {

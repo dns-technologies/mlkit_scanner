@@ -2,6 +2,7 @@ package com.dns_technologies.mlkit_scanner.session
 
 import android.content.Context
 import android.os.Handler
+import androidx.annotation.MainThread
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.dns_technologies.mlkit_scanner.PluginConstants
@@ -24,16 +25,27 @@ internal fun interface ScanResultSink {
 }
 
 /** Main-thread owner of the scanner session, its platform views, and host lifecycle attachment. */
+@MainThread
 internal class ScannerSessionController(
-    private val mainHandler: Handler,
-    private val scanResultSink: ScanResultSink,
+    mainHandler: Handler,
+    scanResultSink: ScanResultSink,
+    private val sessionFactory: (Context, (ScannerSession) -> Unit) -> ScannerSession = { context, onRelease ->
+        ScannerSessionImpl(
+            scanner = Scanner(camera = XCamera(context), analyzer = MlkitImageBarcodeAnalyzer()),
+            mainHandler = mainHandler,
+            onScanResult = scanResultSink::emit,
+            onReleaseRequested = onRelease,
+        )
+    },
 ) {
     var session: ScannerSession? = null
         private set
 
     private var hostLifecycle: Lifecycle? = null
     private var hostResumed = false
-    private val hostLifecycleObserver = LifecycleEventObserver { _, event ->
+    private val hostLifecycleObserver = LifecycleEventObserver { source, event ->
+        // A removed observer can still be present in an in-flight lifecycle dispatch.
+        if (source.lifecycle !== hostLifecycle) return@LifecycleEventObserver
         when (event) {
             Lifecycle.Event.ON_RESUME -> updateHostResumed(true)
             Lifecycle.Event.ON_PAUSE -> updateHostResumed(false)
@@ -70,33 +82,54 @@ internal class ScannerSessionController(
             PluginConstants.initialFlashEnabledArgument,
         )
 
-        val activeSession = session ?: createSession(context)
-        return activeSession.createView(
-            context = context,
-            viewId = viewId,
-            initialZoomRatio = initialZoomRatio,
-            initialCropRect = initialCropRect,
-            initialFlashEnabled = initialFlashEnabled,
-        )
+        val existingSession = session
+        val activeSession = existingSession ?: sessionFactory(context) { released ->
+            if (session === released) session = null
+        }.also { session = it }
+        try {
+            if (existingSession == null) updateSessionActivity(activeSession)
+            return activeSession.createView(
+                context = context,
+                viewId = viewId,
+                initialZoomRatio = initialZoomRatio,
+                initialCropRect = initialCropRect,
+                initialFlashEnabled = initialFlashEnabled,
+            )
+        } catch (error: Exception) {
+            // This call owns a newly created session until its first view succeeds.
+            // Never tear down a pre-existing session because another view failed to register.
+            if (existingSession == null) {
+                if (session === activeSession) session = null
+                try {
+                    activeSession.release()
+                } catch (cleanupError: Exception) {
+                    if (cleanupError !== error) error.addSuppressed(cleanupError)
+                }
+            }
+            throw error
+        }
     }
 
     /** Replaces the Activity lifecycle observed by this controller. */
     fun attachHostLifecycle(lifecycle: Lifecycle) {
         if (hostLifecycle === lifecycle) {
-            syncHostState(lifecycle)
+            syncHostState()
             return
         }
-        hostLifecycle?.removeObserver(hostLifecycleObserver)
+        val previous = hostLifecycle
         hostLifecycle = lifecycle
+        previous?.removeObserver(hostLifecycleObserver)
+        if (hostLifecycle !== lifecycle) return
         lifecycle.addObserver(hostLifecycleObserver)
-        syncHostState(lifecycle)
+        syncHostState()
     }
 
     /** Stops observing the Activity lifecycle and pauses the retained scanner session. */
     fun detachHostLifecycle() {
-        hostLifecycle?.removeObserver(hostLifecycleObserver)
+        val detached = hostLifecycle
         hostLifecycle = null
-        updateHostResumed(false)
+        detached?.removeObserver(hostLifecycleObserver)
+        syncHostState()
     }
 
     /** Releases and forgets the current scanner session. */
@@ -106,22 +139,12 @@ internal class ScannerSessionController(
         activeSession?.release()
     }
 
-    /** Creates and owns the concrete Android scanner pipeline. */
-    private fun createSession(context: Context): ScannerSession = ScannerSessionImpl(
-        scanner = Scanner(
-            camera = XCamera(context),
-            analyzer = MlkitImageBarcodeAnalyzer(),
-        ),
-        mainHandler = mainHandler,
-        onScanResult = scanResultSink::emit,
-        onReleaseRequested = { session = null },
-    ).also { newSession ->
-        session = newSession
-        updateSessionActivity(newSession)
-    }
-
-    private fun syncHostState(lifecycle: Lifecycle) {
-        updateHostResumed(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    private fun syncHostState() {
+        // Observer callbacks may have replaced or detached the host during attachment changes.
+        val resumed = hostLifecycle
+            ?.currentState
+            ?.isAtLeast(Lifecycle.State.RESUMED) == true
+        updateHostResumed(resumed)
     }
 
     private fun updateHostResumed(resumed: Boolean) {

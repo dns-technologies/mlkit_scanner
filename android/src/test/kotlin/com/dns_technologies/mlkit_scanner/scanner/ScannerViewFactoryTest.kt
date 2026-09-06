@@ -29,12 +29,52 @@ internal class ScannerViewFactoryTest {
 
     @Test
     fun `create rejects a missing platform view context`() {
-        val factory = ScannerViewFactory { _, _, _ -> mock(ScannerView::class.java) }
+        var calls = 0
+        val factory = ScannerViewFactory { _, _, _ ->
+            calls++
+            mock(ScannerView::class.java)
+        }
 
         val error = assertThrows(IllegalArgumentException::class.java) {
             factory.create(null, 7, null)
         }
 
         assertEquals("Flutter did not provide a platform-view context", error.message)
+        assertEquals(0, calls)
+    }
+
+    @Test
+    fun `create passes null arguments without interpreting them`() {
+        val context = mock(Context::class.java)
+        val expected = mock(ScannerView::class.java)
+        val factory = ScannerViewFactory { actualContext, viewId, arguments ->
+            assertSame(context, actualContext)
+            assertEquals(9, viewId)
+            assertEquals(null, arguments)
+            expected
+        }
+
+        assertSame(expected, factory.create(context, 9, null))
+    }
+
+    @Test
+    fun `create delegates each call without caching by view id`() {
+        val context = mock(Context::class.java)
+        val first = mock(ScannerView::class.java)
+        val second = mock(ScannerView::class.java)
+        val views = ArrayDeque(listOf(first, second))
+        val factory = ScannerViewFactory { _, _, _ -> views.removeFirst() }
+
+        assertSame(first, factory.create(context, 7, null))
+        assertSame(second, factory.create(context, 7, null))
+    }
+
+    @Test
+    fun `creation failure is returned unchanged to the platform host`() {
+        val failure = IllegalStateException("Creation failed")
+        val factory = ScannerViewFactory { _, _, _ -> throw failure }
+
+        assertSame(failure,
+            runCatching { factory.create(mock(Context::class.java), 7, null) }.exceptionOrNull())
     }
 }
