@@ -4,7 +4,6 @@ import 'dart:collection';
 /// Runs commands in FIFO order and settles discarded calls immediately on cancellation.
 class CommandQueue {
   final _pending = Queue<_QueuedCommand>();
-  bool _isRun = false;
   bool _isClosed = false;
 
   bool get isClosed => _isClosed;
@@ -13,31 +12,25 @@ class CommandQueue {
     if (_isClosed) return;
     final command = _QueuedCommand(action, stopOnError);
     _pending.addLast(command);
-    unawaited(_run());
+    // The running command stays at the head until its action settles.
+    if (_pending.length == 1) unawaited(_run());
     return command.reply.future;
   }
 
   Future<void> _run() async {
-    if (_isRun) return;
-
-    _isRun = true;
-    try {
-      while (_pending.isNotEmpty) {
-        final command = _pending.first;
-        try {
-          await command.action();
-          if (!command.reply.isCompleted) command.reply.complete();
-        } catch (error, stack) {
-          if (!command.reply.isCompleted) {
-            command.reply.completeError(error, stack);
-          }
-          if (command.stopOnError) cancel();
-        } finally {
-          if (_pending.isNotEmpty) _pending.removeFirst();
+    while (_pending.isNotEmpty) {
+      final command = _pending.first;
+      try {
+        await command.action();
+        if (!command.reply.isCompleted) command.reply.complete();
+      } catch (error, stack) {
+        if (!command.reply.isCompleted) {
+          command.reply.completeError(error, stack);
         }
+        if (command.stopOnError) cancel();
+      } finally {
+        if (_pending.isNotEmpty) _pending.removeFirst();
       }
-    } finally {
-      _isRun = false;
     }
   }
 

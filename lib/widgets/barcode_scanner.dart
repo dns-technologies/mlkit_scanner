@@ -109,11 +109,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     WidgetsBinding.instance.removeObserver(this);
 
     _cancelSubscriptions();
-    final controller = _barcodeScannerController;
-    if (controller != null) {
-      unawaited(_runtime.release(controller));
-      controller.dispose();
-    }
+    _barcodeScannerController?.dispose();
     super.dispose();
   }
 

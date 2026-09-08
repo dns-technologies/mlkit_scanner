@@ -35,6 +35,15 @@ import org.mockito.Mockito.verifyNoMoreInteractions
 
 internal class ScannerPluginTransportTest {
     @Test
+    fun `pause method releases current camera work`() {
+        val fixture = Fixture()
+        fixture.plugin.onMethodCall(MethodCall("pauseCameraMethod", null), fixture.result)
+
+        verify(fixture.device).releaseCamera()
+        verify(fixture.result).success(true)
+    }
+
+    @Test
     fun `point controls dispatch without a view address`() {
         for ((method, arguments) in listOf(
             "startScan" to mapOf("type" to 0, "delay" to 100),
@@ -42,7 +51,7 @@ internal class ScannerPluginTransportTest {
             "setZoomRatio" to mapOf("value" to 2.0),
             "toggleFlash" to mapOf("value" to true),
             "setScanDelay" to mapOf("delay" to 200),
-            "setCropArea" to mapOf("cropRect" to emptyMap<String, Any>()),
+            "setCropAreaMethod" to mapOf("cropRect" to emptyMap<String, Any>()),
         )) {
             val fixture = Fixture()
             fixture.plugin.onMethodCall(MethodCall(method, arguments), fixture.result)

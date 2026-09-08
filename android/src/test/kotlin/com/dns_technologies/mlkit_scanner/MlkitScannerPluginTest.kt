@@ -18,12 +18,12 @@ import org.mockito.Mockito.*
 
 internal class MlkitScannerPluginTest {
     @Test
-    fun `release method delegates to the scanner without view arguments`() {
+    fun `pause method delegates to the scanner without view arguments`() {
         val scanner = mock(Scanner::class.java)
         val plugin = releasePlugin(scanner)
         val result = mock(MethodChannel.Result::class.java)
 
-        plugin.onMethodCall(MethodCall(PluginConstants.releaseCameraMethod, null), result)
+        plugin.onMethodCall(MethodCall(PluginConstants.pauseCameraMethod, null), result)
 
         verify(scanner).releaseCamera()
         verify(result).success(true)
@@ -32,11 +32,11 @@ internal class MlkitScannerPluginTest {
     }
 
     @Test
-    fun `release method succeeds repeatedly without an allocated scanner`() {
+    fun `pause method succeeds repeatedly without an allocated scanner`() {
         val plugin = releasePlugin(null)
         val result = mock(MethodChannel.Result::class.java)
 
-        repeat(2) { plugin.onMethodCall(MethodCall(PluginConstants.releaseCameraMethod, null), result) }
+        repeat(2) { plugin.onMethodCall(MethodCall(PluginConstants.pauseCameraMethod, null), result) }
 
         verify(result, times(2)).success(true)
         verifyNoMoreInteractions(result)
@@ -44,13 +44,13 @@ internal class MlkitScannerPluginTest {
     }
 
     @Test
-    fun `release method reports native cancellation failure`() {
+    fun `pause method reports native cancellation failure`() {
         val scanner = mock(Scanner::class.java)
         val plugin = releasePlugin(scanner)
         val result = mock(MethodChannel.Result::class.java)
         doAnswer { throw PluginError.CameraSessionDisposed }.`when`(scanner).releaseCamera()
 
-        plugin.onMethodCall(MethodCall(PluginConstants.releaseCameraMethod, null), result)
+        plugin.onMethodCall(MethodCall(PluginConstants.pauseCameraMethod, null), result)
 
         verify(result).error(PluginError.CameraSessionDisposed.errorCode, PluginError.CameraSessionDisposed.message, null)
         verifyNoMoreInteractions(result)
@@ -72,6 +72,22 @@ internal class MlkitScannerPluginTest {
         assertNotSame(firstScope, plugin.scope())
         assertTrue(plugin.scope().isActive)
         plugin.onDetachedFromEngine(engine)
+    }
+
+    @Test
+    fun `removed capture and release channel methods are not dispatched`() {
+        val scanner = mock(Scanner::class.java)
+        val plugin = releasePlugin(scanner)
+        val result = mock(MethodChannel.Result::class.java)
+
+        for (method in listOf("captureCamera", "releaseCamera")) {
+            plugin.onMethodCall(MethodCall(method, null), result)
+        }
+
+        verify(result, times(2)).notImplemented()
+        verifyNoMoreInteractions(result)
+        verifyNoInteractions(scanner)
+        plugin.dispose()
     }
 
     @Test

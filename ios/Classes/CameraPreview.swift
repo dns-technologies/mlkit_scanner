@@ -505,7 +505,7 @@ class CameraPreview: NSObject, CameraPreviewing {
             queue: nil
         ) { [weak self] _ in
             CameraPreview.sessionQueue.async {
-                self?.isStreaming = false
+                self?.finishPendingStreaming(error: MlKitPluginError.initCameraError)
             }
         }
         captureSessionObservers = [runtimeErrorObserver, interruptedObserver]

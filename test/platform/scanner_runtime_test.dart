@@ -27,7 +27,7 @@ void main() {
       await RuntimeHarness.flush();
       expect(h.calls, isEmpty);
       await h.runtime.capture(a);
-      expect(h.methods, ['releaseCamera', 'captureCamera']);
+      expect(h.methods, ['pauseCameraMethod', 'resumeCameraMethod']);
       expect(
           (h.calls.last.arguments as Map)['configuration'],
           allOf(
@@ -46,7 +46,7 @@ void main() {
       final torch = a.toggleFlash();
       await Future.wait([capture, zoom, torch]);
       await RuntimeHarness.flush();
-      expect(h.methods, ['captureCamera']);
+      expect(h.methods, ['resumeCameraMethod']);
       expect(
           (h.calls.single.arguments as Map)['configuration'],
           allOf(
@@ -61,7 +61,7 @@ void main() {
       await h.runtime.capture(a);
       await a.setZoomRatio(3);
       await RuntimeHarness.flush();
-      expect(h.methods, ['captureCamera', 'setZoomRatio']);
+      expect(h.methods, ['resumeCameraMethod', 'setZoomRatio']);
       expect(h.calls.last.arguments, {'value': 3.0});
       expect(h.calls.last.arguments, isNot(contains('viewId')));
     });
@@ -83,28 +83,28 @@ void main() {
       await a.setZoomRatio(4);
       await a.setZoomRatio(4);
       await RuntimeHarness.flush();
-      expect(h.methods, ['captureCamera', 'setZoomRatio']);
+      expect(h.methods, ['resumeCameraMethod', 'setZoomRatio']);
       ack.complete();
       await RuntimeHarness.flush();
-      expect(h.methods, ['captureCamera', 'setZoomRatio', 'setZoomRatio']);
+      expect(h.methods, ['resumeCameraMethod', 'setZoomRatio', 'setZoomRatio']);
       expect(h.calls.last.arguments, {'value': 4.0});
     });
 
     test('changes during capture wait for its acknowledgement', () async {
       final ack = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'captureCamera') await ack.future;
+        if (call.method == 'resumeCameraMethod') await ack.future;
         return null;
       };
       final a = h.controller(1);
       final capture = h.runtime.capture(a);
       await RuntimeHarness.flush();
       await a.toggleFlash();
-      expect(h.methods, ['captureCamera']);
+      expect(h.methods, ['resumeCameraMethod']);
       ack.complete();
       await capture;
       await RuntimeHarness.flush();
-      expect(h.methods, ['captureCamera', 'toggleFlash']);
+      expect(h.methods, ['resumeCameraMethod', 'toggleFlash']);
       expect(h.calls.last.arguments, {'value': true});
     });
 
@@ -118,7 +118,7 @@ void main() {
       final releaseAck = Completer<void>();
       h.handler = (call) async {
         if (call.method == 'setZoomRatio') await oldAck.future;
-        if (call.method == 'releaseCamera') await releaseAck.future;
+        if (call.method == 'pauseCameraMethod') await releaseAck.future;
         return null;
       };
       await a.setZoomRatio(3);
@@ -126,13 +126,13 @@ void main() {
       await a.toggleFlash();
       final capture = h.runtime.capture(b);
       await RuntimeHarness.flush();
-      expect(h.methods, ['captureCamera', 'setZoomRatio', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'setZoomRatio', 'pauseCameraMethod']);
       releaseAck.complete();
       await capture;
       oldAck.completeError(PlatformException(code: 'late-error'));
       await RuntimeHarness.flush();
       expect(h.methods,
-          ['captureCamera', 'setZoomRatio', 'releaseCamera', 'captureCamera']);
+          ['resumeCameraMethod', 'setZoomRatio', 'pauseCameraMethod', 'resumeCameraMethod']);
       expect(h.runtime.isCurrent(b), isTrue);
       expect(h.errors, isEmpty);
     });
@@ -145,7 +145,7 @@ void main() {
       await h.runtime.capture(a);
       final ack = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'releaseCamera') await ack.future;
+        if (call.method == 'pauseCameraMethod') await ack.future;
         return null;
       };
       final skipped = h.runtime.capture(b);
@@ -153,11 +153,11 @@ void main() {
       final last = h.runtime.capture(a);
       await a.setZoomRatio(3);
       await skipped;
-      expect(h.methods, ['captureCamera', 'releaseCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod']);
       ack.complete();
       await last;
       expect(h.methods,
-          ['captureCamera', 'releaseCamera', 'releaseCamera', 'captureCamera']);
+          ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
       expect((h.calls.last.arguments as Map)['configuration'],
           containsPair('zoomRatio', 3.0));
     });
@@ -182,7 +182,7 @@ void main() {
       await a.setZoomRatio(3);
       await RuntimeHarness.flush();
       expect(h.methods,
-          ['captureCamera', 'setZoomRatio', 'releaseCamera', 'captureCamera']);
+          ['resumeCameraMethod', 'setZoomRatio', 'pauseCameraMethod', 'resumeCameraMethod']);
     });
 
     test(
@@ -197,7 +197,7 @@ void main() {
       await a.setDelay(250);
       await RuntimeHarness.flush();
       expect(h.methods,
-          ['setZoomRatio', 'toggleFlash', 'setCropArea', 'setScanDelay']);
+          ['setZoomRatio', 'toggleFlash', 'setCropAreaMethod', 'setScanDelay']);
       expect(h.calls.map((c) => c.arguments), [
         {'value': 3.0},
         {'value': true},
@@ -217,7 +217,7 @@ void main() {
       final a = h.controller(1);
       await h.runtime.capture(a);
       h.handler = (call) async {
-        if (call.method == 'setZoomRatio' || call.method == 'captureCamera') {
+        if (call.method == 'setZoomRatio' || call.method == 'resumeCameraMethod') {
           throw PlatformException(code: '${call.method}-failed');
         }
         return null;
@@ -227,13 +227,13 @@ void main() {
       await a.toggleFlash();
       await RuntimeHarness.flush();
       expect(h.errors.map((e) => (e.exception as PlatformException).code),
-          ['setZoomRatio-failed', 'captureCamera-failed']);
+          ['setZoomRatio-failed', 'resumeCameraMethod-failed']);
       expect(h.methods,
-          ['captureCamera', 'setZoomRatio', 'releaseCamera', 'captureCamera']);
+          ['resumeCameraMethod', 'setZoomRatio', 'pauseCameraMethod', 'resumeCameraMethod']);
       h.handler = null;
       await a.setDelay(100);
       await RuntimeHarness.flush();
-      expect(h.calls.last.method, 'captureCamera');
+      expect(h.calls.last.method, 'resumeCameraMethod');
       expect(
           (h.calls.last.arguments as Map)['configuration'],
           allOf(
@@ -249,7 +249,7 @@ void main() {
       final b = h.controller(2);
       final oldCapture = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'captureCamera' &&
+        if (call.method == 'resumeCameraMethod' &&
             (call.arguments as Map)['viewId'] == 1) {
           await oldCapture.future;
         }
@@ -313,7 +313,7 @@ void main() {
       h.handler = null;
       await a.setZoomRatio(1);
       await RuntimeHarness.flush();
-      expect(h.methods, ['releaseCamera', 'captureCamera']);
+      expect(h.methods, ['pauseCameraMethod', 'resumeCameraMethod']);
       expect(
           (h.calls.last.arguments as Map)['configuration'],
           allOf(
@@ -337,7 +337,7 @@ void main() {
       await a.setZoomRatio(3);
       await a.toggleFlash();
       await RuntimeHarness.flush();
-      expect(h.methods, ['setZoomRatio', 'releaseCamera', 'captureCamera']);
+      expect(h.methods, ['setZoomRatio', 'pauseCameraMethod', 'resumeCameraMethod']);
       expect(
           (h.calls.last.arguments as Map)['configuration'],
           allOf(
@@ -370,7 +370,7 @@ void main() {
           position: IosCameraPosition.front,
           type: IosCameraType.builtInWideAngleCamera);
       await RuntimeHarness.flush();
-      expect(h.methods, ['releaseCamera', 'captureCamera']);
+      expect(h.methods, ['pauseCameraMethod', 'resumeCameraMethod']);
       expect(
           (h.calls.last.arguments as Map)['configuration'],
           allOf(
@@ -397,7 +397,7 @@ void main() {
       await h.runtime.capture(a);
       final releaseAck = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'releaseCamera') await releaseAck.future;
+        if (call.method == 'pauseCameraMethod') await releaseAck.future;
         return null;
       };
       await a.setIosCamera(
@@ -409,7 +409,7 @@ void main() {
       await next;
       await RuntimeHarness.flush();
       expect(h.methods,
-          ['captureCamera', 'releaseCamera', 'releaseCamera', 'captureCamera']);
+          ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
       expect(h.calls.last.arguments, containsPair('viewId', 2));
     });
 
@@ -419,7 +419,7 @@ void main() {
       final b = h.controller(2);
       await h.runtime.capture(a);
       h.handler = (call) async {
-        if (call.method == 'releaseCamera') {
+        if (call.method == 'pauseCameraMethod') {
           throw PlatformException(code: 'release-failed');
         }
         return null;
@@ -428,17 +428,17 @@ void main() {
           h.runtime.capture(b), throwsA(isA<PlatformException>()));
       await b.setZoomRatio(3);
       await RuntimeHarness.flush();
-      expect(h.methods, ['captureCamera', 'releaseCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod']);
       expect(h.errors, hasLength(1));
       h.handler = null;
       await h.runtime.capture(b);
       await RuntimeHarness.flush();
       expect(h.methods, [
-        'captureCamera',
-        'releaseCamera',
-        'releaseCamera',
-        'releaseCamera',
-        'captureCamera'
+        'resumeCameraMethod',
+        'pauseCameraMethod',
+        'pauseCameraMethod',
+        'pauseCameraMethod',
+        'resumeCameraMethod'
       ]);
     });
 
@@ -447,7 +447,7 @@ void main() {
         () async {
       final a = h.controller(1);
       h.handler = (call) async {
-        if (call.method == 'captureCamera') {
+        if (call.method == 'resumeCameraMethod') {
           throw PlatformException(code: 'capture-failed');
         }
         return null;
@@ -457,7 +457,7 @@ void main() {
       h.handler = null;
       await a.setZoomRatio(3);
       await RuntimeHarness.flush();
-      expect(h.methods, ['captureCamera', 'releaseCamera', 'captureCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
       h.calls.clear();
       await a.setZoomRatio(3);
       await RuntimeHarness.flush();
@@ -474,7 +474,7 @@ void main() {
     tearDown(() => h.dispose());
 
     test(
-        'native events go only to the selected controller without Dart address filtering',
+        'native events go only to their selected source controller across A B A',
         () async {
       final a = h.controller(1, scanning: true);
       final b = h.controller(2, scanning: true);
@@ -492,9 +492,9 @@ void main() {
       await h.event(2, 'b');
       await h.runtime.capture(a);
       await h.event(1, 'new-a');
-      expect(resultsA, ['foreign', 'a', 'new-a']);
-      expect(resultsB, ['old', 'b']);
-      expect(torchA, [true, true, true]);
+      expect(resultsA, ['a', 'new-a']);
+      expect(resultsB, ['b']);
+      expect(torchA, [true, true]);
     });
 
     test(
@@ -502,7 +502,7 @@ void main() {
         () async {
       final ready = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'captureCamera') await ready.future;
+        if (call.method == 'resumeCameraMethod') await ready.future;
         return null;
       };
       final a = h.controller(1, scanning: true);
@@ -522,7 +522,7 @@ void main() {
       expect(torch, [true, true]);
     });
 
-    test('scan cancellation is queued behind zoom without a Dart event gate',
+    test('scan cancellation suppresses results while native zoom is pending',
         () async {
       final a = h.controller(1, scanning: true);
       final scans = <String?>[];
@@ -541,13 +541,13 @@ void main() {
       final cancel = a.cancelScan();
       await h.event(1, 'cancelled');
       expect(h.methods.where((m) => m == 'setZoomRatio'), hasLength(1));
-      expect(scans, ['cancelled']);
+      expect(scans, isEmpty);
       zoomReady.complete();
       await Future.wait([zoom, cancel]);
       await a.startScan(0);
       await RuntimeHarness.flush();
       await h.event(1, 'current-run');
-      expect(scans, ['cancelled', 'current-run']);
+      expect(scans, ['current-run']);
       expect(h.calls.last.arguments, isNot(contains('viewId')));
       expect(h.calls.last.method, 'startScan');
     });
@@ -574,7 +574,7 @@ void main() {
       await RuntimeHarness.flush();
     });
 
-    test('cancel then restart stay ordered while native owns scan delivery',
+    test('cancel then restart reject old results until native restart is sent',
         () async {
       final a = h.controller(1, scanning: true);
       final scans = <String?>[];
@@ -590,13 +590,13 @@ void main() {
       await a.cancelScan();
       await a.startScan(0);
       await h.event(1, 'old-run');
-      expect(scans, ['old-run']);
+      expect(scans, isEmpty);
       zoomAck.complete();
       await RuntimeHarness.flush();
       expect(h.methods,
-          ['captureCamera', 'setZoomRatio', 'cancelScan', 'startScan']);
+          ['resumeCameraMethod', 'setZoomRatio', 'cancelScan', 'startScan']);
       await h.event(1, 'new-run');
-      expect(scans, ['old-run', 'new-run']);
+      expect(scans, ['new-run']);
     });
 
     test('late failed point control cannot remove the new active session',
@@ -636,7 +636,7 @@ void main() {
       expect(scans, ['still-running']);
     });
 
-    test('runtime trusts native events even when desired scanning is disabled',
+    test('disabled recognition drops scans but still forwards torch events',
         () async {
       final a = h.controller(1);
       final scans = <String?>[];
@@ -645,7 +645,7 @@ void main() {
       addTearDown(a.torchToggleStream.listen(torch.add).cancel);
       await h.runtime.capture(a);
       await h.event(1, 'disabled');
-      expect(scans, ['disabled']);
+      expect(scans, isEmpty);
       expect(torch, [true]);
     });
 
@@ -657,7 +657,7 @@ void main() {
       addTearDown(a.torchToggleStream.listen(torch.add).cancel);
       await h.runtime.capture(a);
       h.handler = (call) async {
-        if (call.method == 'releaseCamera') {
+        if (call.method == 'pauseCameraMethod') {
           throw PlatformException(code: 'release-failed');
         }
         return null;
@@ -677,7 +677,7 @@ void main() {
       final newReply = Completer<void>();
       var count = 0;
       h.handler = (call) async {
-        if (call.method == 'captureCamera') {
+        if (call.method == 'resumeCameraMethod') {
           await (++count == 1 ? oldReply.future : newReply.future);
         }
         return null;
@@ -724,11 +724,16 @@ void main() {
       addTearDown(a.torchToggleStream.listen(torch.add).cancel);
       await h.runtime.capture(a);
       final ack = Completer<void>();
+      final started = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'startScan') await ack.future;
+        if (call.method == 'startScan') {
+          started.complete();
+          await ack.future;
+        }
         return null;
       };
       final start = a.startScan(0);
+      await started.future;
       await h.event(17, 'not-ready');
       expect(scans, ['not-ready']);
       expect(torch, [true]);
@@ -756,17 +761,17 @@ void main() {
       };
       await a.cancelScan();
       await h.event(1, 'cancelled');
-      expect(scans, ['cancelled']);
+      expect(scans, isEmpty);
       await a.toggleFlash();
       await RuntimeHarness.flush();
       expect(h.errors, hasLength(1));
       expect(h.methods.where((m) => m == 'cancelScan'), hasLength(1));
       expect(h.methods,
-          ['captureCamera', 'cancelScan', 'releaseCamera', 'captureCamera']);
+          ['resumeCameraMethod', 'cancelScan', 'pauseCameraMethod', 'resumeCameraMethod']);
       expect((h.calls.last.arguments as Map)['configuration'],
           containsPair('scanEnabled', false));
       await h.event(1, 'still-cancelled');
-      expect(scans, ['cancelled', 'still-cancelled']);
+      expect(scans, isEmpty);
     });
   });
 
@@ -801,14 +806,14 @@ void main() {
           2); // Registered background views do not keep the camera alive.
       await h.runtime.capture(a);
       await h.runtime.release(a);
-      expect(h.methods, ['captureCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
       await tester.pump(const Duration(milliseconds: 299));
-      expect(h.methods, ['captureCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
       await tester.pump(const Duration(milliseconds: 1));
-      expect(h.methods, ['captureCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
       expect(h.calls.last.arguments, isNull);
       await tester.pump(const Duration(seconds: 1));
-      expect(h.methods, ['captureCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     });
 
     runtimeTest(
@@ -822,7 +827,7 @@ void main() {
       await b.setZoomRatio(4);
       await h.runtime.capture(b);
       await tester.pump(const Duration(seconds: 1));
-      expect(h.methods, ['captureCamera', 'releaseCamera', 'captureCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
       expect((h.calls.last.arguments as Map)['configuration'],
           containsPair('zoomRatio', 4.0));
       expect(h.runtime.isCurrent(b), isTrue);
@@ -840,7 +845,7 @@ void main() {
       await h.runtime.unregister(b);
       await h.runtime.release(a);
       await tester.pump(const Duration(milliseconds: 100));
-      expect(h.methods, ['captureCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     });
 
     runtimeTest(
@@ -855,9 +860,9 @@ void main() {
       await a.toggleFlash();
       await h.runtime.release(a);
       await tester.pump(const Duration(milliseconds: 100));
-      expect(h.methods, ['captureCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
       await h.runtime.capture(a);
-      expect(h.calls.last.method, 'captureCamera');
+      expect(h.calls.last.method, 'resumeCameraMethod');
       expect(
           (h.calls.last.arguments as Map)['configuration'],
           allOf(
@@ -875,39 +880,39 @@ void main() {
       await h.runtime.capture(a);
       final ack = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'releaseCamera') await ack.future;
+        if (call.method == 'pauseCameraMethod') await ack.future;
         return null;
       };
       final release = h.runtime.release(a);
       await tester.pump(const Duration(milliseconds: 300));
-      expect(h.methods, ['captureCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
       ack.complete();
       await release;
       await tester.pump();
-      expect(h.methods, ['captureCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     });
 
     runtimeTest(
-        'capture after explicit release does not retain its acknowledgement',
+        'capture after a navigation gap waits for the release acknowledgement',
         (h, tester) async {
       final a = h.controller(1);
       final b = h.controller(2);
       await h.runtime.capture(a);
       final ack = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'releaseCamera') await ack.future;
+        if (call.method == 'pauseCameraMethod') await ack.future;
         return null;
       };
       final release = h.runtime.release(a);
       await tester.pump(const Duration(milliseconds: 300));
       final capture = h.runtime.capture(b);
       await tester.pump();
-      expect(h.methods, ['captureCamera', 'releaseCamera', 'captureCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
       expect(h.runtime.isCurrent(b), isTrue);
       ack.complete();
       await Future.wait([release, capture]);
       await tester.pump(const Duration(seconds: 1));
-      expect(h.methods, ['captureCamera', 'releaseCamera', 'captureCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
     });
 
     runtimeTest(
@@ -916,7 +921,7 @@ void main() {
       final a = h.controller(1);
       await h.runtime.capture(a);
       h.handler = (call) async {
-        if (call.method == 'releaseCamera') {
+        if (call.method == 'pauseCameraMethod') {
           throw PlatformException(code: 'release-failed');
         }
         return null;
@@ -924,7 +929,7 @@ void main() {
       await expectLater(
           h.runtime.release(a), throwsA(isA<PlatformException>()));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(h.methods, ['captureCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     });
 
     runtimeTest('unregister detaches listener and prevents future captures',
@@ -939,7 +944,7 @@ void main() {
       await a.setZoomRatio(5);
       await h.runtime.capture(a);
       await tester.pump(const Duration(milliseconds: 300));
-      expect(h.methods, ['captureCamera', 'toggleFlash', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'toggleFlash', 'pauseCameraMethod']);
       expect(h.runtime.isCurrent(a), isFalse);
       expect(a.configuration.zoomRatio, 5);
       h.runtime.register(a);
@@ -973,7 +978,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       await a.toggleFlash();
       await h.runtime.capture(a);
-      expect(h.methods, ['captureCamera', 'releaseCamera']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     });
 
     runtimeTest('disposing a replaced controller cannot release the new owner',

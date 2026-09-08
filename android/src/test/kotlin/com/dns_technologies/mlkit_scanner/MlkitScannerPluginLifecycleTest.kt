@@ -287,7 +287,7 @@ internal class MlkitScannerPluginLifecycleTest {
         plugin.dispose()
     }
 
-    private fun captureCall() = io.flutter.plugin.common.MethodCall("captureCamera", mapOf(
+    private fun captureCall() = io.flutter.plugin.common.MethodCall("resumeCameraMethod", mapOf(
         "viewId" to VIEW_ID,
         "configuration" to mapOf("zoomRatio" to 1.0, "torchEnabled" to false,
             "cropRect" to null, "scanEnabled" to false, "scanDelay" to 0),

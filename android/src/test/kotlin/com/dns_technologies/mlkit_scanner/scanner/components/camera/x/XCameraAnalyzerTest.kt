@@ -105,7 +105,8 @@ internal class XCameraAnalyzerTest {
         f.onFrame = { count++ }
         f.start()
         val oldAnalyzer = f.analyzer()
-        f.rotate()
+        f.camera.unbind()
+        f.start()
         oldAnalyzer.analyze(stale)
         f.analyzer().analyze(fresh)
 

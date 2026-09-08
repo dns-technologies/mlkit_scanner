@@ -126,14 +126,13 @@ internal class XCameraControlCompletionTest {
 
             val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
             assertSame(cause, error.cause)
-            assertTrue(error.requiresReopen)
-            assertTrue(error.contextualize(CameraControlOperation.ZOOM, 42).requiresReopen)
+            assertSame(cause, error.contextualize(CameraControlOperation.ZOOM, 42).cause)
             assertEquals(setOf("operation", "viewId", "cause", "cameraStateErrorCode"), (error.details as Map<*, *>).keys)
         }
     }
 
     @Test
-    fun `cyclic native failure is inspected once and does not request a reopen`() {
+    fun `cyclic native failure preserves its original cause`() {
         val future = CameraTestFuture<Void?>()
         withResetFocus(future) { result ->
             val first = IllegalStateException("First")
@@ -143,7 +142,6 @@ internal class XCameraControlCompletionTest {
 
             val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
             assertSame(first, error.cause)
-            assertFalse(error.requiresReopen)
         }
     }
 

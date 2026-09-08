@@ -6,6 +6,7 @@ import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
@@ -15,10 +16,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 internal class CameraConnection {
     private var binding: CompletableDeferred<Unit>? = null
     private var ready = CompletableDeferred<Unit>()
-    private var available = false
     private var disposed = false
 
-    val isReady: Boolean get() = available && !disposed
+    val isReady: Boolean get() = ready.isCompleted && !ready.isCancelled && !disposed
 
     /** The next capture must await a fresh binding after the old Activity is detached. */
     fun reset() {
@@ -27,7 +27,6 @@ internal class CameraConnection {
         binding = null
         ready.cancel()
         ready = CompletableDeferred()
-        available = false
     }
 
     /** Binding acknowledgment and OPEN can arrive in either order. */
@@ -36,14 +35,12 @@ internal class CameraConnection {
             binding = it
             bind { it.complete(Unit) }
         }
-        started.await()
-        ready.await()
+        awaitAll(started, ready)
     }
 
     fun onAvailabilityChanged(availability: CameraAvailability, viewId: Int?) {
         if (disposed) return
-        available = availability == CameraAvailability.Open
-        if (available) {
+        if (availability == CameraAvailability.Open) {
             if (ready.isCancelled) ready = CompletableDeferred()
             ready.complete(Unit)
         } else {

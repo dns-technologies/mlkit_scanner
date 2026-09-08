@@ -41,7 +41,7 @@ internal class MlkitScannerPluginCaptureTest {
         val result = mock(MethodChannel.Result::class.java)
 
         plugin(scannerDevice, permissionGateway).onMethodCall(
-            MethodCall("captureCamera", emptyMap<String, Any>()),
+            MethodCall("resumeCameraMethod", emptyMap<String, Any>()),
             result,
         )
 
@@ -62,7 +62,7 @@ internal class MlkitScannerPluginCaptureTest {
         val result = mock(MethodChannel.Result::class.java)
 
         plugin(scannerDevice, permissionGateway).onMethodCall(
-            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
+            MethodCall("resumeCameraMethod", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
             result,
         )
 
@@ -80,7 +80,7 @@ internal class MlkitScannerPluginCaptureTest {
             permissionGateway = permissionGateway,
             commandScope = CoroutineScope(Dispatchers.Unconfined),
         ).onMethodCall(
-            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
+            MethodCall("resumeCameraMethod", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
             result,
         )
 
@@ -97,7 +97,7 @@ internal class MlkitScannerPluginCaptureTest {
         val result = mock(MethodChannel.Result::class.java)
 
         plugin(scannerDevice, permissionGateway).onMethodCall(
-            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
+            MethodCall("resumeCameraMethod", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
             result,
         )
 
@@ -119,7 +119,7 @@ internal class MlkitScannerPluginCaptureTest {
         val details = ArgumentCaptor.forClass(Map::class.java)
 
         plugin(scannerDevice, grantedPermissionGateway()).onMethodCall(
-            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
+            MethodCall("resumeCameraMethod", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
             result,
         )
 
@@ -141,7 +141,7 @@ internal class MlkitScannerPluginCaptureTest {
         val result = mock(MethodChannel.Result::class.java)
 
         plugin(scannerDevice, grantedPermissionGateway()).onMethodCall(
-            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
+            MethodCall("resumeCameraMethod", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
             result,
         )
 
@@ -165,7 +165,7 @@ internal class MlkitScannerPluginCaptureTest {
         val result = mock(MethodChannel.Result::class.java)
 
         plugin(scannerDevice, grantedPermissionGateway()).onMethodCall(
-            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
+            MethodCall("resumeCameraMethod", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
             result,
         )
 
@@ -180,7 +180,7 @@ internal class MlkitScannerPluginCaptureTest {
         val result = mock(MethodChannel.Result::class.java)
 
         plugin(scannerDevice, grantedPermissionGateway()).onMethodCall(
-            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
+            MethodCall("resumeCameraMethod", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
             result,
         )
 
@@ -200,7 +200,7 @@ internal class MlkitScannerPluginCaptureTest {
         val failure = IllegalStateException("CameraX failed after suspension")
 
         plugin(scannerDevice, grantedPermissionGateway()).onMethodCall(
-            MethodCall("captureCamera", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
+            MethodCall("resumeCameraMethod", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)),
             result,
         )
 
@@ -231,7 +231,7 @@ internal class MlkitScannerPluginCaptureTest {
                 scannerDevice = scannerDevice,
                 permissionGateway = grantedPermissionGateway(),
                 commandScope = commandScope,
-            ).onMethodCall(MethodCall("captureCamera", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)), result)
+            ).onMethodCall(MethodCall("resumeCameraMethod", mapOf("viewId" to VIEW_ID, "configuration" to CONFIGURATION)), result)
             val commandJob = requireNotNull(commandScope.coroutineContext[Job]).children.single()
 
             completion.cancel(CancellationException("capture cancelled"))

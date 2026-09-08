@@ -86,124 +86,74 @@ internal class XCameraBindingTest {
     }
 
     @Test
-    fun `size-only layout changes do not rebind`() = withCameraFixture { f ->
+    fun `layout updates shared viewport without replacing or unbinding use cases`() = withCameraFixture { f ->
         f.start()
+        val original = f.groups.single()
         doReturn(XCameraFixture.viewPort(aspect = Rational(2, 1))).`when`(f.preview).viewPort
         f.layout(200, 100)
+        f.layout(200, 100)
 
-        assertEquals(1, f.groups.size)
+        assertEquals(2, f.groups.size)
+        assertEquals(Rational(2, 1), f.groups.last().viewPort?.aspectRatio)
+        assertEquals(original.useCases, f.groups.last().useCases)
         assertEquals(listOf(CameraAvailability.Open), f.availability)
-        assertTrue(f.camera.isBound())
+        verify(f.provider, never()).unbind(*original.useCases.toTypedArray())
     }
 
     @Test
-    fun `rotation replaces only owned use cases without repeating initialization`() = withCameraFixture { f ->
+    fun `rotation keeps camera controls analyzer and availability on the same use cases`() = withCameraFixture { f ->
         f.start()
         val original = f.groups.single()
+        val analyzer = f.analyzer()
         f.rotate()
 
         assertTrue(f.camera.isBound())
         assertEquals(1, f.initialized)
         assertEquals(Surface.ROTATION_90, f.groups.last().viewPort?.rotation)
-        assertEquals(listOf(CameraAvailability.Open, CameraAvailability.Closed(), CameraAvailability.Open), f.availability)
-        verify(f.provider).unbind(*original.useCases.toTypedArray())
+        assertEquals(original.useCases, f.groups.last().useCases)
+        assertEquals(Surface.ROTATION_90,
+            original.useCases.filterIsInstance<ImageAnalysis>().single().targetRotation)
+        assertSame(analyzer, f.analyzer())
+        assertEquals(listOf(CameraAvailability.Open), f.availability)
+        verify(f.provider, never()).unbind(*original.useCases.toTypedArray())
         verify(f.provider, never()).unbindAll()
     }
 
     @Test
-    fun `failed rotation restores previous geometry with fresh use cases`() = withCameraFixture { f ->
+    fun `viewport failure reports original cause and releases owned resources without rollback`() = withCameraFixture { f ->
         f.start()
         val original = f.groups.single()
-        var attempts = 0
-        f.bindAction = {
-            if (attempts++ == 0) error("New rotation unsupported")
-            f.nativeCamera
-        }
-        f.rotate()
-
-        assertTrue(f.camera.isBound())
-        assertEquals(1, f.initialized)
-        assertTrue(f.errors.isEmpty())
-        assertEquals(3, f.groups.size)
-        assertEquals(original.viewPort, f.groups.last().viewPort)
-        assertTrue(f.groups.last().useCases.none { it in original.useCases })
-        verify(f.provider).unbind(*f.groups[1].useCases.toTypedArray())
-    }
-
-    @Test
-    fun `failed rotation and restoration report terminal failure with both causes`() = withCameraFixture { f ->
-        f.start()
-        val updateFailure = IllegalArgumentException("Cannot bind new rotation")
-        val restoreFailure = IllegalStateException("Cannot restore camera")
-        var attempts = 0
-        f.bindAction = { throw if (attempts++ == 0) updateFailure else restoreFailure }
-        f.rotate()
-
-        assertFalse(f.camera.isBound())
-        assertEquals(listOf(restoreFailure), f.errors)
-        assertTrue(updateFailure in restoreFailure.suppressed)
-        assertFalse(f.deviceState.hasObservers())
-        assertFalse(f.streamState.hasObservers())
-        f.groups.forEach { verify(f.provider).unbind(*it.useCases.toTypedArray()) }
-    }
-
-    @Test
-    fun `repeated exception instance during restore is not self-suppressed`() = withCameraFixture { f ->
-        f.start()
-        val failure = IllegalStateException("Camera unavailable")
+        val failure = IllegalArgumentException("Cannot update viewport")
         f.bindAction = { throw failure }
         f.rotate()
 
         assertFalse(f.camera.isBound())
         assertEquals(listOf(failure), f.errors)
+        assertEquals(2, f.groups.size)
+        assertFalse(f.deviceState.hasObservers())
+        assertFalse(f.streamState.hasObservers())
+        verify(f.provider).unbind(*original.useCases.toTypedArray())
     }
 
     @Test
-    fun `failed unbind during rotation does not create another binding`() = withCameraFixture { f ->
-        f.start()
-        doThrow(IllegalStateException("Unbind failed")).`when`(f.provider)
-            .unbind(*f.groups.single().useCases.toTypedArray())
-        f.rotate()
-
-        assertTrue(f.camera.isBound())
-        assertEquals(1, f.groups.size)
-        assertEquals(1, f.initialized)
-        assertTrue(f.deviceState.hasObservers())
-        assertTrue(f.streamState.hasObservers())
-        assertTrue(f.errors.isEmpty())
-    }
-
-    @Test
-    fun `disposal from rotation closed callback prevents replacement`() = withCameraFixture { f ->
-        f.start()
-        f.onAvailability = { if (it is CameraAvailability.Closed) f.camera.dispose() }
-        f.rotate()
-
-        assertEquals(1, f.groups.size)
-        assertFalse(f.camera.isBound())
-        assertSame(PluginError.CameraSessionDisposed, runCatching { f.start() }.exceptionOrNull())
-    }
-
-    @Test
-    fun `dispose during provider replacement cannot revive camera or leak returned use cases`() = withCameraFixture { f ->
+    fun `dispose during viewport update cannot revive camera or leak use cases`() = withCameraFixture { f ->
         f.start()
         f.bindAction = { f.camera.dispose(); f.nativeCamera }
-
         f.rotate()
 
         assertFalse(f.camera.isBound())
         assertFalse(f.deviceState.hasObservers())
         assertFalse(f.streamState.hasObservers())
         assertEquals(2, f.groups.size)
-        verify(f.provider).unbind(*f.groups.last().useCases.toTypedArray())
+        // Disposal unbinds once; the returning SDK call is also cleaned up.
+        verify(f.provider, org.mockito.Mockito.times(2)).unbind(*f.groups.last().useCases.toTypedArray())
         assertSame(PluginError.CameraSessionDisposed, runCatching { f.start() }.exceptionOrNull())
     }
 
     @Test
-    fun `dispose during failed replacement does not start rollback`() = withCameraFixture { f ->
+    fun `dispose during failed viewport update does not retry or report stale error`() = withCameraFixture { f ->
         f.start()
-        f.bindAction = { f.camera.dispose(); error("Replacement stopped") }
-
+        f.bindAction = { f.camera.dispose(); error("Update stopped") }
         f.rotate()
 
         assertEquals(2, f.groups.size)
@@ -215,7 +165,6 @@ internal class XCameraBindingTest {
     @Test
     fun `dispose during provider initial bind releases the returned use cases`() = withCameraFixture { f ->
         f.bindAction = { f.camera.dispose(); f.nativeCamera }
-
         f.start()
 
         assertFalse(f.camera.isBound())
@@ -224,30 +173,15 @@ internal class XCameraBindingTest {
     }
 
     @Test
-    fun `reentrant layout during rotation does not repeat startup`() = withCameraFixture { f ->
+    fun `reentrant layout during initial binding or viewport update does not bind twice`() = withCameraFixture { f ->
+        f.bindAction = { f.layout(); f.nativeCamera }
         f.start()
-        f.onAvailability = { if (it is CameraAvailability.Closed) f.layout() }
+        assertEquals(1, f.groups.size)
         f.rotate()
 
         assertTrue(f.camera.isBound())
         assertEquals(2, f.groups.size)
         assertEquals(1, f.initialized)
-    }
-
-    @Test
-    fun `throwing closed callback during rotation reports failure instead of leaving pending state`() = withCameraFixture { f ->
-        f.start()
-        val failure = IllegalStateException("Closed callback failed")
-        f.onAvailability = { if (it is CameraAvailability.Closed) throw failure }
-        f.rotate()
-
-        assertFalse(f.camera.isBound())
-        assertEquals(listOf(failure), f.errors)
-        assertFalse(f.deviceState.hasObservers())
-        assertFalse(f.streamState.hasObservers())
-        f.onAvailability = {}
-        f.start()
-        assertTrue(f.camera.isBound())
     }
 
     @Test
@@ -290,6 +224,16 @@ internal class XCameraBindingTest {
         assertEquals(0, f.initialized)
         assertFalse(f.deviceState.hasObservers())
         assertFalse(f.streamState.hasObservers())
+    }
+
+    @Test
+    fun `stream configuration error is reported even while device and preview remain open`() = withCameraFixture { f ->
+        f.start()
+        val cause = IllegalStateException("Stream configuration failed")
+        val error = CameraState.StateError.create(CameraState.ERROR_STREAM_CONFIG, cause)
+        f.deviceState.value = CameraState.create(CameraState.Type.OPEN, error)
+
+        assertEquals(CameraAvailability.Closed(error.code, cause), f.availability.last())
     }
 
     @Test
@@ -340,7 +284,8 @@ internal class XCameraBindingTest {
     fun `old observer cannot change replacement binding when CameraX reuses camera`() = withCameraFixture { f ->
         f.start()
         val oldObserver = f.deviceState.observers.single()
-        f.rotate()
+        f.camera.unbind()
+        f.start()
         assertEquals(2, f.groups.size)
         val before = f.availability.toList()
 

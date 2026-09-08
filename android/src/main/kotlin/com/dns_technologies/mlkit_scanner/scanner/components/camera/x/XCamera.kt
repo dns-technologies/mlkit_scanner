@@ -12,7 +12,6 @@ import androidx.annotation.MainThread
 import androidx.camera.core.Camera as AndroidXCamera
 import androidx.camera.core.CameraState as AndroidXCameraState
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.CameraControl
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -40,8 +39,6 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
-import java.util.Collections
-import java.util.IdentityHashMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 
@@ -211,28 +208,56 @@ class XCamera internal constructor(
         val viewPort = cameraPreviewView.viewPort ?: return
         when (val current = bindingState) {
             is PendingStart -> {
+                if (current.binding) return
+                current.binding = true
                 val bound = try {
                     bindCamera(provider, current, viewPort)
                 } catch (error: Exception) {
                     failBinding(current, current.onError, error)
                     return
                 }
-                if (bindingState === current) activate(bound, notifyInitialized = true)
+                if (bindingState === current) activate(bound)
                 else release(bound, provider)
             }
-            is BoundCamera -> if (current.viewPort.requiresRebind(viewPort)) {
-                Rebinding(current, viewPort).run(provider)
+            is BoundCamera -> if (current.viewPort.needsUpdate(viewPort)) {
+                updateViewPort(provider, current, viewPort)
             }
-            is Rebinding, Idle, Disposed -> Unit
+            Idle, Disposed -> Unit
+        }
+    }
+
+    /** Updates geometry on the same use cases, preserving camera controls and the analyzer. */
+    private fun updateViewPort(provider: ProcessCameraProvider, current: BoundCamera, viewPort: ViewPort) {
+        // Publish before SDK calls so a synchronous layout callback cannot repeat this update.
+        current.viewPort = viewPort
+        try {
+            current.preview.targetRotation = viewPort.rotation
+            current.imageAnalysis.targetRotation = viewPort.rotation
+            val group = UseCaseGroup.Builder()
+                .setViewPort(viewPort)
+                .addUseCase(current.preview)
+                .addUseCase(current.imageAnalysis)
+                .build()
+            if (bindingState !== current) return
+            provider.bindToLifecycle(current.request.lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, group)
+            if (bindingState !== current) provider.unbind(current.preview, current.imageAnalysis)
+        } catch (error: Exception) {
+            if (bindingState !== current) return
+            bindingState = Idle
+            try {
+                release(current, provider)
+            } finally {
+                current.request.onError(error)
+            }
         }
     }
 
     /** Publishes ownership before observing LiveData, which can call back synchronously. */
-    private fun activate(bound: BoundCamera, notifyInitialized: Boolean = false) {
+    private fun activate(bound: BoundCamera) {
         bindingState = bound
         try {
             observe(bound)
-            if (notifyInitialized && bindingState === bound) bound.request.onInit()
+            if (bindingState === bound) bound.request.onInit()
         } catch (error: Exception) {
             if (bindingState !== bound) return // A callback already detached/disposed or replaced us.
             bindingState = Idle
@@ -323,17 +348,12 @@ class XCamera internal constructor(
         }
     }
 
-    /** Controls are ready only after an open device is producing preview frames. */
-    private fun isCameraReadyForControls(
-        cameraState: AndroidXCameraState.Type?,
-        previewStreamState: PreviewView.StreamState?,
-    ): Boolean =
-        cameraState == AndroidXCameraState.Type.OPEN && previewStreamState == PreviewView.StreamState.STREAMING
-
     private fun publishAvailability(current: BoundCamera) {
         if (bindingState !== current) return
         val state = current.camera.cameraInfo.cameraState.value
-        val next = if (isCameraReadyForControls(state?.type, cameraPreviewView.previewStreamState.value)) {
+        val next = if (state?.type == AndroidXCameraState.Type.OPEN && state.error == null &&
+            cameraPreviewView.previewStreamState.value == PreviewView.StreamState.STREAMING
+        ) {
             CameraAvailability.Open
         } else {
             CameraAvailability.Closed(state?.error?.code, state?.error?.cause)
@@ -358,55 +378,6 @@ class XCamera internal constructor(
     private data object Idle : BindingState
     private data object Disposed : BindingState
 
-    /**
-     * The actual synchronous viewport operation, owning its old use cases and rollback inputs.
-     * Reentrant unbind/dispose revokes admission; this operation still cleans up any binding the
-     * provider returns afterwards. It is executable work, not an empty identity marker.
-     */
-    private inner class Rebinding(
-        /** Previously bound use cases and geometry to restore if replacement fails. */
-        private val previous: BoundCamera,
-        /** Requested geometry belongs to this operation, even if another layout arrives meanwhile. */
-        private val viewPort: ViewPort,
-    ) : BindingState {
-        /** Runs on main; callbacks may revoke this operation between any two SDK calls. */
-        fun run(provider: ProcessCameraProvider) {
-            bindingState = this
-            stopObserving(previous)
-            try {
-                provider.unbind(previous.preview, previous.imageAnalysis)
-            } catch (error: Exception) {
-                if (bindingState === this) activate(previous) else release(previous, provider)
-                Log.w(PluginConstants.LOG_TAG, "Unable to unbind CameraX use cases for viewport update", error)
-                return
-            }
-            previous.imageAnalysis.clearAnalyzer()
-            try {
-                notifyClosed(previous)
-            } catch (error: Exception) {
-                failBinding(this, previous.request.onError, error)
-                return
-            }
-            if (bindingState !== this) return
-
-            val replacement = try {
-                bindCamera(provider, previous.request, viewPort)
-            } catch (error: Exception) {
-                // bindCamera already released the attempted use cases. Never roll back after disposal.
-                if (bindingState !== this) return
-                Log.w(PluginConstants.LOG_TAG, "Unable to update CameraX viewport; restoring previous geometry", error)
-                try {
-                    bindCamera(provider, previous.request, previous.viewPort)
-                } catch (restoreError: Exception) {
-                    if (restoreError !== error) restoreError.addSuppressed(error)
-                    failBinding(this, previous.request.onError, restoreError)
-                    return
-                }
-            }
-            if (bindingState === this) activate(replacement) else release(replacement, provider)
-        }
-    }
-
     private class PendingStart(
         val lifecycleOwner: LifecycleOwner,
         val analysisExecutor: ExecutorService,
@@ -414,14 +385,16 @@ class XCamera internal constructor(
         val onAvailabilityChanged: OnCameraAvailabilityChanged,
         val onInit: OnInit,
         val onError: OnError,
-    ) : BindingState
+    ) : BindingState {
+        var binding = false
+    }
 
     private inner class BoundCamera(
         val request: PendingStart,
         val camera: AndroidXCamera,
         val preview: Preview,
         val imageAnalysis: ImageAnalysis,
-        val viewPort: ViewPort,
+        var viewPort: ViewPort,
     ) : BindingState {
         var availability: CameraAvailability = CameraAvailability.Closed()
         // Identity is this binding, not CameraX's Camera, which can survive a rebind.
@@ -429,22 +402,12 @@ class XCamera internal constructor(
         val previewStreamObserver = Observer<PreviewView.StreamState> { publishAvailability(this) }
     }
 
-    /** Size-only changes are mapped per frame, preserving the texture and active camera controls. */
-    private fun ViewPort.requiresRebind(other: ViewPort): Boolean =
-        rotation != other.rotation || scaleType != other.scaleType || layoutDirection != other.layoutDirection
+    /** Both use cases must share the current visible sensor area after layout or rotation. */
+    private fun ViewPort.needsUpdate(other: ViewPort): Boolean =
+        rotation != other.rotation || aspectRatio != other.aspectRatio ||
+            scaleType != other.scaleType || layoutDirection != other.layoutDirection
 
     private companion object {
-        /** Only this adapter recognizes CameraX errors; cause chains may contain cycles. */
-        fun Throwable.isOperationCanceled(): Boolean {
-            val visited = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
-            var current: Throwable? = this
-            while (current != null && visited.add(current)) {
-                if (current is CameraControl.OperationCanceledException) return true
-                current = current.cause
-            }
-            return false
-        }
-
         /**
          * Preserves the operation and original failure. Cancelling this deferred requests
          * non-interrupting cancellation, which CameraX may ignore; it does not undo hardware work.
@@ -455,7 +418,7 @@ class XCamera internal constructor(
             fun fail(error: Exception) {
                 val cause = if (error is ExecutionException) error.cause ?: error else error
                 result.completeExceptionally(PluginError.CameraControlError(
-                    operation, cause = cause, requiresReopen = cause.isOperationCanceled(),
+                    operation, cause = cause,
                 ))
             }
             result.invokeOnCompletion { cause ->

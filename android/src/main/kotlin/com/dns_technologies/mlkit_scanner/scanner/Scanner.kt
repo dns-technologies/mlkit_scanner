@@ -31,6 +31,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -61,6 +62,8 @@ internal class Scanner(
     @Volatile
     private var closeCause: Throwable? = null
     private var operation: Deferred<Unit>? = null
+    /** Only transient focus may be replaced by another gesture. */
+    private var operationIsFocus = false
     private var scan: Scan? = null
     /** Borrows the Activity's real lifecycle without mirroring its state or observing events. */
     private var lifecycleOwner: LifecycleOwner? = null
@@ -110,12 +113,12 @@ internal class Scanner(
         connection.control(id, CameraControlOperation.TORCH) { camera.setTorch(enabled) }
     }
 
-    /** Gestures do not interrupt an unfinished Dart command. */
+    /** A new gesture replaces transient focus, but cannot interrupt an unfinished Dart command. */
     fun focus(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
-        if (operation != null || !connection.isReady) return
-        scope.launch {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            if (operation != null && !operationIsFocus || !connection.isReady) return@launch
             try {
-                runOperation { id ->
+                runOperation(isFocus = true) { id ->
                     connection.control(id, CameraControlOperation.FOCUS) {
                         val preview = camera.previewView
                         camera.focus(resetDelayMs, preview.width / 2F + offsetX, preview.height / 2F + offsetY)
@@ -131,7 +134,7 @@ internal class Scanner(
 
     fun startScan(periodMs: Int) {
         val id = viewId ?: return
-        updateScanPeriod(periodMs)
+        setScanPeriod(periodMs)
         if (scan == null) {
             scan = Scan(id)
         }
@@ -147,8 +150,6 @@ internal class Scanner(
         failures.attempt { view?.setScanActive(false) }
         failures.throwIfFailed()
     }
-
-    fun setScanPeriod(periodMs: Int) = updateScanPeriod(periodMs)
 
     fun setCropArea(crop: RecognizeVisorCropRect) {
         view?.setCropArea(crop)
@@ -235,11 +236,12 @@ internal class Scanner(
     }
 
     /** Owns only the in-flight SDK job; there is no native command queue or saved view state. */
-    private suspend fun runOperation(action: suspend (Int) -> Unit) {
+    private suspend fun runOperation(isFocus: Boolean = false, action: suspend (Int) -> Unit) {
         val id = viewId ?: return
         val work = scope.async(start = CoroutineStart.LAZY) { action(id) }
         val previous = operation
         operation = work
+        operationIsFocus = isFocus
         try {
             previous?.cancel()
             work.start()
@@ -276,6 +278,11 @@ internal class Scanner(
             if (scan === this && viewId == id && view?.isPreviewReady() == true && connection.isReady) {
                 resumeAnalysis()
                 view?.setScanActive(true)
+            } else {
+                // Closing and reopening must not revive results from the previous camera stream.
+                pauseAnalysis()
+                deliveries.coroutineContext.cancelChildren()
+                view?.setScanActive(false)
             }
         }
         fun cancel() {
@@ -305,7 +312,7 @@ internal class Scanner(
     }
 
     /** Updates the analyzer cooldown applied after successful recognition. */
-    private fun updateScanPeriod(periodMs: Int) {
+    fun setScanPeriod(periodMs: Int) {
         synchronized(scanJobLock) {
             if (!isDisposed) analyzer.updatePeriod(periodMs)
         }

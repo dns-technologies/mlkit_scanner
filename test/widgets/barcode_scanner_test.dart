@@ -35,12 +35,12 @@ void main() {
       });
       messenger.setMockMethodCallHandler(channel, (call) async {
         calls.add(call);
-        if (call.method == 'releaseCamera' &&
+        if (call.method == 'pauseCameraMethod' &&
             completeCaptureOnRelease &&
             captureCompletion?.isCompleted == false) {
           if (!captureCompletion!.isCompleted) captureCompletion!.complete();
         }
-        if (call.method == 'captureCamera') {
+        if (call.method == 'resumeCameraMethod') {
           await captureCompletion?.future;
           final error = captureError;
           captureError = null;
@@ -105,9 +105,36 @@ void main() {
 
       expect(controller, isNotNull);
       expect(
-        calls.firstWhere((call) => call.method == 'captureCamera').arguments,
+        calls.firstWhere((call) => call.method == 'resumeCameraMethod').arguments,
         containsPair('viewId', 17),
       );
+    });
+
+    testScannerWidgets(
+        'manual pause survives hiding and returning to the route',
+        (tester) async {
+      late BarcodeScannerController controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(
+          onScannerInitialized: (value) => controller = value,
+          onScan: (_) {},
+        ),
+      ));
+      final preview =
+          tester.firstWidget<CameraPreview>(find.byType(CameraPreview));
+      await _initializeCamera(tester, preview, 17);
+      await updateController(tester, controller.pauseCamera);
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push<void>(
+          MaterialPageRoute<void>(builder: (_) => const SizedBox.shrink()));
+      await tester.pumpAndSettle();
+      calls.clear();
+      navigator.pop();
+      await tester.pumpAndSettle();
+      expect(calls, isEmpty);
+      expect(controller.configuration.cameraPaused, isTrue);
+      await updateController(tester, controller.resumeCamera);
+      expect(calls.map((call) => call.method), ['resumeCameraMethod']);
     });
 
     testScannerWidgets(
@@ -138,7 +165,7 @@ void main() {
       expect(controller, isNotNull);
       expect(
         calls.map((call) => call.method),
-        ['captureCamera'],
+        ['resumeCameraMethod'],
       );
       expect(
         (calls.single.arguments as Map)['configuration'],
@@ -177,7 +204,7 @@ void main() {
 
       expect(calls.map((call) => call.method), isNot(contains('cancelScan')));
       expect(
-        calls.firstWhere((call) => call.method == 'releaseCamera').arguments,
+        calls.firstWhere((call) => call.method == 'pauseCameraMethod').arguments,
         isNull,
       );
     });
@@ -202,11 +229,11 @@ void main() {
 
       expect(calls.where((call) => call.method == 'startScan'), isNotEmpty);
       for (final call in calls) {
-        if (call.method == 'captureCamera') {
+        if (call.method == 'resumeCameraMethod') {
           expect(call.arguments, containsPair('viewId', 17));
         } else if (call.method == 'startScan') {
           expect(call.arguments, isNot(contains('viewId')));
-        } else if (call.method == 'releaseCamera') {
+        } else if (call.method == 'pauseCameraMethod') {
           expect(call.arguments, isNull);
         }
       }
@@ -244,7 +271,7 @@ void main() {
       await tester.pump();
       expect(calls, hasLength(3));
       expect(calls.map((call) => call.method),
-          ['setScanDelay', 'releaseCamera', 'captureCamera']);
+          ['setScanDelay', 'pauseCameraMethod', 'resumeCameraMethod']);
       expect(calls[0].arguments, {'delay': 250});
       expect((calls[2].arguments as Map)['configuration'],
           containsPair('iosCamera', {'position': 2, 'type': 3}));
@@ -324,7 +351,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        calls.where((call) => call.method == 'releaseCamera').single.arguments,
+        calls.where((call) => call.method == 'pauseCameraMethod').single.arguments,
         isNull,
       );
 
@@ -333,7 +360,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        calls.where((call) => call.method == 'captureCamera').single.arguments,
+        calls.where((call) => call.method == 'resumeCameraMethod').single.arguments,
         containsPair('viewId', 17),
       );
     });
@@ -360,7 +387,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        calls.where((call) => call.method == 'releaseCamera'),
+        calls.where((call) => call.method == 'pauseCameraMethod'),
         isEmpty,
       );
 
@@ -368,7 +395,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        calls.where((call) => call.method == 'captureCamera'),
+        calls.where((call) => call.method == 'resumeCameraMethod'),
         isEmpty,
       );
     });
@@ -451,16 +478,16 @@ void main() {
       await tester.pump();
 
       expect(firstScans, isEmpty);
-      expect(secondScans, ['stale-a', 'active-b']);
+      expect(secondScans, ['active-b']);
       expect(firstTorchEvents, isEmpty);
-      expect(secondTorchEvents, [true, true]);
+      expect(secondTorchEvents, [true]);
 
       calls.clear();
       navigator.pop();
       await tester.pumpAndSettle();
       await tester.runAsync(() => firstController!.setZoomRatio(2.0));
       final restored =
-          calls.singleWhere((call) => call.method == 'captureCamera');
+          calls.singleWhere((call) => call.method == 'resumeCameraMethod');
       expect((restored.arguments as Map)['viewId'], 11);
       expect((restored.arguments as Map)['configuration'], {
         'zoomRatio': 2.0,
@@ -491,8 +518,8 @@ void main() {
         },
       }));
       await tester.pump();
-      expect(firstScans, ['stale-b', 'returned-a']);
-      expect(secondScans, ['stale-a', 'active-b']);
+      expect(firstScans, ['returned-a']);
+      expect(secondScans, ['active-b']);
     });
 
     testScannerWidgets(
@@ -517,7 +544,7 @@ void main() {
       });
       await tester.pump();
       expect(
-        calls.where((call) => call.method == 'captureCamera'),
+        calls.where((call) => call.method == 'resumeCameraMethod'),
         hasLength(1),
       );
 
@@ -544,7 +571,7 @@ void main() {
 
       expect(calls, isEmpty);
       expect(
-        calls.where((call) => call.method == 'captureCamera'),
+        calls.where((call) => call.method == 'resumeCameraMethod'),
         isEmpty,
       );
     });
@@ -584,7 +611,7 @@ void main() {
       await tester.runAsync(() => initialization);
 
       expect(
-        calls.where((call) => call.method == 'captureCamera'),
+        calls.where((call) => call.method == 'resumeCameraMethod'),
         hasLength(2),
       );
       expect(controller, isNotNull);
@@ -631,7 +658,7 @@ void main() {
       navigator.pop();
       await tester.pumpAndSettle();
       final capture =
-          calls.singleWhere((call) => call.method == 'captureCamera');
+          calls.singleWhere((call) => call.method == 'resumeCameraMethod');
       expect((capture.arguments as Map)['configuration'], {
         'zoomRatio': 100.0,
         'torchEnabled': true,
@@ -639,7 +666,7 @@ void main() {
         'scanEnabled': true,
         'scanDelay': 450,
       });
-      expect(calls.where((call) => call.method != 'captureCamera'), isEmpty);
+      expect(calls.where((call) => call.method != 'resumeCameraMethod'), isEmpty);
     });
 
     testScannerWidgets(
@@ -725,7 +752,7 @@ void main() {
           () => controller!.setZoomRatio(controller!.configuration.zoomRatio));
       await tester.pumpAndSettle();
       expect(
-          calls.where((call) => call.method == 'captureCamera'), hasLength(2));
+          calls.where((call) => call.method == 'resumeCameraMethod'), hasLength(2));
       expect(tester.takeException(), isNull);
     });
 
@@ -746,13 +773,13 @@ void main() {
       await tester.pumpAndSettle();
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await tester.pumpAndSettle();
-      expect(calls.last.method, 'releaseCamera');
+      expect(calls.last.method, 'pauseCameraMethod');
       calls.clear();
       await controller!.setZoomRatio(2.5);
       expect(calls, isEmpty);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
-      expect(calls.single.method, 'captureCamera');
+      expect(calls.single.method, 'resumeCameraMethod');
       expect((calls.single.arguments as Map)['configuration'],
           containsPair('zoomRatio', 2.5));
     });

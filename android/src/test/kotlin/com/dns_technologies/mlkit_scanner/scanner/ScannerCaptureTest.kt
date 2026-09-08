@@ -184,6 +184,23 @@ internal class ScannerCaptureTest {
     }
 
     @Test
+    fun `OPEN failure before binding acknowledgement completes capture`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            val capture = f.capture()
+            f.availability(CameraAvailability.Closed(errorCode = 3))
+            assertTrue(capture.isCompleted)
+            val failure = runCatching { capture.await() }.exceptionOrNull()
+            assertTrue(failure is PluginError.CameraControlError)
+            f.initialized()
+            f.availability(CameraAvailability.Open)
+            verify(f.camera, never()).showPreview()
+            f.capture().await()
+            verify(f.camera).showPreview()
+        } finally { f.close() }
+    }
+
+    @Test
     fun `capture waits for controls before exposing preview`() = runBlocking<Unit> {
         val f = Fixture()
         try {
@@ -423,6 +440,25 @@ internal class ScannerCaptureTest {
     }
 
     @Test
+    fun `closing stops analysis and reopening cannot revive queued results`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            f.activate()
+            f.scanner.startScan(0)
+            f.emitFrame()
+            f.availability(CameraAvailability.Closed())
+            f.emitFrame()
+            verify(f.analyzer).analyze(anyValue(), anyValue())
+            f.availability(CameraAvailability.Open)
+            f.drain()
+            assertTrue(f.results.isEmpty())
+            f.emitFrame()
+            f.drain()
+            assertEquals(listOf(42 to BARCODE), f.results)
+        } finally { f.close() }
+    }
+
+    @Test
     fun `startup failure releases hardware but not borrowed view`() = runBlocking<Unit> {
         val f = Fixture()
         try {
@@ -483,6 +519,25 @@ internal class ScannerCaptureTest {
             verify(f.camera, never()).focus(anyLong(), anyFloat(), anyFloat())
             pending.complete(Unit)
             command.await()
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `new focus gesture supersedes a pending gesture without restarting preview`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            f.activate()
+            clearInvocations(f.camera)
+            val pending = CompletableDeferred<Unit>()
+            doReturn(pending, CompletableDeferred(Unit)).`when`(f.camera).focus(anyLong(), anyFloat(), anyFloat())
+            f.scanner.focus(500L, 10F, 20F)
+            f.scanner.focus(500L, 30F, 40F)
+            assertTrue(pending.isCancelled)
+            verify(f.camera).focus(500L, 30F, 40F)
+            verify(f.camera, never()).resetFocus()
+            verify(f.camera, never()).setZoomRatio(anyFloat())
+            verify(f.camera, never()).setTorch(anyBoolean())
+            verify(f.camera, never()).hidePreview()
         } finally { f.close() }
     }
 
@@ -568,7 +623,57 @@ internal class ScannerCaptureTest {
         } finally { f.close() }
     }
 
-    private class Fixture {
+    @Test
+    fun `release cancels a focus gesture before its SDK dispatch`() = runBlocking<Unit> {
+        val queued = ArrayDeque<Runnable>()
+        var deferDispatch = false
+        val dispatcher = object : CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                if (deferDispatch) queued += block else block.run()
+            }
+        }
+        val f = Fixture(dispatcher)
+        try {
+            f.activate()
+            deferDispatch = true
+            f.scanner.focus(1000L, 0F, 0F)
+            f.scanner.releaseCamera()
+            f.scanner.select(f.second)
+            while (queued.isNotEmpty()) queued.removeFirst().run()
+            verify(f.camera, never()).focus(anyLong(), anyFloat(), anyFloat())
+            assertEquals(43, f.scanner.viewId)
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `queued focus cannot cancel a Dart control admitted before the gesture runs`() = runBlocking<Unit> {
+        val queued = ArrayDeque<Runnable>()
+        var deferDispatch = false
+        val dispatcher = object : CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                if (deferDispatch) queued += block else block.run()
+            }
+        }
+        val f = Fixture(dispatcher)
+        try {
+            f.activate()
+            deferDispatch = true
+            f.scanner.focus(1000L, 0F, 0F)
+            val zoom = CompletableDeferred<Unit>()
+            f.zoom += zoom
+            val control = f.calls.async { f.scanner.setZoomRatio(2F) }
+            while (queued.isNotEmpty()) queued.removeFirst().run()
+
+            verify(f.camera, never()).focus(anyLong(), anyFloat(), anyFloat())
+            assertFalse(zoom.isCancelled)
+            assertFalse(control.isCompleted)
+            zoom.complete(Unit)
+            while (queued.isNotEmpty()) queued.removeFirst().run()
+            control.await()
+        } finally { f.close() }
+    }
+
+    private class Fixture(dispatcher: CoroutineDispatcher = Dispatchers.Unconfined) {
         val camera = mock(Camera::class.java)
         val analyzer = mock(ImageBarcodeAnalyzer::class.java)
         val connection = CameraConnection()
@@ -615,7 +720,7 @@ internal class ScannerCaptureTest {
                 doAnswer { previewReady = it.getArgument(1); null }.`when`(target).attachPreview(anyValue(), anyValue())
             }
             scanner = Scanner(camera, analyzer, handler, { _, cause -> released += cause },
-                { id, barcode -> results += id to barcode }, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+                { id, barcode -> results += id to barcode }, CoroutineScope(SupervisorJob() + dispatcher),
                 connection)
             scanner.attachActivity(host.lifecycle)
         }

@@ -30,11 +30,11 @@ class PluginConstants {
     static let startScanMethod = "startScan"
     static let cancelScanMethod = "cancelScan"
     static let setScanDelayMethod = "setScanDelay"
-    static let setCropAreaMethod = "setCropArea"
-    /// Camera ownership capture.
-    static let captureCameraMethod = "captureCamera"
-    /// Camera ownership release.
-    static let releaseCameraMethod = "releaseCamera"
+    static let setCropAreaMethod = "setCropAreaMethod"
+    /// Stops native work; Dart decides whether to retain or release controller ownership.
+    static let pauseCameraMethod = "pauseCameraMethod"
+    /// Selects a preview and applies Dart settings on startup, resume or ownership transfer.
+    static let resumeCameraMethod = "resumeCameraMethod"
     /// Method name for invoking Flutter Side method with success recognitions.
     static let scanResultMethod = "onScanResult"
     /// Method name for inform flutter side when torch change state

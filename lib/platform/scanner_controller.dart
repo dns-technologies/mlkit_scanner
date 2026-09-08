@@ -23,7 +23,7 @@ class BarcodeScannerController {
   final _scans = StreamController<Barcode>.broadcast(sync: true);
   final _torch = StreamController<bool>.broadcast(sync: true);
 
-  /// @nodoc
+  /// Latest desired settings, also retained while another scanner is active.
   ScannerConfiguration get configuration => _configuration;
 
   /// Full desired-state snapshots, published after updating [configuration].
@@ -36,7 +36,7 @@ class BarcodeScannerController {
   /// Native torch changes while this view is connected (currently iOS only).
   Stream<bool> get torchToggleStream => _torch.stream;
 
-  /// @nodoc
+  /// Registers a controller for an existing native preview without capturing the camera.
   BarcodeScannerController({
     required this.viewId,
     ScannerConfiguration configuration = const ScannerConfiguration(),
@@ -44,22 +44,26 @@ class BarcodeScannerController {
     _runtime.register(this);
   }
 
-  /// @nodoc
+  /// Unregisters this controller, releases its camera and closes its streams.
+  /// Later configuration and event calls have no effect.
   void dispose() {
     if (_states.isClosed) return;
     unawaited(_runtime.unregister(this));
     unawaited(_states.close());
-    unawaited(_scans.close());
-    unawaited(_torch.close());
+    // A scan or torch listener may dispose its own controller during delivery.
+    scheduleMicrotask(() {
+      unawaited(_scans.close());
+      unawaited(_torch.close());
+    });
   }
 
-  /// @nodoc
+  /// Forwards a native recognition result to this controller's listeners.
   void addScanResult(Barcode barcode) {
     if (_states.isClosed) return;
     _scans.add(barcode);
   }
 
-  /// @nodoc
+  /// Forwards a native torch change without altering the desired torch setting.
   void addTorchState(bool enabled) {
     if (_states.isClosed) return;
     _torch.add(enabled);
@@ -90,6 +94,14 @@ class BarcodeScannerController {
     await _update(_configuration.copyWith(scanEnabled: false));
   }
 
+  /// Pauses camera work while retaining zoom, torch and recognition settings.
+  /// A hidden scanner only retains pause intent and does not affect another view.
+  Future<void> pauseCamera() => _update(_configuration.copyWith(cameraPaused: true));
+
+  /// Resumes camera work with the retained settings and recognition intent.
+  /// A hidden scanner waits until its route and app are visible again.
+  Future<void> resumeCamera() => _update(_configuration.copyWith(cameraPaused: false));
+
   /// Retains the successful-recognition cooldown in milliseconds.
   Future<void> setDelay(int delay) async {
     if (_states.isClosed) return;
@@ -106,6 +118,8 @@ class BarcodeScannerController {
     await _update(_configuration.copyWith(zoomRatio: value));
   }
 
+  /// Sets normalized recognition geometry relative to the preview.
+  /// Only its visible intersection is analyzed; hidden scanners retain the area.
   Future<void> setCropArea(CropRect rect) async {
     if (_states.isClosed) return;
     if (!rect.scaleWidth.isFinite ||
@@ -119,6 +133,8 @@ class BarcodeScannerController {
     await _update(_configuration.copyWith(cropRect: rect));
   }
 
+  /// Selects an iOS camera, retaining the choice while this scanner is hidden.
+  /// Throws [UnsupportedError] on other platforms.
   Future<void> setIosCamera({required IosCameraPosition position, required IosCameraType type}) async {
     if (_states.isClosed) return;
     if (defaultTargetPlatform != TargetPlatform.iOS) {

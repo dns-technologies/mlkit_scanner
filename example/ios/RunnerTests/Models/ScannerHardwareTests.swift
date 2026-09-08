@@ -243,6 +243,84 @@ final class ScannerHardwareTests: XCTestCase {
         f.runtime.release()
     }
 
+    func testInterruptedStartCanRetryWithoutLateCompletionChangingNewCapture() throws {
+        let f = Fixture()
+        let view = f.view(42)
+        var replies = 0
+        f.runtime.captureCamera(viewId: view.viewId, configuration: try configuration(scanning: true)) {
+            XCTAssertNotNil($0 as? CameraControlError)
+            replies += 1
+        }
+        f.permissions.removeFirst()(true)
+        let interrupted = f.camera.starts.removeFirst()
+        interrupted(MlKitPluginError.initCameraError)
+        XCTAssertEqual(replies, 1)
+        XCTAssertTrue(f.camera.preview.isHidden)
+        XCTAssertNil(f.camera.recognitionHandler)
+        f.runtime.releaseCamera() {}
+        try f.activate(view, configuration(zoom: 3))
+        interrupted(nil)
+        XCTAssertEqual(replies, 1)
+        XCTAssertEqual(f.camera.zooms, [1, 3])
+        XCTAssertNil(f.camera.recognitionHandler)
+        XCTAssertFalse(f.camera.preview.isHidden)
+        f.runtime.release()
+    }
+
+    func testRapidABARejectsOldFirstFrameCallbacksForTheSameView() throws {
+        let f = Fixture()
+        let a = f.view(42)
+        let b = f.view(43)
+        var replies = 0
+        f.runtime.captureCamera(viewId: a.viewId, configuration: try configuration(scanning: true)) {
+            XCTAssertNil($0); replies += 1
+        }
+        f.permissions.removeFirst()(true)
+        let firstA = f.camera.starts.removeFirst()
+        f.runtime.releaseCamera() {}
+        f.runtime.captureCamera(viewId: b.viewId, configuration: try configuration(zoom: 2)) {
+            XCTAssertNil($0); replies += 1
+        }
+        f.permissions.removeFirst()(true)
+        let firstB = f.camera.starts.removeFirst()
+        f.runtime.releaseCamera() {}
+        f.runtime.captureCamera(viewId: a.viewId, configuration: try configuration(zoom: 3)) {
+            XCTAssertNil($0); replies += 1
+        }
+        f.permissions.removeFirst()(true)
+        firstA(nil)
+        firstB(MlKitPluginError.initCameraError)
+        XCTAssertEqual(replies, 2)
+        XCTAssertTrue(f.camera.preview.isHidden)
+        XCTAssertNil(f.camera.recognitionHandler)
+        f.camera.starts.removeFirst()(nil)
+        XCTAssertEqual(replies, 3)
+        XCTAssertEqual(f.camera.zooms, [1, 2, 3])
+        XCTAssertTrue(f.camera.preview.superview === a.view())
+        XCTAssertFalse(f.camera.preview.isHidden)
+        f.runtime.release()
+    }
+
+    func testReleaseCancelsLayoutWaitWithoutStartingTheNextConsumerEarly() throws {
+        let f = Fixture()
+        let a = f.view(42)
+        let b = f.view(43)
+        f.camera.isLayoutReady = false
+        f.runtime.captureCamera(viewId: a.viewId, configuration: try configuration()) { XCTAssertNil($0) }
+        f.permissions.removeFirst()(true)
+        let oldLayout = f.camera.layouts.removeFirst()
+        f.runtime.releaseCamera() {}
+        f.runtime.captureCamera(viewId: b.viewId, configuration: try configuration()) { XCTAssertNil($0) }
+        f.permissions.removeFirst()(true)
+        oldLayout()
+        XCTAssertTrue(f.camera.starts.isEmpty)
+        f.camera.layouts.removeFirst()()
+        XCTAssertEqual(f.camera.starts.count, 1)
+        f.camera.starts.removeFirst()(nil)
+        XCTAssertTrue(f.camera.preview.superview === b.view())
+        f.runtime.release()
+    }
+
     private func configuration(zoom: Double = 1, scanning: Bool = false, torch: Bool = false) throws -> ScannerConfiguration {
         try ScannerConfiguration(arguments: [
             "zoomRatio": zoom, "torchEnabled": torch, "scanEnabled": scanning, "scanDelay": 0,
@@ -279,6 +357,7 @@ final class ScannerHardwareTests: XCTestCase {
         var recognitionHandler: RecognitionHandler?
         weak var cameraPreviewDelegate: CameraPreviewDelegate?
         var starts: [ScannerCompletion] = []
+        var layouts: [() -> Void] = []
         var zooms: [Double] = []
         var torches: [Bool] = []
         var disposals = 0
@@ -287,8 +366,11 @@ final class ScannerHardwareTests: XCTestCase {
 
         func view() -> UIView { preview }
         func initCamera(completion: @escaping ScannerCompletion) { isInitialized = true; completion(nil) }
-        func whenLayoutReady(_ completion: @escaping () -> Void) { completion() }
+        func whenLayoutReady(_ completion: @escaping () -> Void) {
+            if isLayoutReady { completion() } else { layouts.append(completion) }
+        }
         func cancelPendingStart(completion: @escaping () -> Void) {
+            layouts.removeAll()
             let pending = starts
             starts.removeAll()
             pending.forEach { $0(nil) }

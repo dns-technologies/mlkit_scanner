@@ -18,12 +18,23 @@ class ScannerRuntime {
   final MlKitChannel _channel;
 
   _ScannerSession? _session;
+  Future<void>? _release;
 
   final _subscriptions = <BarcodeScannerController, StreamSubscription<ScannerConfiguration>>{};
 
   ScannerRuntime(this._channel) {
-    _channel.scanResults.listen((event) => _session?.controller.addScanResult(event.value));
-    _channel.torchToggleStream.listen((event) => _session?.controller.addTorchState(event.value));
+    _channel.scanResults.listen((event) {
+      final session = _session;
+      if (session != null && session.accepts(event.viewId) && session.scanning && session.controller.configuration.scanEnabled) {
+        session.controller.addScanResult(event.value);
+      }
+    });
+    _channel.torchToggleStream.listen((event) {
+      final session = _session;
+      if (session != null && session.accepts(event.viewId)) {
+        session.controller.addTorchState(event.value);
+      }
+    });
   }
 
   /// Registration tracks state changes, not camera ownership.
@@ -32,8 +43,28 @@ class ScannerRuntime {
 
     Future<void> changed(ScannerConfiguration next) async {
       final session = _session;
-      // Камерой может управлять только один контроллер, который последним присвоил себе сканер [capture]
       if (session == null || !isCurrent(controller)) return;
+      // A queued restart must not admit results from the scan it just cancelled.
+      if (!next.scanEnabled) session.scanning = false;
+      if (next.cameraPaused) {
+        if (session.paused && !session.queue.isClosed) return;
+        session.queue.cancel();
+        final paused = _ScannerSession(controller);
+        _session = paused;
+        return paused.queue.add(_pauseCamera, stopOnError: true);
+      }
+      if (session.queue.isClosed) return capture(controller);
+      if (session.paused) {
+        session.paused = false;
+        return session.queue.add(() async {
+          final configuration = controller.configuration;
+          session.captureSent = true;
+          session.scanning = configuration.scanEnabled;
+          await _channel.resumeCamera(viewId: controller.viewId, configuration: configuration);
+          session.applied = configuration;
+        }, stopOnError: true);
+      }
+      if (!session.captureSent) return;
       return session.queue.add(() => _configurationChanged(session, next));
     }
 
@@ -53,19 +84,25 @@ class ScannerRuntime {
   /// Settings supplied while waiting are folded into the capture snapshot.
   Future<void> capture(BarcodeScannerController controller) async {
     if (!_subscriptions.containsKey(controller)) return;
-    final previous = _session?.controller;
+    final previous = _session;
+    previous?.queue.cancel();
     final session = _ScannerSession(controller);
+    final initiallyPaused = session.paused;
     _session = session;
 
     return session.queue.add(
       () async {
-        if (previous != null) {
-          await release(previous);
-        }
+        // Explicit release clears selection before native cancellation is acknowledged.
+        // This await also folds synchronous initialization settings into the snapshot.
+        await (previous != null ? _pauseCamera() : _release);
         if (session.queue.isClosed) return;
+        // A resume queued during this wait owns startup for an initially paused view.
+        if (initiallyPaused) return;
 
         final configuration = controller.configuration;
-        await _channel.captureCamera(viewId: controller.viewId, configuration: configuration);
+        session.captureSent = true;
+        session.scanning = configuration.scanEnabled;
+        await _channel.resumeCamera(viewId: controller.viewId, configuration: configuration);
         session.applied = configuration;
       },
       stopOnError: true,
@@ -77,32 +114,35 @@ class ScannerRuntime {
     if (session == null || !isCurrent(controller)) return;
     session.queue.cancel();
     _session = null;
-    await _channel.releaseCamera();
+    await _pauseCamera();
   }
+
+  Future<void> _pauseCamera() => _release = _channel.pauseCamera();
 
   Future<void> _configurationChanged(
     _ScannerSession session,
     ScannerConfiguration next,
   ) async {
     final applied = session.applied;
-    // Костыль для iOS, так как у него нет метода изменения камеры
     if (applied == null || applied.iosCamera?.position != next.iosCamera?.position || applied.iosCamera?.type != next.iosCamera?.type) {
+      // A partial failure or physical camera change requires a complete snapshot.
       return capture(session.controller).catchError(_reportConfigurationError);
     }
 
     Future<void> apply(bool changed, Future<void> Function() action) async {
-      if (changed) await action();
-      session.queue.add(action);
+      if (changed && !session.queue.isClosed) await action();
     }
 
     try {
       await apply(applied.zoomRatio != next.zoomRatio, () => _channel.setZoomRatio(next.zoomRatio));
-      await apply(applied.torchEnabled != next.torchEnabled, () => _channel.setTorch(next.torchEnabled));
+      await apply(applied.torchEnabled != next.torchEnabled, () => _channel.toggleFlash(next.torchEnabled));
       await apply(!mapEquals(applied.cropRect?.toJson(), next.cropRect?.toJson()), () => _channel.setCropArea(next.cropRect!));
       await apply(
           applied.scanDelay != next.scanDelay && (applied.scanEnabled || !next.scanEnabled), () => _channel.setScanDelay(next.scanDelay));
-      await apply(
-          applied.scanEnabled != next.scanEnabled, () => next.scanEnabled ? _channel.startScan(next.scanDelay) : _channel.cancelScan());
+      await apply(applied.scanEnabled != next.scanEnabled, () {
+        session.scanning = next.scanEnabled;
+        return next.scanEnabled ? _channel.startScan(next.scanDelay) : _channel.cancelScan();
+      });
     } catch (_) {
       session.applied = null;
       rethrow;
@@ -124,9 +164,16 @@ class ScannerRuntime {
 class _ScannerSession {
   final BarcodeScannerController controller;
   final queue = CommandQueue();
+  bool paused;
+  bool captureSent = false;
+
+  /// False immediately on cancellation, true only when native startup is sent.
+  bool scanning = false;
 
   /// The last fully acknowledged snapshot; null until capture succeeds or after a partial failure.
   ScannerConfiguration? applied;
 
-  _ScannerSession(this.controller);
+  _ScannerSession(this.controller) : paused = controller.configuration.cameraPaused;
+
+  bool accepts(int viewId) => controller.viewId == viewId && !paused && captureSent && !queue.isClosed;
 }

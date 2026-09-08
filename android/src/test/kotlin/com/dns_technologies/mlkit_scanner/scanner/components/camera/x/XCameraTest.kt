@@ -45,13 +45,14 @@ internal class XCameraTest {
     }
 
     @Test
-    fun `hide preview preserves its last rendered texture opacity`() {
+    fun `hide preview keeps texture attached but invisible during configuration`() {
         val camera = XCamera(RuntimeEnvironment.getApplication())
         camera.previewView.alpha = 0.35F
 
         camera.hidePreview()
 
-        assertEquals(0.35F, camera.previewView.alpha, 0F)
+        assertEquals(0F, camera.previewView.alpha, 0F)
+        assertEquals(android.view.View.VISIBLE, camera.previewView.visibility)
         camera.dispose()
     }
 

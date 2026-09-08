@@ -149,8 +149,8 @@ class MlkitScannerPlugin internal constructor(
     override fun onMethodCall(call: MethodCall, result: Result) {
         if (isDisposed) return
         when (call.method) {
-            PluginConstants.captureCameraMethod -> captureCamera(call, result)
-            PluginConstants.releaseCameraMethod -> releaseCamera(result)
+            PluginConstants.resumeCameraMethod -> resumeCamera(call, result)
+            PluginConstants.pauseCameraMethod -> pauseCamera(result)
 
             PluginConstants.setZoomRatioMethod -> SetZoomRatioCommand(::currentScanner, commandScope).execute(call, result)
             PluginConstants.toggleFlashMethod -> ToggleFlashCommand(::currentScanner, commandScope).execute(call, result)
@@ -163,7 +163,7 @@ class MlkitScannerPlugin internal constructor(
         }
     }
 
-    private fun releaseCamera(result: Result) {
+    private fun pauseCamera(result: Result) {
         try {
             currentScanner()?.releaseCamera()
             result.success(true)
@@ -173,7 +173,7 @@ class MlkitScannerPlugin internal constructor(
     }
 
     /** Selects before the first await so a later capture or release can supersede this work. */
-    private fun captureCamera(call: MethodCall, result: Result) {
+    private fun resumeCamera(call: MethodCall, result: Result) {
         commandScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 currentCoroutineContext().ensureActive()

@@ -39,8 +39,6 @@ internal sealed class PluginError(
         val viewId: Int? = null,
         cause: Throwable? = null,
         val cameraStateErrorCode: Int? = null,
-        /** Backend-neutral retry policy, not an additional field in the Flutter error payload. */
-        val requiresReopen: Boolean = false,
     ) : PluginError(
         errorCode = ERROR_CODE,
         message = ERROR_MESSAGE,
@@ -59,7 +57,6 @@ internal sealed class PluginError(
                 viewId = viewId,
                 cause = cause,
                 cameraStateErrorCode = cameraStateErrorCode,
-                requiresReopen = requiresReopen,
             )
 
         internal companion object {

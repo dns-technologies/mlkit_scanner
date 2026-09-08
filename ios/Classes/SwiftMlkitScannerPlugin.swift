@@ -63,10 +63,10 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             result(value)
         }
         switch call.method {
-        case PluginConstants.captureCameraMethod:
+        case PluginConstants.resumeCameraMethod:
             CaptureCameraCommand(scannerDevice: scannerDevice)
                 .execute(call, result: reply)
-        case PluginConstants.releaseCameraMethod:
+        case PluginConstants.pauseCameraMethod:
             scannerDevice.releaseCamera { reply(nil) }
         case PluginConstants.setZoomRatioMethod:
             SetZoomRatioCommand(scannerDevice: scannerDevice).execute(call, result: reply)

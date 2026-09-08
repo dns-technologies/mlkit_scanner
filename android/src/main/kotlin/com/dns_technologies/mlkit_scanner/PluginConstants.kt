@@ -26,19 +26,16 @@ internal object PluginConstants {
     /** Platform view type name registered for the native camera preview. */
     const val cameraPlatformViewName = "mlkit/camera_preview"
 
-    /** Method name used to transfer camera ownership to one registered platform view. */
-    const val captureCameraMethod = "captureCamera"
-
-    /** Method name used to release camera ownership held by one platform view. */
-    const val releaseCameraMethod = "releaseCamera"
-
-
     const val setZoomRatioMethod = "setZoomRatio"
     const val toggleFlashMethod = "toggleFlash"
     const val startScanMethod = "startScan"
     const val cancelScanMethod = "cancelScan"
     const val setScanDelayMethod = "setScanDelay"
-    const val setCropAreaMethod = "setCropArea"
+    const val setCropAreaMethod = "setCropAreaMethod"
+    /** Stops native work; Dart decides whether to retain or release controller ownership. */
+    const val pauseCameraMethod = "pauseCameraMethod"
+    /** Selects a preview and applies Dart settings on startup, resume or ownership transfer. */
+    const val resumeCameraMethod = "resumeCameraMethod"
 
     /** Method name used to deliver recognized barcode values to Dart. */
     const val scanResultMethod = "onScanResult"

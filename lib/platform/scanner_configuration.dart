@@ -5,6 +5,8 @@ import 'package:mlkit_scanner/models/ios_camera_type.dart';
 
 /// Desired settings of one Dart scanner, including while another view is active.
 class ScannerConfiguration {
+  /// Manual pause intent, retained in Dart across route and app lifecycle changes.
+  final bool cameraPaused;
   final double zoomRatio;
   final bool torchEnabled;
   final CropRect? cropRect;
@@ -13,6 +15,7 @@ class ScannerConfiguration {
   final IosCamera? iosCamera;
 
   const ScannerConfiguration({
+    this.cameraPaused = false,
     this.zoomRatio = 1,
     this.torchEnabled = false,
     this.cropRect,
@@ -22,6 +25,7 @@ class ScannerConfiguration {
   });
 
   ScannerConfiguration copyWith({
+    bool? cameraPaused,
     double? zoomRatio,
     bool? torchEnabled,
     CropRect? cropRect,
@@ -30,6 +34,7 @@ class ScannerConfiguration {
     IosCamera? iosCamera,
   }) =>
       ScannerConfiguration(
+        cameraPaused: cameraPaused ?? this.cameraPaused,
         zoomRatio: zoomRatio ?? this.zoomRatio,
         torchEnabled: torchEnabled ?? this.torchEnabled,
         cropRect: cropRect ?? this.cropRect,

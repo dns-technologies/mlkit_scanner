@@ -73,22 +73,24 @@ class MlKitChannel {
     }
   }
 
-  /// Applies a complete Dart snapshot after selecting the native preview.
-  /// Completes after SDK configuration; release may interrupt this operation.
-  Future<void> captureCamera({required int viewId, required ScannerConfiguration configuration}) =>
-      _invokeVoidMethod('captureCamera', {'viewId': viewId, 'configuration': configuration.toJson()});
+  /// Stops native camera work and acknowledges cancellation of unfinished work.
+  /// Dart decides whether to retain the selected controller or release ownership.
+  Future<void> pauseCamera() => _invokeVoidMethod('pauseCameraMethod', null);
 
-  /// Releases the scanner and acknowledges cancellation of its unfinished work.
-  Future<void> releaseCamera() => _invokeVoidMethod('releaseCamera', null);
+  /// Selects a preview and applies the complete settings retained by Dart.
+  /// Used for first startup, ownership changes and resuming a paused camera.
+  /// Completes after SDK configuration; [pauseCamera] may interrupt this operation.
+  Future<void> resumeCamera({required int viewId, required ScannerConfiguration configuration}) =>
+      _invokeVoidMethod('resumeCameraMethod', {'viewId': viewId, 'configuration': configuration.toJson()});
 
   /// Changes only zoom on the selected scanner, without restarting preview.
   Future<void> setZoomRatio(double value) => _invokeVoidMethod('setZoomRatio', {'value': value});
 
   /// Sets the selected scanner's torch to an absolute state.
-  Future<void> setTorch(bool enabled) => _invokeVoidMethod('toggleFlash', {'value': enabled});
+  Future<void> toggleFlash(bool enabled) => _invokeVoidMethod('toggleFlash', {'value': enabled});
 
   /// Updates recognition geometry without recapturing the camera.
-  Future<void> setCropArea(CropRect cropRect) => _invokeVoidMethod('setCropArea', {'cropRect': cropRect.toJson()});
+  Future<void> setCropArea(CropRect cropRect) => _invokeVoidMethod('setCropAreaMethod', {'cropRect': cropRect.toJson()});
 
   /// Updates the recognition cooldown.
   Future<void> setScanDelay(int delay) => _invokeVoidMethod('setScanDelay', {'delay': delay});

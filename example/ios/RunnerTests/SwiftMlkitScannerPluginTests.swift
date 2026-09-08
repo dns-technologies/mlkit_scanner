@@ -3,12 +3,12 @@ import XCTest
 @testable import mlkit_scanner
 
 final class SwiftMlkitScannerPluginTests: XCTestCase {
-    func testReleaseMethodCompletesWithoutViewArgumentsAndRemainsIdempotent() {
+    func testPauseMethodCompletesWithoutViewArgumentsAndRemainsIdempotent() {
         let plugin = makePlugin()
         var replies = 0
 
         for _ in 0..<2 {
-            plugin.handle(FlutterMethodCall(methodName: PluginConstants.releaseCameraMethod, arguments: nil)) {
+            plugin.handle(FlutterMethodCall(methodName: PluginConstants.pauseCameraMethod, arguments: nil)) {
                 XCTAssertNil($0)
                 replies += 1
             }
@@ -17,15 +17,33 @@ final class SwiftMlkitScannerPluginTests: XCTestCase {
         XCTAssertEqual(replies, 2)
     }
 
-    func testUnknownMethodReturnsFlutterMethodNotImplemented() {
+    func testUnknownAndRemovedMethodsReturnFlutterMethodNotImplemented() {
         let plugin = makePlugin()
         var channelValue: Any?
 
-        plugin.handle(FlutterMethodCall(methodName: "unknown", arguments: nil)) {
-            channelValue = $0
+        for method in ["unknown", "captureCamera", "releaseCamera"] {
+            channelValue = nil
+            plugin.handle(FlutterMethodCall(methodName: method, arguments: nil)) {
+                channelValue = $0
+            }
+            XCTAssertTrue(channelValue as AnyObject === FlutterMethodNotImplemented)
         }
+    }
 
-        XCTAssertTrue(channelValue as AnyObject === FlutterMethodNotImplemented)
+    func testPauseAndResumeMethodsAreDispatched() {
+        let plugin = makePlugin()
+        var pauseReplied = false
+        plugin.handle(FlutterMethodCall(methodName: "pauseCameraMethod", arguments: nil)) {
+            XCTAssertNil($0)
+            pauseReplied = true
+        }
+        XCTAssertTrue(pauseReplied)
+
+        var resumeError: FlutterError?
+        plugin.handle(FlutterMethodCall(methodName: "resumeCameraMethod", arguments: [:])) {
+            resumeError = $0 as? FlutterError
+        }
+        XCTAssertEqual(resumeError?.code, MlKitPluginError.invalidArguments.rawValue)
     }
 
     func testInvalidCommandArgumentsReturnAFlutterError() {
@@ -34,7 +52,7 @@ final class SwiftMlkitScannerPluginTests: XCTestCase {
 
         plugin.handle(
             FlutterMethodCall(
-                methodName: PluginConstants.captureCameraMethod,
+                methodName: PluginConstants.resumeCameraMethod,
                 arguments: ["viewId": NSNumber(value: true)]
             )
         ) { channelValue = $0 }
