@@ -1,5 +1,7 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
+import androidx.camera.core.CameraControl
+
 import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.google.common.util.concurrent.ListenableFuture
@@ -112,6 +114,36 @@ internal class XCameraControlCompletionTest {
             val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
             assertEquals(CameraControlOperation.FOCUS, error.operation)
             assertSame(cause, error.cause)
+        }
+    }
+
+    @Test
+    fun `CameraX cancellation is normalized without changing its original channel cause`() {
+        val future = CameraTestFuture<Void?>()
+        withResetFocus(future) { result ->
+            val cause = IllegalStateException("Wrapper", CameraControl.OperationCanceledException("Camera closed"))
+            future.fail(cause)
+
+            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
+            assertSame(cause, error.cause)
+            assertTrue(error.requiresReopen)
+            assertTrue(error.contextualize(CameraControlOperation.ZOOM, 42).requiresReopen)
+            assertEquals(setOf("operation", "viewId", "cause", "cameraStateErrorCode"), (error.details as Map<*, *>).keys)
+        }
+    }
+
+    @Test
+    fun `cyclic native failure is inspected once and does not request a reopen`() {
+        val future = CameraTestFuture<Void?>()
+        withResetFocus(future) { result ->
+            val first = IllegalStateException("First")
+            val second = IllegalStateException("Second", first)
+            first.initCause(second)
+            future.fail(first)
+
+            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
+            assertSame(first, error.cause)
+            assertFalse(error.requiresReopen)
         }
     }
 

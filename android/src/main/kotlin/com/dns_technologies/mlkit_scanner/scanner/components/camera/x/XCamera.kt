@@ -12,6 +12,7 @@ import androidx.annotation.MainThread
 import androidx.camera.core.Camera as AndroidXCamera
 import androidx.camera.core.CameraState as AndroidXCameraState
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.CameraControl
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -39,6 +40,8 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.Collections
+import java.util.IdentityHashMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 
@@ -214,10 +217,11 @@ class XCamera internal constructor(
                     failBinding(current, current.onError, error)
                     return
                 }
-                activate(bound, notifyInitialized = true)
+                if (bindingState === current) activate(bound, notifyInitialized = true)
+                else release(bound, provider)
             }
             is BoundCamera -> if (current.viewPort.requiresRebind(viewPort)) {
-                rebindCamera(provider, current, viewPort)
+                Rebinding(current, viewPort).run(provider)
             }
             is Rebinding, Idle, Disposed -> Unit
         }
@@ -287,49 +291,11 @@ class XCamera internal constructor(
         }
     }
 
-    /** Restores the previous field of view with fresh use cases if the new viewport cannot bind. */
-    private fun rebindCamera(provider: ProcessCameraProvider, current: BoundCamera, viewPort: ViewPort) {
-        val request = current.request
-        val transition = Rebinding()
-        bindingState = transition
-        stopObserving(current)
-        try {
-            provider.unbind(current.preview, current.imageAnalysis)
-        } catch (error: Exception) {
-            // The old use cases are still owned. Restore observation instead of binding more.
-            if (bindingState === transition) activate(current)
-            Log.w(PluginConstants.LOG_TAG, "Unable to unbind CameraX use cases for viewport update", error)
-            return
-        }
-        current.imageAnalysis.clearAnalyzer()
-        try {
-            notifyClosed(current)
-        } catch (error: Exception) {
-            failBinding(transition, request.onError, error)
-            return
-        }
-        if (bindingState !== transition) return
-
-        val replacement = try {
-            bindCamera(provider, request, viewPort)
-        } catch (error: Exception) {
-            Log.w(PluginConstants.LOG_TAG, "Unable to update CameraX viewport; restoring previous geometry", error)
-            try {
-                bindCamera(provider, request, current.viewPort)
-            } catch (restoreError: Exception) {
-                if (restoreError !== error) restoreError.addSuppressed(error)
-                failBinding(transition, request.onError, restoreError)
-                return
-            }
-        }
-        activate(replacement)
-    }
-
     /** Releases only this adapter's use cases; the provider and executor belong to other owners. */
-    private fun release(current: BoundCamera) {
+    private fun release(current: BoundCamera, provider: ProcessCameraProvider? = cameraProvider) {
         stopObserving(current)
         try {
-            cameraProvider?.unbind(current.preview, current.imageAnalysis)
+            provider?.unbind(current.preview, current.imageAnalysis)
         } catch (error: Exception) {
             Log.w(PluginConstants.LOG_TAG, "Unable to unbind CameraX use cases", error)
         } finally {
@@ -392,8 +358,54 @@ class XCamera internal constructor(
     private data object Idle : BindingState
     private data object Disposed : BindingState
 
-    // Distinguishes a viewport transaction from initial startup; layout callbacks cannot bind twice.
-    private class Rebinding : BindingState
+    /**
+     * The actual synchronous viewport operation, owning its old use cases and rollback inputs.
+     * Reentrant unbind/dispose revokes admission; this operation still cleans up any binding the
+     * provider returns afterwards. It is executable work, not an empty identity marker.
+     */
+    private inner class Rebinding(
+        /** Previously bound use cases and geometry to restore if replacement fails. */
+        private val previous: BoundCamera,
+        /** Requested geometry belongs to this operation, even if another layout arrives meanwhile. */
+        private val viewPort: ViewPort,
+    ) : BindingState {
+        /** Runs on main; callbacks may revoke this operation between any two SDK calls. */
+        fun run(provider: ProcessCameraProvider) {
+            bindingState = this
+            stopObserving(previous)
+            try {
+                provider.unbind(previous.preview, previous.imageAnalysis)
+            } catch (error: Exception) {
+                if (bindingState === this) activate(previous) else release(previous, provider)
+                Log.w(PluginConstants.LOG_TAG, "Unable to unbind CameraX use cases for viewport update", error)
+                return
+            }
+            previous.imageAnalysis.clearAnalyzer()
+            try {
+                notifyClosed(previous)
+            } catch (error: Exception) {
+                failBinding(this, previous.request.onError, error)
+                return
+            }
+            if (bindingState !== this) return
+
+            val replacement = try {
+                bindCamera(provider, previous.request, viewPort)
+            } catch (error: Exception) {
+                // bindCamera already released the attempted use cases. Never roll back after disposal.
+                if (bindingState !== this) return
+                Log.w(PluginConstants.LOG_TAG, "Unable to update CameraX viewport; restoring previous geometry", error)
+                try {
+                    bindCamera(provider, previous.request, previous.viewPort)
+                } catch (restoreError: Exception) {
+                    if (restoreError !== error) restoreError.addSuppressed(error)
+                    failBinding(this, previous.request.onError, restoreError)
+                    return
+                }
+            }
+            if (bindingState === this) activate(replacement) else release(replacement, provider)
+        }
+    }
 
     private class PendingStart(
         val lifecycleOwner: LifecycleOwner,
@@ -422,6 +434,17 @@ class XCamera internal constructor(
         rotation != other.rotation || scaleType != other.scaleType || layoutDirection != other.layoutDirection
 
     private companion object {
+        /** Only this adapter recognizes CameraX errors; cause chains may contain cycles. */
+        fun Throwable.isOperationCanceled(): Boolean {
+            val visited = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
+            var current: Throwable? = this
+            while (current != null && visited.add(current)) {
+                if (current is CameraControl.OperationCanceledException) return true
+                current = current.cause
+            }
+            return false
+        }
+
         /**
          * Preserves the operation and original failure. Cancelling this deferred requests
          * non-interrupting cancellation, which CameraX may ignore; it does not undo hardware work.
@@ -431,7 +454,9 @@ class XCamera internal constructor(
             val result = CompletableDeferred<Unit>()
             fun fail(error: Exception) {
                 val cause = if (error is ExecutionException) error.cause ?: error else error
-                result.completeExceptionally(PluginError.CameraControlError(operation, cause = cause))
+                result.completeExceptionally(PluginError.CameraControlError(
+                    operation, cause = cause, requiresReopen = cause.isOperationCanceled(),
+                ))
             }
             result.invokeOnCompletion { cause ->
                 if (cause is CancellationException) cancel(false)

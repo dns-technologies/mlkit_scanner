@@ -6,7 +6,9 @@ final class CaptureCameraCommand: BaseScannerCommand {
     func execute(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         do {
             let viewId = try ScannerMethodArguments.viewId(call.arguments)
-            scannerSession.captureCamera(viewId: viewId) { error in
+            let values = call.arguments as? [String: Any]
+            let configuration = try ScannerConfiguration(arguments: values?["configuration"])
+            scannerDevice.captureCamera(viewId: viewId, configuration: configuration) { error in
                 self.complete(result, error: error)
             }
         } catch {

@@ -1,17 +1,9 @@
 import Flutter
 
-/// Updates recognition delay retained by one platform view.
+/// Applies a point control to the scanner selected by Dart.
 final class SetScanDelayCommand: ScannerCommand {
-    /// Parses and stores a successful-recognition cooldown for the target view.
-    override func executeCommand(
-        _ call: FlutterMethodCall,
-        result: @escaping FlutterResult
-    ) throws {
-        let value = try ScannerMethodArguments.scanDelay(call.arguments)
-        try scannerSession.updateScanPeriod(
-            viewId: value.viewId,
-            delay: value.value
-        )
+    override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
+        try scannerDevice.updateScanPeriod(delay: ScannerMethodArguments.scanDelay(call.arguments))
         success(result)
     }
 }

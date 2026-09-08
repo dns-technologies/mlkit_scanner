@@ -3,25 +3,22 @@ package com.dns_technologies.mlkit_scanner.commands
 import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.commands.base.AsyncScannerCommand
-import com.dns_technologies.mlkit_scanner.session.ScannerSession
-import com.dns_technologies.mlkit_scanner.utils.requireInt
+import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.utils.requireMap
+import com.dns_technologies.mlkit_scanner.utils.optionalBoolean
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.CoroutineScope
 
-/** Toggles the scanner torch for the active session. */
+/** Applies a point control to the scanner selected by Dart. */
 internal class ToggleFlashCommand(
-    scannerSessionProvider: () -> ScannerSession?,
+    scannerProvider: () -> Scanner?,
     commandScope: CoroutineScope,
-) : AsyncScannerCommand(scannerSessionProvider, commandScope) {
-    override suspend fun executeSuspendCommand(
-        call: MethodCall,
-        result: Result,
-    ) {
-        val viewId = call.arguments.requireMap().requireInt(PluginConstants.viewIdArgument)
-        if (viewId < 0) throw PluginError.InvalidArguments
-        scannerSession()?.toggleFlashLight(viewId)
+) : AsyncScannerCommand(scannerProvider, commandScope) {
+    override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
+        val enabled = call.arguments.requireMap().optionalBoolean(PluginConstants.valueArgument)
+            ?: throw PluginError.InvalidArguments
+        scanner()?.setTorch(enabled)
         success(result)
     }
 }

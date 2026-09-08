@@ -14,7 +14,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
 /**
- * Owns a queue of runtime permission requests, with at most one Android request in flight.
+ * Owns a queue of hardware permission requests, with at most one Android request in flight.
  * Callers requesting the same permission share its result, including while it is queued.
  *
  * All entry points run on the main thread, including coroutine calls and their resumptions.
@@ -61,7 +61,7 @@ internal class PermissionGateway(
 
     /**
      * Checks [permission] or joins/enqueues its request. Each named helper supplies its own fixed
-     * [requestCode] and an OS-supported runtime permission declared in the manifest.
+     * [requestCode] and an OS-supported hardware permission declared in the manifest.
      * Codes must differ between permissions and other request owners in the same Activity.
      * Internal visibility allows testing future permission flows without adding feature APIs.
      *

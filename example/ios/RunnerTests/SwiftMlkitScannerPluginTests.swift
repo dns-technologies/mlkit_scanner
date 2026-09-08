@@ -3,6 +3,20 @@ import XCTest
 @testable import mlkit_scanner
 
 final class SwiftMlkitScannerPluginTests: XCTestCase {
+    func testReleaseMethodCompletesWithoutViewArgumentsAndRemainsIdempotent() {
+        let plugin = makePlugin()
+        var replies = 0
+
+        for _ in 0..<2 {
+            plugin.handle(FlutterMethodCall(methodName: PluginConstants.releaseCameraMethod, arguments: nil)) {
+                XCTAssertNil($0)
+                replies += 1
+            }
+        }
+
+        XCTAssertEqual(replies, 2)
+    }
+
     func testUnknownMethodReturnsFlutterMethodNotImplemented() {
         let plugin = makePlugin()
         var channelValue: Any?
@@ -30,7 +44,7 @@ final class SwiftMlkitScannerPluginTests: XCTestCase {
         XCTAssertEqual(error?.message, MlKitPluginError.invalidArguments.localizedDescription)
     }
 
-    func testPlatformViewFactoryUsesStandardCodecAndRegistrationArguments() {
+    func testPlatformViewFactoryRegistersAContainerWithoutAllocatingCamera() {
         let plugin = makePlugin()
 
         XCTAssertTrue(plugin.createArgsCodec() is FlutterStandardMessageCodec)
@@ -40,10 +54,10 @@ final class SwiftMlkitScannerPluginTests: XCTestCase {
             arguments: ["width": 200.0, "height": 120.0]
         )
 
-        let preview = platformView as? CameraPreview
+        let preview = platformView as? ScannerView
         XCTAssertEqual(preview?.viewId, 42)
-        XCTAssertEqual(preview?.view().frame, CGRect(x: 0, y: 0, width: 200, height: 120))
-        preview?.dispose()
+        XCTAssertEqual(preview?.view().frame, CGRect(x: 10, y: 20, width: 100, height: 80))
+        XCTAssertTrue(preview?.view().subviews.isEmpty == true)
     }
 
     func testInvalidViewRegistrationFallsBackToTheProvidedFrame() {
@@ -55,9 +69,8 @@ final class SwiftMlkitScannerPluginTests: XCTestCase {
             arguments: ["width": "invalid"]
         )
 
-        let preview = platformView as? CameraPreview
+        let preview = platformView as? ScannerView
         XCTAssertEqual(preview?.view().frame, CGRect(x: 10, y: 20, width: 100, height: 80))
-        preview?.dispose()
     }
 
     private func makePlugin() -> SwiftMlkitScannerPlugin {

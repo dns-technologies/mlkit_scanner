@@ -33,7 +33,7 @@ internal class ScannerTest {
     @Test
     fun `paused scanner does not send camera frame to analyzer`() {
         val fixture = Fixture()
-        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.captureForTest()
         fixture.scanner.startScan(periodMs = 100)
         fixture.scanner.pauseScan()
 
@@ -47,7 +47,7 @@ internal class ScannerTest {
     @Test
     fun `analyzer materializes frames only when time based attempt is due`() {
         val fixture = Fixture()
-        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.captureForTest()
         fixture.scanner.startScan(periodMs = 100)
 
         fixture.emitFrame()
@@ -65,7 +65,7 @@ internal class ScannerTest {
     fun `scanner passes calculated crop to analyzer`() {
         val fixture = Fixture()
         val cropArea = RecognizeVisorCropRect(scaleWidth = 0.5, scaleHeight = 0.5)
-        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.captureForTest()
         fixture.scanner.setCropArea(cropArea)
         fixture.scanner.startScan(periodMs = 100)
 
@@ -77,7 +77,7 @@ internal class ScannerTest {
     @Test
     fun `scanner analyzes only the CameraX preview crop when custom crop is absent`() {
         val fixture = Fixture(frameCropRect = Rect(10, 20, 710, 1260))
-        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.captureForTest()
         fixture.scanner.startScan(periodMs = 0)
 
         fixture.emitFrame()
@@ -88,7 +88,7 @@ internal class ScannerTest {
     @Test
     fun `scanner safely aligns odd CameraX preview crop when custom crop is absent`() {
         val fixture = Fixture(frameCropRect = Rect(11, 21, 709, 1259))
-        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.captureForTest()
         fixture.scanner.startScan(periodMs = 0)
 
         fixture.emitFrame()
@@ -99,7 +99,7 @@ internal class ScannerTest {
     @Test
     fun `scanner skips analyzer when crop is outside preview`() {
         val fixture = Fixture()
-        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.captureForTest()
         fixture.scanner.setCropArea(
             RecognizeVisorCropRect(
                 scaleWidth = 0.2,
@@ -116,12 +116,12 @@ internal class ScannerTest {
     }
 
     @Test
-    fun `runtime zoomRatio before initialization is rejected by camera adapter`() {
+    fun `zoom before capture is rejected by scanner`() = runBlocking {
         val fixture = Fixture()
 
         val error = runCatching { fixture.scanner.setZoomRatio(2.0F) }.exceptionOrNull()
 
-        assertSame(PluginError.CameraIsNotInitialized, error)
+        assertTrue(error is PluginError.CameraControlError)
         assertEquals(emptyList<Float>(), fixture.camera.zoomRatioValues)
     }
 
@@ -129,78 +129,22 @@ internal class ScannerTest {
     fun `zoomRatio is applied through the camera adapter`() = runBlocking {
         val fixture = Fixture()
 
-        fixture.scanner.startCamera(
-            lifecycleOwner = mock(LifecycleOwner::class.java),
-            onInit = {},
-            onError = {},
-        )
-        fixture.scanner.setZoomRatio(2.0F).await()
+        fixture.scanner.captureForTest()
+        fixture.scanner.setZoomRatio(2.0F)
 
-        assertEquals(listOf(2.0F), fixture.camera.zoomRatioValues)
-    }
-
-    @Test
-    fun `control methods forward arguments and return the original camera completions`() {
-        val camera = mock(Camera::class.java)
-        val scanner = Scanner(camera, mock(ImageBarcodeAnalyzer::class.java))
-        val preview = mock(View::class.java)
-        doReturn(preview).`when`(camera).previewView
-        doReturn(100).`when`(preview).width
-        doReturn(200).`when`(preview).height
-        val reset = CompletableDeferred<Unit>()
-        val focus = CompletableDeferred<Unit>()
-        val zoom = CompletableDeferred<Unit>()
-        val torch = CompletableDeferred<Unit>()
-        doReturn(reset).`when`(camera).resetFocus()
-        doReturn(focus).`when`(camera).focus(2500L, 62F, 66F)
-        doReturn(zoom).`when`(camera).setZoomRatio(2F)
-        doReturn(torch).`when`(camera).setTorch(true)
-
-        assertSame(reset, scanner.resetFocus())
-        assertSame(focus, scanner.focusOnCenter(2500L, 12F, -34F))
-        assertSame(zoom, scanner.setZoomRatio(2F))
-        assertSame(torch, scanner.setTorch(true))
-        verify(camera).resetFocus()
-        verify(camera).previewView
-        verify(camera).focus(2500L, 62F, 66F)
-        verify(camera).setZoomRatio(2F)
-        verify(camera).setTorch(true)
-        verifyNoMoreInteractions(camera)
-    }
-
-    @Test
-    fun `centered focus uses current preview size including fractional centers after resize`() {
-        val camera = mock(Camera::class.java)
-        val preview = mock(View::class.java)
-        val scanner = Scanner(camera, mock(ImageBarcodeAnalyzer::class.java))
-        doReturn(preview).`when`(camera).previewView
-        doReturn(100).`when`(preview).width
-        doReturn(200).`when`(preview).height
-        val initial = CompletableDeferred<Unit>()
-        doReturn(initial).`when`(camera).focus(3000L, 50F, 100F)
-
-        assertSame(initial, scanner.focusOnCenter(3000L, 0F, 0F))
-
-        doReturn(201).`when`(preview).width
-        doReturn(101).`when`(preview).height
-        val resized = CompletableDeferred<Unit>()
-        doReturn(resized).`when`(camera).focus(3000L, 112.5F, 16.5F)
-
-        assertSame(resized, scanner.focusOnCenter(3000L, 12F, -34F))
-        verify(camera).focus(3000L, 50F, 100F)
-        verify(camera).focus(3000L, 112.5F, 16.5F)
+        assertEquals(listOf(1.0F, 2.0F), fixture.camera.zoomRatioValues)
     }
 
     @Test
     fun `resume scan preserves successful recognition cooldown`() {
         val fixture = Fixture(analysisResult = BARCODE)
-        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.captureForTest()
         fixture.scanner.startScan(periodMs = 250)
         fixture.emitFrame()
         fixture.scanner.pauseScan()
         fixture.setCurrentTimeMs(249)
 
-        fixture.scanner.resumeScan()
+        fixture.scanner.startScan(250)
         fixture.emitFrame()
 
         assertEquals(1, fixture.analyzer.acceptedAnalysisCalls)
@@ -215,7 +159,7 @@ internal class ScannerTest {
     @Test
     fun `start scan updates analyzer period`() {
         val fixture = Fixture(analysisResult = BARCODE)
-        fixture.scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fixture.scanner.captureForTest()
 
         fixture.scanner.startScan(periodMs = 250)
         fixture.emitFrame()
@@ -236,10 +180,10 @@ internal class ScannerTest {
         val allowAnalysisToFinish = CountDownLatch(1)
         val analyzer = BlockingResultAnalyzer(analysisStarted, allowAnalysisToFinish)
         val camera = FakeCamera()
-        val scanner = Scanner(camera, analyzer)
+        val scanner = scannerForTest(camera, analyzer)
         val received = mutableListOf<Barcode>()
         scanner.subscribeToScanResults(received::add)
-        scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        scanner.captureForTest()
         scanner.startScan(periodMs = 0)
         val executor = Executors.newSingleThreadExecutor()
 
@@ -248,7 +192,7 @@ internal class ScannerTest {
             assertTrue(analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
 
             scanner.pauseScan()
-            scanner.resumeScan()
+            scanner.startScan(0)
             allowAnalysisToFinish.countDown()
             analysis.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
@@ -262,10 +206,10 @@ internal class ScannerTest {
     @Test
     fun `active scan job publishes analyzer result`() {
         val camera = FakeCamera()
-        val scanner = Scanner(camera, ResultAnalyzer())
+        val scanner = scannerForTest(camera, ResultAnalyzer())
         val received = mutableListOf<Barcode>()
         scanner.subscribeToScanResults(received::add)
-        scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        scanner.captureForTest()
         scanner.startScan(periodMs = 0)
 
         camera.emitFrame(testFrame())
@@ -280,7 +224,7 @@ internal class ScannerTest {
         private var currentTimeMs = 0L
         val camera = FakeCamera()
         val analyzer = FakeAnalyzer({ currentTimeMs }, analysisResult)
-        val scanner = Scanner(camera, analyzer)
+        val scanner = scannerForTest(camera, analyzer)
         var materializedFrames = 0
             private set
         var closedFrames = 0
@@ -371,6 +315,7 @@ internal class ScannerTest {
         ) {
             this.onFrame = onFrame
             onInit()
+            onAvailabilityChanged(com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability.Open)
         }
 
         fun emitFrame(frame: CameraFrame) {

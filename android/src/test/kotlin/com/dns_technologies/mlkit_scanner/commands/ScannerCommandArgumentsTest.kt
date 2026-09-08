@@ -1,226 +1,68 @@
 package com.dns_technologies.mlkit_scanner.commands
 
-import android.content.Context
 import com.dns_technologies.mlkit_scanner.PluginError
-import com.dns_technologies.mlkit_scanner.session.ScannerSession
-import com.dns_technologies.mlkit_scanner.scanner.ScannerView
-import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import com.dns_technologies.mlkit_scanner.scanner.Scanner
+import com.dns_technologies.mlkit_scanner.scanner.ScannerConfiguration
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import org.junit.Assert.assertEquals
+import kotlinx.coroutines.runBlocking
 import org.junit.Test
-import org.mockito.Mockito.mock
-import org.mockito.Mockito.verify
+import org.mockito.Mockito.*
 
 internal class ScannerCommandArgumentsTest {
-    private val commandScope = CoroutineScope(Dispatchers.Unconfined)
-
+    private val scope = CoroutineScope(Dispatchers.Unconfined)
     @Test
-    fun `start scan parses barcode type and non-negative integer delay`() {
-        val session = RecordingScannerSession()
-        val result = mock(MethodChannel.Result::class.java)
-
-        StartScanCommand { session }.execute(
-            MethodCall(
-                "startScan",
-                mapOf("viewId" to VIEW_ID, "type" to 0, "delay" to 150L),
-            ),
-            result,
-        )
-
-        assertEquals(VIEW_ID to 150, session.startScanArguments)
-        verify(result).success(true)
+    fun `point commands parse settings without view or scan identifiers`() = runBlocking<Unit> {
+        val scanner = mock(Scanner::class.java)
+        fun result() = mock(MethodChannel.Result::class.java)
+        SetZoomRatioCommand({ scanner }, scope).execute(MethodCall("setZoomRatio", mapOf("value" to 2.5)), result())
+        ToggleFlashCommand({ scanner }, scope).execute(MethodCall("toggleFlash", mapOf("value" to true)), result())
+        StartScanCommand { scanner }.execute(MethodCall("startScan", mapOf("type" to 0, "delay" to 250)), result())
+        SetScanDelayCommand { scanner }.execute(MethodCall("setScanDelay", mapOf("delay" to 300)), result())
+        SetCropAreaCommand { scanner }.execute(MethodCall("setCropArea", mapOf("cropRect" to mapOf("scaleWidth" to 0.5))), result())
+        CancelScanCommand { scanner }.execute(MethodCall("cancelScan", null), result())
+        verify(scanner).setZoomRatio(2.5F)
+        verify(scanner).setTorch(true)
+        verify(scanner).startScan(250)
+        verify(scanner).setScanPeriod(300)
+        verify(scanner).setCropArea(com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect(scaleWidth = 0.5))
+        verify(scanner).pauseScan()
     }
 
     @Test
-    fun `start scan rejects unsupported type and malformed arguments`() {
-        listOf(
-            mapOf("viewId" to VIEW_ID, "type" to 1, "delay" to 0),
-            mapOf("viewId" to VIEW_ID, "type" to 0, "delay" to -1),
-            mapOf("viewId" to VIEW_ID, "type" to 0, "delay" to 1.5),
-            mapOf("type" to 0, "delay" to 0),
-        ).forEach { arguments ->
-            assertInvalid {
-                StartScanCommand { null }.execute(MethodCall("startScan", arguments), it)
+    fun `point commands reject malformed values before invoking scanner`() {
+        val scanner = mock(Scanner::class.java)
+        val cases = listOf(
+            "setZoomRatio" to null, "setZoomRatio" to mapOf("value" to "bad"),
+            "toggleFlash" to mapOf("value" to 1),
+            "startScan" to mapOf("type" to 1, "delay" to 0),
+            "startScan" to mapOf("type" to 0, "delay" to 0.5),
+            "setScanDelay" to mapOf("delay" to true),
+            "setCropArea" to mapOf("cropRect" to "bad"),
+        )
+        for ((method, arguments) in cases) {
+            val result = mock(MethodChannel.Result::class.java)
+            val call = MethodCall(method, arguments)
+            when (method) {
+                "setZoomRatio" -> SetZoomRatioCommand({ scanner }, scope).execute(call, result)
+                "toggleFlash" -> ToggleFlashCommand({ scanner }, scope).execute(call, result)
+                "startScan" -> StartScanCommand { scanner }.execute(call, result)
+                "setScanDelay" -> SetScanDelayCommand { scanner }.execute(call, result)
+                "setCropArea" -> SetCropAreaCommand { scanner }.execute(call, result)
             }
+            verify(result).error(PluginError.InvalidArguments.errorCode, PluginError.InvalidArguments.message, null)
         }
+        verifyNoInteractions(scanner)
     }
 
     @Test
-    fun `zoom parses positive absolute ratio`() {
-        val session = RecordingScannerSession()
-        val result = mock(MethodChannel.Result::class.java)
-
-        SetZoomRatioCommand({ session }, commandScope).execute(
-            MethodCall("setZoomRatio", mapOf("viewId" to VIEW_ID, "value" to 2.5)),
-            result,
-        )
-
-        assertEquals(VIEW_ID to 2.5F, session.zoomArguments)
-        verify(result).success(true)
-    }
-
-    @Test
-    fun `zoom rejects values without a positive finite Float representation`() {
-        listOf(
-            Double.NaN,
-            Double.POSITIVE_INFINITY,
-            Double.MIN_VALUE,
-            Double.MAX_VALUE,
-            -0.01,
-            0.0,
-            "2.0",
-        ).forEach { value ->
-            assertInvalid {
-                SetZoomRatioCommand({ null }, commandScope).execute(
-                    MethodCall("setZoomRatio", mapOf("viewId" to VIEW_ID, "value" to value)),
-                    it,
-                )
-            }
-        }
-        assertInvalid {
-            SetZoomRatioCommand({ null }, commandScope).execute(
-                MethodCall("setZoomRatio", mapOf("value" to 2.0)),
-                it,
-            )
-        }
-    }
-
-    @Test
-    fun `crop area parses defaults`() {
-        val session = RecordingScannerSession()
-        val result = mock(MethodChannel.Result::class.java)
-
-        SetCropAreaCommand { session }.execute(
-            MethodCall(
-                "setCropArea",
-                mapOf("viewId" to VIEW_ID, "cropRect" to emptyMap<String, Any?>()),
-            ),
-            result,
-        )
-
-        assertEquals(VIEW_ID to RecognizeVisorCropRect(), session.cropArguments)
-        verify(result).success(true)
-    }
-
-    @Test
-    fun `crop area rejects invalid components`() {
-        listOf(
-            mapOf("scaleWidth" to 0.0),
-            mapOf("scaleHeight" to -1.0),
-            mapOf("offsetX" to Double.NaN),
-            mapOf("offsetY" to Double.NEGATIVE_INFINITY),
-            mapOf("scaleWidth" to "0.5"),
-        ).forEach { cropRect ->
-            assertInvalid {
-                SetCropAreaCommand { null }.execute(
-                    MethodCall(
-                        "setCropArea",
-                        mapOf("viewId" to VIEW_ID, "cropRect" to cropRect),
-                    ),
-                    it,
-                )
-            }
-        }
-        assertInvalid {
-            SetCropAreaCommand { null }.execute(
-                MethodCall("setCropArea", mapOf("viewId" to VIEW_ID)),
-                it,
-            )
-        }
-    }
-
-    @Test
-    fun `scan delay parses view-scoped non-negative value`() {
-        val session = RecordingScannerSession()
-        val result = mock(MethodChannel.Result::class.java)
-
-        SetScanDelayCommand { session }.execute(
-            MethodCall("setScanDelay", mapOf("viewId" to VIEW_ID, "delay" to 150L)),
-            result,
-        )
-
-        assertEquals(VIEW_ID to 150, session.scanDelayArguments)
-        verify(result).success(true)
-    }
-
-    @Test
-    fun `scan delay rejects invalid arguments`() {
-        listOf(
-            mapOf("viewId" to VIEW_ID, "delay" to -1),
-            mapOf("viewId" to VIEW_ID, "delay" to 150.5),
-            mapOf("delay" to 150),
-        ).forEach { arguments ->
-            assertInvalid {
-                SetScanDelayCommand { null }.execute(MethodCall("setScanDelay", arguments), it)
-            }
-        }
-    }
-
-    private fun assertInvalid(execute: (MethodChannel.Result) -> Unit) {
-        val result = mock(MethodChannel.Result::class.java)
-        execute(result)
-        verify(result).error(
-            PluginError.InvalidArguments.errorCode,
-            PluginError.InvalidArguments.message,
-            null,
-        )
-    }
-
-    private class RecordingScannerSession : ScannerSession {
-        var startScanArguments: Pair<Int, Int>? = null
-            private set
-        var zoomArguments: Pair<Int, Float>? = null
-            private set
-        var cropArguments: Pair<Int, RecognizeVisorCropRect>? = null
-            private set
-        var scanDelayArguments: Pair<Int, Int>? = null
-            private set
-
-        override fun createView(
-            context: Context,
-            viewId: Int,
-            initialZoomRatio: Double?,
-            initialCropRect: RecognizeVisorCropRect?,
-            initialFlashEnabled: Boolean?,
-        ): ScannerView = mock(ScannerView::class.java)
-
-        override suspend fun captureCamera(
-            viewId: Int,
-            requestCameraPermission: suspend () -> Boolean,
-        ) = Unit
-
-        override fun releaseCamera(viewId: Int) = Unit
-        override fun resumeCamera(viewId: Int) = Unit
-        override fun pauseCamera(viewId: Int) = Unit
-        override fun activate() = Unit
-        override fun deactivate() = Unit
-        override suspend fun toggleFlashLight(viewId: Int) = Unit
-
-        override fun startScan(viewId: Int, periodMs: Int) {
-            startScanArguments = viewId to periodMs
-        }
-
-        override fun pauseScan(viewId: Int) = Unit
-
-        override fun updateScanPeriod(viewId: Int, periodMs: Int) {
-            scanDelayArguments = viewId to periodMs
-        }
-
-        override suspend fun setZoomRatio(viewId: Int, value: Float) {
-            zoomArguments = viewId to value
-        }
-
-        override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) {
-            cropArguments = viewId to cropRect
-        }
-
-        override fun release() = Unit
-    }
-
-    private companion object {
-        const val VIEW_ID = 42
+    fun `delay range is owned by Dart not duplicated in commands`() {
+        val scanner = mock(Scanner::class.java)
+        StartScanCommand { scanner }.execute(MethodCall("startScan", mapOf("type" to 0, "delay" to -1)), mock(MethodChannel.Result::class.java))
+        SetScanDelayCommand { scanner }.execute(MethodCall("setScanDelay", mapOf("delay" to -2)), mock(MethodChannel.Result::class.java))
+        verify(scanner).startScan(-1)
+        verify(scanner).setScanPeriod(-2)
     }
 }

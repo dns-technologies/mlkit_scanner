@@ -32,7 +32,7 @@ final class ScannerCommandTests: XCTestCase {
 
         init(error: Error?) {
             self.error = error
-            super.init(scannerSession: RecordingScannerSession())
+            super.init(scannerDevice: RecordingScannerHardware())
         }
 
         override func executeCommand(

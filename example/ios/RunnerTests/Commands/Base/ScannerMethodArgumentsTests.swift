@@ -3,29 +3,6 @@ import XCTest
 @testable import mlkit_scanner
 
 final class ScannerMethodArgumentsTests: XCTestCase {
-    func testViewRegistrationParsesOptionalTypedControls() throws {
-        let registration = try ScannerMethodArguments.viewRegistration([
-            "width": 320.0,
-            "height": 480.0,
-            "initialZoomRatio": 2.0,
-            "initialFlashEnabled": true,
-            "initialCropRect": [
-                "scaleWidth": 0.5,
-                "scaleHeight": 0.6,
-                "offsetX": 0.1,
-                "offsetY": -0.2,
-            ],
-        ])
-
-        XCTAssertEqual(registration.size, CGSize(width: 320, height: 480))
-        XCTAssertEqual(registration.initialZoomRatio, 2)
-        XCTAssertEqual(registration.initialFlashEnabled, true)
-        XCTAssertEqual(registration.initialCropRect?.scaleWidth, 0.5)
-        XCTAssertEqual(registration.initialCropRect?.scaleHeight, 0.6)
-        XCTAssertEqual(registration.initialCropRect?.offsetX, 0.1)
-        XCTAssertEqual(registration.initialCropRect?.offsetY, -0.2)
-    }
-
     func testCodecNSNumberZeroAndOneRemainNumericValues() throws {
         let zero = NSNumber(value: Int32(0))
         let oneDouble = NSNumber(value: 1.0)
@@ -39,14 +16,13 @@ final class ScannerMethodArgumentsTests: XCTestCase {
             "type": zero,
             "delay": NSNumber(value: Int32(150)),
         ])
-        XCTAssertEqual(options.viewId, 0)
         XCTAssertEqual(options.type, .barcodeRecognition)
 
         let zoom = try ScannerMethodArguments.zoomRatio([
             "viewId": zero,
             "value": oneDouble,
         ])
-        XCTAssertEqual(zoom.value, 1)
+        XCTAssertEqual(zoom, 1)
 
         let crop = try ScannerMethodArguments.cropRect([
             "viewId": zero,
@@ -57,23 +33,8 @@ final class ScannerMethodArgumentsTests: XCTestCase {
                 "offsetY": NSNumber(value: 0.0),
             ],
         ])
-        XCTAssertEqual(crop.value.scaleWidth, 1)
-        XCTAssertEqual(crop.value.offsetX, 0)
-    }
-
-    func testViewRegistrationRequiresACodecBooleanForFlash() throws {
-        let codecBoolean = NSNumber(value: true)
-        let codecNumericOne = NSNumber(value: Int32(1))
-
-        let registration = try ScannerMethodArguments.viewRegistration([
-            "initialFlashEnabled": codecBoolean,
-        ])
-        XCTAssertEqual(registration.initialFlashEnabled, true)
-        assertInvalid {
-            _ = try ScannerMethodArguments.viewRegistration([
-                "initialFlashEnabled": codecNumericOne,
-            ])
-        }
+        XCTAssertEqual(crop.scaleWidth, 1)
+        XCTAssertEqual(crop.offsetX, 0)
     }
 
     func testNumericArgumentsRejectCodecBooleanValues() {
@@ -90,23 +51,13 @@ final class ScannerMethodArgumentsTests: XCTestCase {
         }
     }
 
-    func testZeroCreationSizeDefersToUIKitLayout() throws {
-        let registration = try ScannerMethodArguments.viewRegistration([
-            "width": 0.0,
-            "height": 0.0,
-        ])
-
-        XCTAssertNil(registration.size)
-    }
-
-    func testScanOptionsRequireKnownTypeAndNonnegativeIntegerDelay() throws {
+    func testScanOptionsRequireKnownTypeAndIntegerDelay() throws {
         let options = try ScannerMethodArguments.scanOptions([
             "viewId": 42,
             "type": 0,
             "delay": 150,
         ])
 
-        XCTAssertEqual(options.viewId, 42)
         XCTAssertEqual(options.type, .barcodeRecognition)
         XCTAssertEqual(options.delay, 150)
         assertInvalid {
@@ -114,13 +65,6 @@ final class ScannerMethodArgumentsTests: XCTestCase {
                 "viewId": 42,
                 "type": 1,
                 "delay": 0,
-            ])
-        }
-        assertInvalid {
-            _ = try ScannerMethodArguments.scanOptions([
-                "viewId": 42,
-                "type": 0,
-                "delay": -1,
             ])
         }
         assertInvalid {
@@ -138,8 +82,7 @@ final class ScannerMethodArgumentsTests: XCTestCase {
             "value": 3.0,
         ])
 
-        XCTAssertEqual(value.viewId, 42)
-        XCTAssertEqual(value.value, 3)
+        XCTAssertEqual(value, 3)
         for invalidValue: Any in [Double.nan, Double.infinity, -0.01, 0.0, "2.0"] {
             assertInvalid {
                 _ = try ScannerMethodArguments.zoomRatio([
@@ -156,10 +99,10 @@ final class ScannerMethodArgumentsTests: XCTestCase {
             "cropRect": [String: Any](),
         ])
 
-        XCTAssertEqual(value.value.scaleWidth, 1)
-        XCTAssertEqual(value.value.scaleHeight, 1)
-        XCTAssertEqual(value.value.offsetX, 0)
-        XCTAssertEqual(value.value.offsetY, 0)
+        XCTAssertEqual(value.scaleWidth, 1)
+        XCTAssertEqual(value.scaleHeight, 1)
+        XCTAssertEqual(value.offsetX, 0)
+        XCTAssertEqual(value.offsetY, 0)
 
         let invalidCrops: [[String: Any]] = [
             ["scaleWidth": 0.0],

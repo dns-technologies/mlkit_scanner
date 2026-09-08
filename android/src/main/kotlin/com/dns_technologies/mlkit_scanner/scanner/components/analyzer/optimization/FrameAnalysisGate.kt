@@ -12,16 +12,11 @@ internal class FrameAnalysisGate(
     private val successfulScanPeriodMs = AtomicInteger(successfulScanPeriodMs)
     private val nextAnalysisTimeMs = AtomicLong()
 
-    init {
-        require(successfulScanPeriodMs >= 0)
-    }
-
     /** Returns whether the current frame is the first one available after the active cooldown. */
     fun acceptsFrame(): Boolean = currentTimeMs() >= nextAnalysisTimeMs.get()
 
     /** Updates the cooldown read when a successful recognition completes. */
     fun updateSuccessfulScanPeriod(periodMs: Int) {
-        require(periodMs >= 0)
         successfulScanPeriodMs.set(periodMs)
     }
 

@@ -4,13 +4,13 @@ import Flutter
 final class GetIosAvailableCamerasCommand: ScannerCommand {
     private let cameraUtil: CameraUtil
 
-    /// Creates a camera-discovery command for one scanner session.
+    /// Creates a camera-discovery command for the native scanner.
     init(
-        scannerSession: ScannerSession,
+        scannerDevice: ScannerDevice,
         cameraUtil: CameraUtil = CameraUtil()
     ) {
         self.cameraUtil = cameraUtil
-        super.init(scannerSession: scannerSession)
+        super.init(scannerDevice: scannerDevice)
     }
 
     /// Returns JSON-compatible descriptors for supported capture devices.

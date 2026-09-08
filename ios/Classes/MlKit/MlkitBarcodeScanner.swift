@@ -16,32 +16,32 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
     private let analysisGate: FrameAnalysisGate
     private let cropRectLock = NSLock()
     private var cropRect: CropRect?
-    private let viewId: Int64
+    /// Protected with cropRectLock; frame submissions snapshot this actual subscription.
+    private var subscription: ScanResultSubscription?
     
     var type: RecognitionType = RecognitionType.barcodeRecognition
-    weak var delegate: RecognitionResultDelegate?
     
-    /// Creates a view-scoped recognizer ready to analyze its first frame immediately.
-    required init(delay: Int, cropRect: CropRect?, viewId: Int64) {
+    /// Creates a reusable recognizer ready to analyze its first frame immediately.
+    init(delay: Int, cropRect: CropRect?) {
         scanner = BarcodeScanner.barcodeScanner()
         analysisGate = FrameAnalysisGate(successfulScanPeriodMilliseconds: delay)
         self.cropRect = cropRect
-        self.viewId = viewId
         super.init()
     }
     
     /// Attempts to recognize the first barcode in `sampleBuffer`.
     func processVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation) {
-        guard analysisGate.beginAnalysis() else { return }
+        cropRectLock.lock()
+        let listener = subscription
+        let currentCropRect = cropRect
+        cropRectLock.unlock()
+        guard let listener = listener, analysisGate.beginAnalysis() else { return }
         
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             analysisGate.completeAnalysis(barcodeFound: false)
             return
         }
 
-        cropRectLock.lock()
-        let currentCropRect = cropRect
-        cropRectLock.unlock()
         let cimage = CIImage(cvPixelBuffer: pixelBuffer)
         guard let image = UIImage(
             ciImage: cimage,
@@ -57,9 +57,8 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
         let visionImage = VisionImage(image: image)
         scanner.process(visionImage) { [weak self] features, error in
             guard let self = self else { return }
-            if let error = error {
+            if error != nil {
                 self.analysisGate.completeAnalysis(barcodeFound: false)
-                self.delegate?.onError(error: error)
                 return
             }
             guard let barcode = features?.first, barcode.rawValue != nil else {
@@ -67,8 +66,27 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler {
                 return
             }
             self.analysisGate.completeAnalysis(barcodeFound: true)
-            self.delegate?.onRecognition(result: barcode, viewId: self.viewId)
+            DispatchQueue.main.async { listener.deliver(barcode) }
         }
+    }
+
+    /// Installs a real result listener; an old analysis cannot be reassigned to a new subscription.
+    func subscribe(_ onResult: @escaping (Barcode) -> Void) -> ScanResultSubscription {
+        unsubscribe()
+        let listener = ScanResultSubscription(onResult)
+        cropRectLock.lock()
+        subscription = listener
+        cropRectLock.unlock()
+        return listener
+    }
+
+    /// Called on main; cancellation also suppresses a previously queued main-thread delivery.
+    func unsubscribe() {
+        cropRectLock.lock()
+        let previous = subscription
+        subscription = nil
+        cropRectLock.unlock()
+        previous?.cancel()
     }
 
     /// Updates the cooldown applied after successful recognition.

@@ -6,6 +6,7 @@ import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import org.junit.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.mock
@@ -44,6 +45,19 @@ internal class AsyncScannerCommandTest {
             PluginError.CameraSessionDisposed.message,
             null,
         )
+    }
+
+    @Test
+    fun `cancelled command scope reports disposal without executing even an immediate body`() {
+        val cancelledScope = CoroutineScope(Dispatchers.Unconfined)
+        cancelledScope.cancel()
+        val result = mock(MethodChannel.Result::class.java)
+        val command = TestAsyncScannerCommand(cancelledScope, CompletableDeferred(Unit), null)
+
+        command.execute(MethodCall("test", null), result)
+
+        verify(result, never()).success(anyValue())
+        verify(result).error(PluginError.CameraSessionDisposed.errorCode, PluginError.CameraSessionDisposed.message, null)
     }
 
     private class TestAsyncScannerCommand(

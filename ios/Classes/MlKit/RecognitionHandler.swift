@@ -9,26 +9,11 @@ import Foundation
 import AVFoundation
 import MLKitBarcodeScanning
 
-/// Delegate of the recognition results.
-protocol RecognitionResultDelegate: AnyObject {
-    /// Call delegate on success recognition.
-    func onRecognition(result: Barcode, viewId: Int64)
-    
-    /// Call delegate on recognition error.
-    func onError(error: Error)
-}
-
-/// Processes camera frames for one recognition mode and platform view.
+/// Processes camera frames without knowledge of Flutter view ownership.
 protocol RecognitionHandler: AnyObject {
     /// Recognition mode implemented by this handler.
     var type: RecognitionType { get }
     
-    /// Delegate of the recognition results.
-    var delegate: RecognitionResultDelegate? {get set}
-    
-    /// Creates a handler with a platform cooldown and optional crop.
-    init(delay: Int, cropRect: CropRect?, viewId: Int64)
-
     /// Updates the cooldown applied after successful recognition.
     func setDelay(delay: Int)
     

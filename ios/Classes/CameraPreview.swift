@@ -6,22 +6,18 @@
 //
 
 import AVFoundation
-import Flutter
 import UIKit
 
 /// Receives view-scoped camera preview events.
 protocol CameraPreviewDelegate: AnyObject {
-    /// Reports a native torch-state change for one platform view.
-    func onToggleTorch(value: Bool, viewId: Int64)
+    /// Reports the current physical device state on main.
+    func onTorchChanged(_ camera: CameraPreviewing, enabled: Bool)
     /// Returns whether a focus gesture still belongs to the active camera owner.
-    func canApplyFocus(viewId: Int64) -> Bool
+    func canApplyFocus() -> Bool
 }
 
-/// Native iOS camera preview owned by one Flutter platform view.
-class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
-    /// Flutter identifier of the platform view that owns this preview.
-    let viewId: Int64
-    let registrationToken: UUID
+/// One reusable AVFoundation adapter, borrowed by the current Flutter container.
+class CameraPreview: NSObject, CameraPreviewing {
     private let preview: UIContainer
     private var scaleX, scaleY: CGFloat
     private var offsetX, offsetY: CGFloat
@@ -52,8 +48,9 @@ class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
     private var streamingCompletion: ((Error?) -> Void)?
     private var isStreaming = false
     private var scannerOverlay: ScannerOverlay?
-    private let onDispose: (Int64, UUID) -> Void
     private var disposed = false
+    /// Main-thread acknowledgment; querying readiness must not block behind startRunning().
+    private var configured = false
     
     private let focusView: FocusView
     private weak var currentRecognitionHandler: RecognitionHandler?
@@ -74,17 +71,11 @@ class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
     /// Creates a native preview without starting camera capture.
     init(
         frame: CGRect,
-        viewId: Int64,
-        registrationToken: UUID = UUID(),
         offsetX: CGFloat = 0,
-        offsetY: CGFloat = 0,
-        onDispose: @escaping (Int64, UUID) -> Void = { _, _ in }
+        offsetY: CGFloat = 0
     ) {
-        self.viewId = viewId
-        self.registrationToken = registrationToken
-        self.onDispose = onDispose
         videoOutputQueue = DispatchQueue(
-            label: "mlkit_scanner.video_output.\(viewId)",
+            label: "mlkit_scanner.video_output",
             qos: .userInitiated
         )
         preview = UIContainer(frame: frame)
@@ -101,11 +92,11 @@ class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
         super.init()
         preview.delegate = self
         focusView.delegate = self
+        addFocusView()
     }
 
     deinit {
         dispose()
-        onDispose(viewId, registrationToken)
     }
 
     /// Whether UIKit has supplied finite, nonempty preview bounds.
@@ -149,33 +140,34 @@ class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
         return preview
     }
     
-    /// Requests permission and prepares a capture session without starting it.
-    ///
-    /// Camera work runs off the main thread. `completion` receives an error when
-    /// authorization or session initialization fails. View-owned configuration
-    /// is applied later only while this preview is the active camera owner.
-    func initCamera(
-        completion: @escaping (Error?) -> ()
-    ) {
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized:
-            configureCamera(completion: completion)
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                DispatchQueue.main.async {
-                    guard let self = self else {
-                        completion(MlKitPluginError.cameraIsNotInitialized)
-                        return
-                    }
-                    guard granted else {
-                        completion(MlKitPluginError.authorizationCameraError)
-                        return
-                    }
-                    self.configureCamera(completion: completion)
+    /// Permission belongs to the bridge; this adapter only configures AVFoundation.
+    func initCamera(completion: @escaping (Error?) -> Void) {
+        guard !isDisposed else { completion(MlKitPluginError.cameraSessionDisposed); return }
+        configureCamera { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self = self, !self.isDisposed else {
+                    completion(MlKitPluginError.cameraSessionDisposed)
+                    return
                 }
+                self.configured = error == nil
+                completion(error)
             }
-        default:
-            completion(MlKitPluginError.authorizationCameraError)
+        }
+    }
+
+    /// Main-thread acknowledgment of the completed SDK configuration.
+    var isInitialized: Bool { configured && !isDisposed }
+
+    var isTorchActive: Bool { camera?.isTorchActive == true }
+
+    /// Cancels real pending callbacks, then acknowledges preceding native queue work.
+    func cancelPendingStart(completion: @escaping () -> Void) {
+        layoutReadyCompletions.removeAll()
+        CameraPreview.sessionQueue.async { [weak self] in
+            let pending = self?.streamingCompletion
+            self?.streamingCompletion = nil
+            pending?(nil)
+            completion()
         }
     }
 
@@ -213,13 +205,12 @@ class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
         updateVideoOrientation()
         previewLayer.frame = preview.bounds
         preview.layer.insertSublayer(previewLayer, at: 0)
-        addFocusView()
 
         subscribeOrientationChanges()
         observeCaptureSession(captureSession)
         observeTorchToggle()
         CameraPreview.sessionQueue.async { [weak self] in
-            guard let self = self, let session = self.captureSession else {
+            guard let self = self, !self.isDisposed, let session = self.captureSession else {
                 completion(MlKitPluginError.cameraIsNotInitialized)
                 return
             }
@@ -256,6 +247,7 @@ class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
             throw MlKitPluginError.initCameraError
         }
 
+        if camera?.uniqueID == newCamera.uniqueID { return }
         let newInput = try AVCaptureDeviceInput.init(device: newCamera)
 
         try CameraPreview.syncOnSessionQueue {
@@ -274,9 +266,8 @@ class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
         }
 
         camera = newCamera
-
-        torchObserver?.invalidate()
         observeTorchToggle()
+
     }    
 
     /// Returns the default back wide-angle camera.
@@ -344,24 +335,6 @@ class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
     /// Updates whether the scanner overlay indicates active recognition.
     func setScanActive(_ isActive: Bool) {
         scannerOverlay?.isActive = isActive
-    }
-
-    /// Stops the capture session asynchronously without releasing its resources.
-    func pauseCamera(completion: @escaping () -> ()) {
-        CameraPreview.sessionQueue.async { [weak self] in
-            guard let self = self else {
-                completion()
-                return
-            }
-            let pendingStreamingCompletion = self.streamingCompletion
-            self.streamingCompletion = nil
-            self.isStreaming = false
-            if let session = self.captureSession, session.isRunning {
-                session.stopRunning()
-            }
-            pendingStreamingCompletion?(nil)
-            completion()
-        }
     }
 
     /// Restarts the capture session asynchronously.
@@ -502,12 +475,14 @@ class CameraPreview: NSObject, FlutterPlatformView, CameraPreviewing {
         camera.videoZoomFactor = zoomRatio
     }
     
-    /// Observes hardware torch activity and reports it with this view's identity.
+    /// KVO is a wake-up signal. Read the live device on main, not an old value queued during rebinding.
     private func observeTorchToggle() {
-        torchObserver = camera?.observe(\.isTorchActive, options: .new) { [weak self] _, observable in
-            guard let isActive = observable.newValue else { return }
-            guard let self = self else { return }
-            self.cameraPreviewDelegate?.onToggleTorch(value: isActive, viewId: self.viewId)
+        torchObserver?.invalidate()
+        torchObserver = camera?.observe(\.isTorchActive, options: .new) { [weak self] device, _ in
+            DispatchQueue.main.async {
+                guard let self = self, self.camera === device, !self.isDisposed else { return }
+                self.cameraPreviewDelegate?.onTorchChanged(self, enabled: device.isTorchActive)
+            }
         }
     }
 
@@ -595,13 +570,13 @@ extension CameraPreview: AVCaptureVideoDataOutputSampleBufferDelegate {
 extension CameraPreview: FocusViewDelegate {
     /// Requests continuous focus at the current overlay center.
     func onFocus() {
-        guard cameraPreviewDelegate?.canApplyFocus(viewId: viewId) == true else { return }
+        guard cameraPreviewDelegate?.canApplyFocus() == true else { return }
         focusOnCenter(needLock: false)
     }
     
     /// Requests a one-shot focus lock at the current overlay center.
     func onLockFocus() {
-        guard cameraPreviewDelegate?.canApplyFocus(viewId: viewId) == true else { return }
+        guard cameraPreviewDelegate?.canApplyFocus() == true else { return }
         focusOnCenter(needLock: true)
     }
     

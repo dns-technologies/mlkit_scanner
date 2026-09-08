@@ -4,8 +4,8 @@ import XCTest
 
 final class CaptureCameraCommandTests: XCTestCase {
     func testExecuteCompletesAfterSessionCapture() {
-        let session = RecordingScannerSession()
-        let command = CaptureCameraCommand(scannerSession: session)
+        let session = RecordingScannerHardware()
+        let command = CaptureCameraCommand(scannerDevice: session)
         var resultValue: Any? = true
 
         command.execute(call(viewId: 42)) { resultValue = $0 }
@@ -15,9 +15,9 @@ final class CaptureCameraCommandTests: XCTestCase {
     }
 
     func testExecuteReturnsCaptureFailureToFlutter() {
-        let session = RecordingScannerSession()
+        let session = RecordingScannerHardware()
         session.completionError = MlKitPluginError.initCameraError
-        let command = CaptureCameraCommand(scannerSession: session)
+        let command = CaptureCameraCommand(scannerDevice: session)
         var resultValue: Any?
 
         command.execute(call(viewId: 42)) { resultValue = $0 }
@@ -26,8 +26,8 @@ final class CaptureCameraCommandTests: XCTestCase {
     }
 
     func testExecuteRejectsMalformedViewIdWithoutCallingSession() {
-        let session = RecordingScannerSession()
-        let command = CaptureCameraCommand(scannerSession: session)
+        let session = RecordingScannerHardware()
+        let command = CaptureCameraCommand(scannerDevice: session)
         var resultValue: Any?
 
         command.execute(call(viewId: -1)) { resultValue = $0 }
@@ -37,6 +37,6 @@ final class CaptureCameraCommandTests: XCTestCase {
     }
 
     private func call(viewId: NSNumber) -> FlutterMethodCall {
-        FlutterMethodCall(methodName: "captureCamera", arguments: ["viewId": viewId])
+        FlutterMethodCall(methodName: "captureCamera", arguments: ["viewId": viewId, "configuration": ["zoomRatio": 1.0, "torchEnabled": false, "scanEnabled": false, "scanDelay": 0] as [String: Any]])
     }
 }

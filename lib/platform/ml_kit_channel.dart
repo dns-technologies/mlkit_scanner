@@ -2,31 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
-import 'package:mlkit_scanner/models/recognition_type.dart';
+import 'package:mlkit_scanner/platform/scanner_configuration.dart';
+
+/// A native event addressed to its source preview.
+typedef ScannerEvent<T> = ({int viewId, T value});
 
 /// Typed access to the scanner platform channel.
 class MlKitChannel {
-  static const _captureCameraMethod = 'captureCamera';
-  static const _releaseCameraMethod = 'releaseCamera';
-  static const _toggleFlashMethod = 'toggleFlash';
-  static const _startScanMethod = 'startScan';
-  static const _cancelScanMethod = 'cancelScan';
-  static const _setScanDelayMethod = 'setScanDelay';
-  static const _scanResultMethod = 'onScanResult';
-  static const _pauseCameraMethod = 'pauseCameraMethod';
-  static const _resumeCameraMethod = 'resumeCameraMethod';
-  static const _changeTorchStateMethod = 'changeTorchStateMethod';
-  static const _setZoomRatioMethod = 'setZoomRatio';
-  static const _setCropAreaMethod = 'setCropAreaMethod';
-  static const _getIosAvailableCameras = 'getIosAvailableCameras';
-  static const _setIosCamera = 'setIosCamera';
-
   static MlKitChannel? _instance;
   final MethodChannel _channel = const MethodChannel('mlkit_channel');
-  final StreamController<_ClientEvent<Barcode>> _scanResultStreamController =
-      StreamController<_ClientEvent<Barcode>>.broadcast();
-  final StreamController<_ClientEvent<bool>> _torchToggleStreamController =
-      StreamController<_ClientEvent<bool>>.broadcast();
+  final StreamController<ScannerEvent<Barcode>> _scanResultStreamController = StreamController<ScannerEvent<Barcode>>.broadcast();
+  final StreamController<ScannerEvent<bool>> _torchToggleStreamController = StreamController<ScannerEvent<bool>>.broadcast();
 
   /// Returns the shared channel instance used by all scanner widgets.
   factory MlKitChannel() {
@@ -37,14 +23,14 @@ class MlKitChannel {
   /// Creates the shared channel and registers callbacks from native platforms.
   MlKitChannel._() {
     _channel.setMethodCallHandler((call) async {
-      if (call.method == _scanResultMethod) {
+      if (call.method == 'onScanResult') {
         final event = _decodeClientEvent(
           call.arguments,
           'barcode',
           (value) => Barcode.fromJson(Map<String, dynamic>.from(value as Map)),
         );
         if (event != null) _scanResultStreamController.add(event);
-      } else if (call.method == _changeTorchStateMethod) {
+      } else if (call.method == 'changeTorchStateMethod') {
         final event = _decodeClientEvent(
           call.arguments,
           'value',
@@ -56,7 +42,7 @@ class MlKitChannel {
   }
 
   /// Decodes a view-scoped native event and ignores malformed payloads.
-  _ClientEvent<T>? _decodeClientEvent<T>(
+  ScannerEvent<T>? _decodeClientEvent<T>(
     Object? arguments,
     String valueKey,
     T Function(Object? value) decodeValue,
@@ -66,7 +52,7 @@ class MlKitChannel {
     if (viewId is! int || !arguments.containsKey(valueKey)) return null;
 
     try {
-      return _ClientEvent(viewId, decodeValue(arguments[valueKey]));
+      return (viewId: viewId, value: decodeValue(arguments[valueKey]));
     } on Object {
       return null;
     }
@@ -87,151 +73,41 @@ class MlKitChannel {
     }
   }
 
-  /// Transfers camera ownership to [viewId] and restores its retained state.
-  ///
-  /// The first call starts initialization owned by that view. A later call for
-  /// the same view awaits the same in-flight initialization. Losing ownership
-  /// does not cancel it, but prevents its state from being applied to another
-  /// active view.
-  /// Throws [CameraControlException] when opening the camera or applying its
-  /// retained zoom or torch state fails.
-  Future<void> captureCamera({required int viewId}) {
-    return _invokeVoidMethod(_captureCameraMethod, {'viewId': viewId});
-  }
+  /// Applies a complete Dart snapshot after selecting the native preview.
+  /// Completes after SDK configuration; release may interrupt this operation.
+  Future<void> captureCamera({required int viewId, required ScannerConfiguration configuration}) =>
+      _invokeVoidMethod('captureCamera', {'viewId': viewId, 'configuration': configuration.toJson()});
 
-  /// Releases camera ownership if [viewId] still owns it.
-  Future<void> releaseCamera({required int viewId}) {
-    return _invokeVoidMethod(_releaseCameraMethod, {'viewId': viewId});
-  }
+  /// Releases the scanner and acknowledges cancellation of its unfinished work.
+  Future<void> releaseCamera() => _invokeVoidMethod('releaseCamera', null);
 
-  /// Toggles flash configuration owned by the platform view identified by [viewId].
-  ///
-  /// Inactive views retain the requested state until their next camera capture.
-  /// Throws a [PlatformException] when the selected camera has no flash and a
-  /// [CameraControlException] when the torch operation fails.
-  Future<void> toggleFlash({required int viewId}) {
-    return _invokeVoidMethod(_toggleFlashMethod, {'viewId': viewId});
-  }
+  /// Changes only zoom on the selected scanner, without restarting preview.
+  Future<void> setZoomRatio(double value) => _invokeVoidMethod('setZoomRatio', {'value': value});
 
-  /// Starts recognition requested by the platform view identified by [viewId].
-  ///
-  /// [type] selects the native recognition mode. The first available frame is
-  /// analyzed immediately. [delay] is the minimum cooldown in milliseconds
-  /// after successful recognition. Failed attempts wait one second before
-  /// analyzing the next available camera frame on both platforms.
-  /// Only the current scanner view receives native scan events.
-  /// Inactive views retain the request without changing the active scanner.
-  Future<void> startScan(
-    RecognitionType type,
-    int delay, {
-    required int viewId,
-  }) {
-    final args = {
-      'viewId': viewId,
-      'type': type.rawValue,
-      'delay': delay,
-    };
-    return _invokeVoidMethod(_startScanMethod, args);
-  }
+  /// Sets the selected scanner's torch to an absolute state.
+  Future<void> setTorch(bool enabled) => _invokeVoidMethod('toggleFlash', {'value': enabled});
 
-  /// Reports recognized barcodes for one platform view.
-  Stream<Barcode> scanResults(int viewId) {
-    return _scanResultStreamController.stream
-        .where((event) => event.viewId == viewId)
-        .map((event) => event.value);
-  }
+  /// Updates recognition geometry without recapturing the camera.
+  Future<void> setCropArea(CropRect cropRect) => _invokeVoidMethod('setCropArea', {'cropRect': cropRect.toJson()});
 
-  /// Reports iOS torch changes for one platform view.
-  Stream<bool> torchToggleStream(int viewId) {
-    return _torchToggleStreamController.stream
-        .where((event) => event.viewId == viewId)
-        .map((event) => event.value);
-  }
+  /// Updates the recognition cooldown.
+  Future<void> setScanDelay(int delay) => _invokeVoidMethod('setScanDelay', {'delay': delay});
 
-  /// Stops recognition requested by the platform view identified by [viewId].
-  Future<void> cancelScan({required int viewId}) {
-    return _invokeVoidMethod(_cancelScanMethod, {'viewId': viewId});
-  }
+  /// Starts barcode recognition on the selected preview.
+  Future<void> startScan(int delay) => _invokeVoidMethod('startScan', {'type': 0, 'delay': delay});
 
-  /// Sets the successful-recognition cooldown owned by [viewId].
-  ///
-  /// Failed recognition uses the fixed retry cooldown instead. Inactive views
-  /// retain the value without changing the active scanner.
-  Future<void> setScanDelay(int delay, {required int viewId}) {
-    return _invokeVoidMethod(_setScanDelayMethod, {
-      'viewId': viewId,
-      'delay': delay,
-    });
-  }
+  /// Stops recognition without stopping preview.
+  Future<void> cancelScan() => _invokeVoidMethod('cancelScan', null);
 
-  /// Pauses camera work requested by [viewId] without releasing ownership.
-  ///
-  /// Other registered scanner views keep their independent lifecycle intent.
-  Future<void> pauseCamera({required int viewId}) {
-    return _invokeVoidMethod(_pauseCameraMethod, {'viewId': viewId});
-  }
+  /// All recognized barcodes, tagged with the native source view.
+  Stream<ScannerEvent<Barcode>> get scanResults => _scanResultStreamController.stream;
 
-  /// Resumes camera work requested by [viewId].
-  ///
-  /// The view's retained camera configuration is restored. Detection also
-  /// resumes if [startScan] was previously requested by this view.
-  /// Throws [CameraControlException] if the camera cannot resume streaming.
-  Future<void> resumeCamera({required int viewId}) {
-    return _invokeVoidMethod(_resumeCameraMethod, {'viewId': viewId});
-  }
-
-  /// Sets the absolute camera zoom ratio owned by [viewId].
-  ///
-  /// `1.0` represents the camera's natural field of view. The supported range
-  /// is device- and camera-dependent.
-  /// Inactive views retain the value until their next camera capture.
-  /// Throws [CameraControlException] when the zoom operation fails.
-  Future<void> setZoomRatio(double value, {required int viewId}) {
-    return _invokeVoidMethod(_setZoomRatioMethod, {
-      'viewId': viewId,
-      'value': value,
-    });
-  }
-
-  /// Sets the recognition area owned by the platform view identified by [viewId].
-  ///
-  /// [rect] is normalized relative to the camera preview. Inactive views retain
-  /// the area without changing the active scanner.
-  Future<void> setCropArea(CropRect rect, {required int viewId}) {
-    return _invokeVoidMethod(_setCropAreaMethod, {
-      'viewId': viewId,
-      'cropRect': rect.toJson(),
-    });
-  }
+  /// All iOS torch changes, tagged with the native source view.
+  Stream<ScannerEvent<bool>> get torchToggleStream => _torchToggleStreamController.stream;
 
   /// Returns all iOS cameras supported by the native implementation.
   Future<List<IosCamera>> getIosAvailableCameras() async {
-    final availableCameras =
-        (await _channel.invokeListMethod<dynamic>(_getIosAvailableCameras))!;
-    return availableCameras
-        .map((json) => IosCamera.fromJson(Map<String, dynamic>.from(json)))
-        .toList();
+    final availableCameras = (await _channel.invokeListMethod<dynamic>('getIosAvailableCameras'))!;
+    return availableCameras.map((json) => IosCamera.fromJson(Map<String, dynamic>.from(json))).toList();
   }
-
-  /// Selects the iOS camera with [position] and [type] for [viewId].
-  ///
-  /// Inactive views retain the selection until their next camera capture.
-  Future<void> setIosCamera({
-    required int viewId,
-    required IosCameraPosition position,
-    required IosCameraType type,
-  }) {
-    return _invokeVoidMethod(_setIosCamera, {
-      'viewId': viewId,
-      'position': position.code,
-      'type': type.code,
-    });
-  }
-}
-
-class _ClientEvent<T> {
-  final int viewId;
-  final T value;
-
-  const _ClientEvent(this.viewId, this.value);
 }

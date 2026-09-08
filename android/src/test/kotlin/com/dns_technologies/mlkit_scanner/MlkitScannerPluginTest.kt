@@ -1,239 +1,141 @@
 package com.dns_technologies.mlkit_scanner
 
-import android.app.Activity
+import android.content.Context
 import android.os.Handler
-import androidx.lifecycle.Lifecycle
-import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
-import com.dns_technologies.mlkit_scanner.session.ScannerSession
-import com.dns_technologies.mlkit_scanner.session.ScannerSessionController
-import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import io.flutter.embedding.engine.plugins.FlutterPlugin
-import io.flutter.embedding.engine.plugins.lifecycle.HiddenLifecycleReference
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.PluginRegistry
+import io.flutter.plugin.platform.PlatformViewFactory
 import io.flutter.plugin.platform.PlatformViewRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.isActive
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotSame
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Test
-import org.mockito.invocation.InvocationOnMock
-import org.mockito.Mockito.doAnswer
-import org.mockito.Mockito.doReturn
-import org.mockito.Mockito.mock
-import org.mockito.Mockito.inOrder
-import org.mockito.Mockito.never
-import org.mockito.Mockito.times
-import org.mockito.Mockito.verify
+import org.mockito.ArgumentMatchers.anyString
+import org.mockito.Mockito.*
 
 internal class MlkitScannerPluginTest {
     @Test
-    fun `start scan command updates shared session`() {
-        val fixture = Fixture()
+    fun `release method delegates to the scanner without view arguments`() {
+        val scanner = mock(Scanner::class.java)
+        val plugin = releasePlugin(scanner)
+        val result = mock(MethodChannel.Result::class.java)
 
-        fixture.plugin.onMethodCall(
-            MethodCall(
-                PluginConstants.startScanMethod,
-                mapOf(
-                    PluginConstants.viewIdArgument to VIEW_ID,
-                    "type" to 0,
-                    "delay" to 150,
-                ),
-            ),
-            fixture.result,
-        )
+        plugin.onMethodCall(MethodCall(PluginConstants.releaseCameraMethod, null), result)
 
-        verify(fixture.session).startScan(VIEW_ID, 150)
-        verify(fixture.result).success(true)
+        verify(scanner).releaseCamera()
+        verify(result).success(true)
+        verifyNoMoreInteractions(result)
+        plugin.dispose()
     }
 
     @Test
-    fun `camera and scan lifecycle commands address one platform view`() {
-        val fixture = Fixture()
+    fun `release method succeeds repeatedly without an allocated scanner`() {
+        val plugin = releasePlugin(null)
+        val result = mock(MethodChannel.Result::class.java)
 
-        fixture.plugin.onMethodCall(
-            MethodCall(
-                PluginConstants.pauseCameraMethod,
-                mapOf(PluginConstants.viewIdArgument to VIEW_ID),
-            ),
-            fixture.result,
-        )
-        fixture.plugin.onMethodCall(
-            MethodCall(
-                PluginConstants.resumeCameraMethod,
-                mapOf(PluginConstants.viewIdArgument to VIEW_ID),
-            ),
-            fixture.result,
-        )
-        fixture.plugin.onMethodCall(
-            MethodCall(
-                PluginConstants.cancelScanMethod,
-                mapOf(PluginConstants.viewIdArgument to VIEW_ID),
-            ),
-            fixture.result,
-        )
+        repeat(2) { plugin.onMethodCall(MethodCall(PluginConstants.releaseCameraMethod, null), result) }
 
-        verify(fixture.session).pauseCamera(VIEW_ID)
-        verify(fixture.session).resumeCamera(VIEW_ID)
-        verify(fixture.session).pauseScan(VIEW_ID)
-        verify(fixture.result, times(3)).success(true)
+        verify(result, times(2)).success(true)
+        verifyNoMoreInteractions(result)
+        plugin.dispose()
     }
 
     @Test
-    fun `scan result event contains addressed barcode payload`() {
-        val fixture = Fixture()
+    fun `release method reports native cancellation failure`() {
+        val scanner = mock(Scanner::class.java)
+        val plugin = releasePlugin(scanner)
+        val result = mock(MethodChannel.Result::class.java)
+        doAnswer { throw PluginError.CameraSessionDisposed }.`when`(scanner).releaseCamera()
 
-        fixture.plugin.javaClass.getDeclaredMethod(
-            "emitScanResult",
-            Int::class.javaPrimitiveType,
-            Barcode::class.java,
-        ).apply { isAccessible = true }.invoke(fixture.plugin, VIEW_ID, BARCODE)
+        plugin.onMethodCall(MethodCall(PluginConstants.releaseCameraMethod, null), result)
 
-        verify(fixture.channel).invokeMethod(
-            PluginConstants.scanResultMethod,
-            mapOf(
-                PluginConstants.viewIdArgument to VIEW_ID,
-                PluginConstants.barcodeArgument to BARCODE.toMap(),
-            ),
-        )
+        verify(result).error(PluginError.CameraSessionDisposed.errorCode, PluginError.CameraSessionDisposed.message, null)
+        verifyNoMoreInteractions(result)
+        plugin.dispose()
     }
 
     @Test
-    fun `permission listener identity survives activity recreation`() {
+    fun `each engine attachment gets a fresh command scope`() {
         val plugin = MlkitScannerPlugin(mock(Handler::class.java))
-        val firstBinding = mock(ActivityPluginBinding::class.java)
-        val secondBinding = mock(ActivityPluginBinding::class.java)
-        val addedListeners = mutableListOf<PluginRegistry.RequestPermissionsResultListener>()
-        val removedListeners = mutableListOf<PluginRegistry.RequestPermissionsResultListener>()
-        val lifecycle = mock(Lifecycle::class.java)
-        doReturn(Lifecycle.State.RESUMED).`when`(lifecycle).currentState
-        listOf(firstBinding, secondBinding).forEach { binding ->
-            doReturn(mock(Activity::class.java)).`when`(binding).activity
-            doAnswer { HiddenLifecycleReference(lifecycle) }.`when`(binding).lifecycle
-            doAnswer { invocation: InvocationOnMock ->
-                addedListeners += invocation.getArgument<PluginRegistry.RequestPermissionsResultListener>(0)
-                null
-            }.`when`(binding).addRequestPermissionsResultListener(anyValue())
-            doAnswer { invocation: InvocationOnMock ->
-                removedListeners += invocation.getArgument<PluginRegistry.RequestPermissionsResultListener>(0)
-                null
-            }.`when`(binding).removeRequestPermissionsResultListener(anyValue())
+        val engine = engine()
+        plugin.onAttachedToEngine(engine)
+        val firstScope = plugin.scope()
+        plugin.onDetachedFromEngine(engine)
+        assertTrue(plugin.isDisposed)
+        assertFalse(firstScope.isActive)
+
+        plugin.onAttachedToEngine(engine)
+
+        assertNotSame(firstScope, plugin.scope())
+        assertTrue(plugin.scope().isActive)
+        plugin.onDetachedFromEngine(engine)
+    }
+
+    @Test
+    fun `stale factory cannot create a view after engine reattachment`() {
+        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
+        val firstEngine = engine()
+        var factory: PlatformViewFactory? = null
+        val registry = firstEngine.platformViewRegistry
+        doAnswer { factory = it.getArgument(1); true }.`when`(registry)
+            .registerViewFactory(anyString(), anyValue())
+        plugin.onAttachedToEngine(firstEngine)
+        val oldFactory = checkNotNull(factory)
+        plugin.onDetachedFromEngine(firstEngine)
+        val secondEngine = engine()
+        plugin.onAttachedToEngine(secondEngine)
+
+        val error = runCatching { oldFactory.create(mock(Context::class.java), 42, mapOf("viewId" to 42)) }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertFalse(plugin.isDisposed)
+        plugin.onDetachedFromEngine(secondEngine)
+    }
+
+    @Test
+    fun `failed factory registration releases attachment resources`() {
+        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
+        val engine = engine()
+        val registry = engine.platformViewRegistry
+        doReturn(false).`when`(registry).registerViewFactory(anyString(), anyValue())
+
+        assertTrue(runCatching { plugin.onAttachedToEngine(engine) }.exceptionOrNull() is IllegalStateException)
+
+        assertTrue(plugin.isDisposed)
+        assertFalse(plugin.scope().isActive)
+    }
+
+    @Test
+    fun `duplicate engine attach cannot replace a live attachment`() {
+        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
+        val engine = engine()
+        plugin.onAttachedToEngine(engine)
+        val scope = plugin.scope()
+
+        assertTrue(runCatching { plugin.onAttachedToEngine(engine()) }.exceptionOrNull() is IllegalStateException)
+
+        assertSame(scope, plugin.scope())
+        assertFalse(plugin.isDisposed)
+        plugin.onDetachedFromEngine(engine)
+    }
+
+    private fun releasePlugin(scanner: Scanner?): MlkitScannerPlugin =
+        MlkitScannerPlugin(mock(Handler::class.java), mock(MethodChannel::class.java)).also { plugin ->
+            plugin.javaClass.getDeclaredField("scanner").apply { isAccessible = true }.set(plugin, scanner)
         }
 
-        plugin.onAttachedToActivity(firstBinding)
-        plugin.onDetachedFromActivityForConfigChanges()
-        plugin.onReattachedToActivityForConfigChanges(secondBinding)
-        plugin.onDetachedFromActivity()
-
-        assertEquals(2, addedListeners.size)
-        assertEquals(2, removedListeners.size)
-        assertSame(addedListeners.first(), removedListeners.first())
-        assertSame(addedListeners.first(), addedListeners.last())
-        assertSame(addedListeners.first(), removedListeners.last())
+    private fun engine(): FlutterPlugin.FlutterPluginBinding = mock(FlutterPlugin.FlutterPluginBinding::class.java).also {
+        doReturn(mock(BinaryMessenger::class.java)).`when`(it).binaryMessenger
+        val registry = mock(PlatformViewRegistry::class.java)
+        doReturn(true).`when`(registry).registerViewFactory(anyString(), anyValue())
+        doReturn(registry).`when`(it).platformViewRegistry
     }
 
-    @Test
-    fun `activity lifecycle is extracted through official Flutter adapter`() {
-        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
-        val session = mock(ScannerSession::class.java)
-        val binding = mock(ActivityPluginBinding::class.java)
-        val lifecycle = mock(Lifecycle::class.java)
-        doReturn(mock(Activity::class.java)).`when`(binding).activity
-        plugin.sessionController.setField("session", session)
-        doAnswer { HiddenLifecycleReference(lifecycle) }.`when`(binding).lifecycle
-        doReturn(Lifecycle.State.RESUMED).`when`(lifecycle).currentState
+    private fun MlkitScannerPlugin.scope(): CoroutineScope =
+        javaClass.getDeclaredField("commandScope").apply { isAccessible = true }.get(this) as CoroutineScope
 
-        plugin.onAttachedToActivity(binding)
-
-        // Attaching the lifecycle may resume work that requests a permission immediately.
-        inOrder(binding, lifecycle).apply {
-            verify(binding).addRequestPermissionsResultListener(anyValue())
-            verify(lifecycle).addObserver(anyValue())
-        }
-        verify(session).activate()
-    }
-
-    @Test
-    fun `final activity detach releases activity scoped scanner session`() {
-        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
-        val session = mock(ScannerSession::class.java)
-        plugin.sessionController.setField("session", session)
-
-        plugin.onDetachedFromActivity()
-
-        verify(session).release()
-        assertEquals(null, plugin.sessionController.session)
-    }
-
-    @Test
-    fun `configuration detach preserves scanner session`() {
-        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
-        val session = mock(ScannerSession::class.java)
-        plugin.sessionController.setField("session", session)
-
-        plugin.onDetachedFromActivityForConfigChanges()
-
-        verify(session, never()).release()
-        assertSame(session, plugin.sessionController.session)
-    }
-
-    @Test
-    fun `command scope is recreated when plugin attaches to another engine`() {
-        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
-        val binding = mock(FlutterPlugin.FlutterPluginBinding::class.java)
-        doReturn(mock(BinaryMessenger::class.java)).`when`(binding).binaryMessenger
-        doReturn(mock(PlatformViewRegistry::class.java)).`when`(binding).platformViewRegistry
-        val detachedScope = plugin.getField<CoroutineScope>("commandScope")
-
-        plugin.onDetachedFromEngine(binding)
-        plugin.onAttachedToEngine(binding)
-
-        val attachedScope = plugin.getField<CoroutineScope>("commandScope")
-        assertFalse(detachedScope.isActive)
-        assertNotSame(detachedScope, attachedScope)
-        assertTrue(attachedScope.isActive)
-
-        plugin.onDetachedFromEngine(binding)
-    }
-
-    private class Fixture {
-        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
-        val session: ScannerSession = mock(ScannerSession::class.java)
-        val channel: MethodChannel = mock(MethodChannel::class.java)
-        val result: MethodChannel.Result = mock(MethodChannel.Result::class.java)
-
-        init {
-            plugin.sessionController.setField("session", session)
-            plugin.setField("channel", channel)
-        }
-
-    }
-
-    private companion object {
-        const val VIEW_ID = 42
-        val BARCODE = Barcode(
-            rawValue = "1234567890",
-            displayValue = "1234567890",
-            format = 1,
-            valueType = 1,
-        )
-
-        fun <T> anyValue(): T = org.mockito.ArgumentMatchers.any<T>()
-
-        fun Any.setField(name: String, value: Any) {
-            javaClass.getDeclaredField(name).apply { isAccessible = true }.set(this, value)
-        }
-
-        @Suppress("UNCHECKED_CAST")
-        fun <T> Any.getField(name: String): T =
-            javaClass.getDeclaredField(name).apply { isAccessible = true }.get(this) as T
-
-        val MlkitScannerPlugin.sessionController: ScannerSessionController
-            get() = getField("sessionController")
-    }
+    private companion object { fun <T> anyValue(): T = org.mockito.ArgumentMatchers.any<T>() }
 }

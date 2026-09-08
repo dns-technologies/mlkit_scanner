@@ -19,9 +19,20 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 internal class ScannerViewTest {
     @Test
+    fun `Flutter routing id survives Android id changes and disposal`() = withView { f ->
+        assertEquals(42, f.view.viewId)
+
+        f.view.id = 100
+        f.view.dispose()
+
+        assertEquals(100, f.view.id)
+        assertEquals(42, f.view.viewId)
+    }
+
+    @Test
     fun `attach moves preview into the view and reports ready after non-zero layout`() = withView { f ->
         var readyCount = 0
-        f.view.attachPreview { readyCount += 1 }
+        f.view.attachPreview(f.preview) { readyCount += 1 }
         f.drawPreview()
 
         assertTrue(f.view.hasPreview())
@@ -34,7 +45,7 @@ internal class ScannerViewTest {
 
     @Test
     fun `detach and dispose clear only local view resources`() = withView { f ->
-        f.view.attachPreview {}
+        f.view.attachPreview(f.preview) {}
 
         f.view.detachPreview()
         assertFalse(f.view.hasPreview())
@@ -43,7 +54,7 @@ internal class ScannerViewTest {
         f.view.dispose()
         f.view.dispose()
         f.view.release()
-        f.view.attachPreview {}
+        f.view.attachPreview(f.preview) {}
 
         assertEquals(1, f.disposeCount)
         assertFalse(f.view.hasPreview())
@@ -52,11 +63,11 @@ internal class ScannerViewTest {
 
     @Test
     fun `release does not invoke the disposal callback or allow later attachment`() = withView { f ->
-        f.view.attachPreview {}
+        f.view.attachPreview(f.preview) {}
         f.view.release()
         f.view.release()
         f.view.dispose()
-        f.view.attachPreview {}
+        f.view.attachPreview(f.preview) {}
 
         assertEquals(0, f.disposeCount)
         assertFalse(f.view.hasPreview())
@@ -66,7 +77,7 @@ internal class ScannerViewTest {
 
     @Test
     fun `release clears readiness of an already laid out preview`() = withView { f ->
-        f.view.attachPreview {}
+        f.view.attachPreview(f.preview) {}
         f.drawPreview()
         assertTrue(f.view.isPreviewReady())
 
@@ -81,12 +92,12 @@ internal class ScannerViewTest {
         val failure = IllegalStateException("Disposal callback failed")
         var readyCount = 0
         f.onDispose = { throw failure }
-        f.view.attachPreview { readyCount += 1 }
+        f.view.attachPreview(f.preview) { readyCount += 1 }
 
         assertSame(failure, runCatching { f.view.dispose() }.exceptionOrNull())
         f.view.dispose()
         f.view.release()
-        f.view.attachPreview { readyCount += 1 }
+        f.view.attachPreview(f.preview) { readyCount += 1 }
         f.drawPreview()
 
         assertEquals(1, f.disposeCount)
@@ -97,12 +108,12 @@ internal class ScannerViewTest {
 
     @Test
     fun `disposal notifies before cleanup and rejects reentrant disposal or attachment`() = withView { f ->
-        f.view.attachPreview {}
+        f.view.attachPreview(f.preview) {}
         f.onDispose = {
             assertTrue(f.view.hasPreview())
             f.view.dispose()
             f.view.release()
-            f.view.attachPreview { error("Disposed view must not become ready") }
+            f.view.attachPreview(f.preview) { error("Disposed view must not become ready") }
         }
 
         f.view.dispose()
@@ -117,10 +128,10 @@ internal class ScannerViewTest {
     @Test
     fun `releasing a former host does not detach the preview from its new host`() {
         for (notify in listOf(false, true)) withView { f ->
-            f.view.attachPreview {}
-            val next = ScannerView(f.activity, f.preview, { _, _, _ -> }, {})
+            f.view.attachPreview(f.preview) {}
+            val next = ScannerView(f.activity, 43, { _, _, _ -> }, {})
             try {
-                next.attachPreview {}
+                next.attachPreview(f.preview) {}
                 if (notify) f.view.dispose() else f.view.release()
 
                 assertFalse(f.view.hasPreview())
@@ -136,7 +147,7 @@ internal class ScannerViewTest {
     @Test
     fun `release cancels a pending preview readiness callback`() = withView { f ->
         var readyCount = 0
-        f.view.attachPreview { readyCount += 1 }
+        f.view.attachPreview(f.preview) { readyCount += 1 }
 
         f.view.release()
         f.drawPreview()
@@ -148,7 +159,7 @@ internal class ScannerViewTest {
     @Test
     fun `preview readiness waits for a non-zero layout and is reported only once`() = withView { f ->
         var readyCount = 0
-        f.view.attachPreview { readyCount += 1 }
+        f.view.attachPreview(f.preview) { readyCount += 1 }
 
         f.drawPreview(width = 0, height = 0)
         assertEquals(0, readyCount)
@@ -169,11 +180,11 @@ internal class ScannerViewTest {
         observer.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
                 observer.removeOnPreDrawListener(this)
-                f.view.attachPreview { newReady++ }
+                f.view.attachPreview(f.preview) { newReady++ }
                 return true
             }
         })
-        f.view.attachPreview { oldReady++ }
+        f.view.attachPreview(f.preview) { oldReady++ }
 
         f.drawPreview()
         assertEquals(0, oldReady)
@@ -185,7 +196,7 @@ internal class ScannerViewTest {
     @Test
     fun `pending readiness survives a temporary window detach`() = withView { f ->
         var ready = 0
-        f.view.attachPreview { ready++ }
+        f.view.attachPreview(f.preview) { ready++ }
         f.activity.setContentView(FrameLayout(f.activity))
         f.activity.setContentView(f.view)
 
@@ -204,7 +215,7 @@ internal class ScannerViewTest {
             override fun onChildViewRemoved(parent: View?, child: View?) = f.view.release()
         })
 
-        f.view.attachPreview { error("Released view must not become ready") }
+        f.view.attachPreview(f.preview) { error("Released view must not become ready") }
 
         assertFalse(f.view.hasPreview())
         assertEquals(null, f.preview.parent)
@@ -213,7 +224,7 @@ internal class ScannerViewTest {
     @Test
     fun `disposal callback cannot trigger pending readiness during cleanup`() = withView { f ->
         var ready = 0
-        f.view.attachPreview { ready++ }
+        f.view.attachPreview(f.preview) { ready++ }
         f.onDispose = { f.drawPreview() }
 
         f.view.dispose()
@@ -236,7 +247,7 @@ internal class ScannerViewTest {
         val preview = View(activity)
         var disposeCount = 0
         var onDispose: () -> Unit = {}
-        val view = ScannerView(activity, preview, { _, _, _ -> }) {
+        val view = ScannerView(activity, 42, { _, _, _ -> }) {
             disposeCount += 1
             onDispose()
         }

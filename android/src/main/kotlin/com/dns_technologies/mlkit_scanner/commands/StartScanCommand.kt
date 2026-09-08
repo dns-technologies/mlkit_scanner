@@ -3,30 +3,22 @@ package com.dns_technologies.mlkit_scanner.commands
 import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.commands.base.ScannerCommand
-import com.dns_technologies.mlkit_scanner.session.ScannerSession
-import com.dns_technologies.mlkit_scanner.utils.requireInt
+import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.utils.requireMap
+import com.dns_technologies.mlkit_scanner.utils.requireInt
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 
-/** Starts barcode analysis on the scanner session. */
+/** Applies a point control to the scanner selected by Dart. */
 internal class StartScanCommand(
-    scannerSessionProvider: () -> ScannerSession?,
-) : ScannerCommand(scannerSessionProvider) {
+    scannerProvider: () -> Scanner?,
+) : ScannerCommand(scannerProvider) {
     override fun executeCommand(call: MethodCall, result: Result) {
         val arguments = call.arguments.requireMap()
-        val recognitionType = arguments.requireInt(RECOGNITION_TYPE_ARGUMENT)
-        val viewId = arguments.requireInt(PluginConstants.viewIdArgument)
-        val periodMs = arguments.requireInt(PluginConstants.delayArgument)
-        if (recognitionType != BARCODE_RECOGNITION_TYPE || viewId < 0 || periodMs < 0) {
-            throw PluginError.InvalidArguments
-        }
-        scannerSession()?.startScan(viewId, periodMs)
+        val type = arguments.requireInt("type")
+        val delay = arguments.requireInt(PluginConstants.delayArgument)
+        if (type != 0) throw PluginError.InvalidArguments
+        scanner()?.startScan(delay)
         success(result)
-    }
-
-    private companion object {
-        const val RECOGNITION_TYPE_ARGUMENT = "type"
-        const val BARCODE_RECOGNITION_TYPE = 0
     }
 }

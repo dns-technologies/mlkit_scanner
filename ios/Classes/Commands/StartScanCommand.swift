@@ -1,18 +1,10 @@
 import Flutter
 
-/// Stores and activates barcode recognition for one platform view.
+/// Applies a point control to the scanner selected by Dart.
 final class StartScanCommand: ScannerCommand {
-    /// Parses and activates recognition options for the target view.
-    override func executeCommand(
-        _ call: FlutterMethodCall,
-        result: @escaping FlutterResult
-    ) throws {
+    override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
         let options = try ScannerMethodArguments.scanOptions(call.arguments)
-        try scannerSession.startScan(
-            viewId: options.viewId,
-            type: options.type,
-            delay: options.delay
-        )
+        try scannerDevice.startScan(type: options.type, delay: options.delay)
         success(result)
     }
 }

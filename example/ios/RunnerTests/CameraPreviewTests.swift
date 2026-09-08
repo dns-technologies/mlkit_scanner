@@ -6,15 +6,10 @@ import XCTest
 
 final class CameraPreviewTests: XCTestCase {
     func testViewIdentityAndInitialLayoutAreExposedToFlutter() {
-        let token = UUID()
         let preview = CameraPreview(
-            frame: CGRect(x: 0, y: 0, width: 200, height: 100),
-            viewId: 42,
-            registrationToken: token
+            frame: CGRect(x: 0, y: 0, width: 200, height: 100)
         )
 
-        XCTAssertEqual(preview.viewId, 42)
-        XCTAssertEqual(preview.registrationToken, token)
         XCTAssertEqual(preview.view().frame, CGRect(x: 0, y: 0, width: 200, height: 100))
         XCTAssertTrue(preview.isLayoutReady)
         XCTAssertTrue(preview.view() === preview.view())
@@ -22,7 +17,7 @@ final class CameraPreviewTests: XCTestCase {
     }
 
     func testPendingLayoutCompletionRunsOnceBoundsBecomeUsable() {
-        let preview = CameraPreview(frame: .zero, viewId: 42)
+        let preview = CameraPreview(frame: .zero)
         var completionCount = 0
 
         preview.whenLayoutReady { completionCount += 1 }
@@ -38,8 +33,7 @@ final class CameraPreviewTests: XCTestCase {
 
     func testCropCreatesOneReusableOverlayAndUpdatesItsActiveState() throws {
         let preview = CameraPreview(
-            frame: CGRect(x: 0, y: 0, width: 200, height: 100),
-            viewId: 42
+            frame: CGRect(x: 0, y: 0, width: 200, height: 100)
         )
 
         preview.setCropArea(try CropRect(arguments: ["scaleWidth": 0.5]))
@@ -54,7 +48,7 @@ final class CameraPreviewTests: XCTestCase {
     }
 
     func testCameraControlsFailClearlyBeforeInitialization() {
-        let preview = CameraPreview(frame: .zero, viewId: 42)
+        let preview = CameraPreview(frame: .zero)
         let camera = CameraData(type: .builtInWideAngleCamera, position: .back)
 
         XCTAssertThrowsError(try preview.setCamera(camera)) {
@@ -69,13 +63,13 @@ final class CameraPreviewTests: XCTestCase {
         preview.dispose()
     }
 
-    func testPauseAndResumeCompleteWithoutRacingAnUninitializedPreview() {
-        let preview = CameraPreview(frame: .zero, viewId: 42)
+    func testCancelPendingStartAndResumeCompleteForAnUninitializedPreview() {
+        let preview = CameraPreview(frame: .zero)
         let pauseExpectation = expectation(description: "pause")
         let resumeExpectation = expectation(description: "resume")
         var resumeError: Error?
 
-        preview.pauseCamera { pauseExpectation.fulfill() }
+        preview.cancelPendingStart { pauseExpectation.fulfill() }
         preview.resumeCamera {
             resumeError = $0
             resumeExpectation.fulfill()
@@ -88,11 +82,10 @@ final class CameraPreviewTests: XCTestCase {
     }
 
     func testRecognitionHandlerReferenceIsWeakAndThreadSafeAtBoundary() {
-        let preview = CameraPreview(frame: .zero, viewId: 42)
+        let preview = CameraPreview(frame: .zero)
         var handler: TestRecognitionHandler? = TestRecognitionHandler(
             delay: 0,
-            cropRect: nil,
-            viewId: 42
+            cropRect: nil
         )
 
         preview.recognitionHandler = handler
@@ -106,9 +99,8 @@ final class CameraPreviewTests: XCTestCase {
 
 private final class TestRecognitionHandler: RecognitionHandler {
     let type = RecognitionType.barcodeRecognition
-    weak var delegate: RecognitionResultDelegate?
 
-    required init(delay: Int, cropRect: CropRect?, viewId: Int64) {}
+    init(delay: Int, cropRect: CropRect?) {}
 
     func setDelay(delay: Int) {}
 

@@ -28,9 +28,10 @@ internal fun Map<*, *>.optionalFiniteDouble(key: String): Double? = when (val va
 internal fun Map<*, *>.requireFiniteDouble(key: String): Double =
     this[key].requireFiniteDouble()
 
-internal fun Map<*, *>.requireInt(key: String): Int =
-    (this[key] as? Number)?.toInt()
-        ?: throw PluginError.InvalidArguments
+internal fun Map<*, *>.requireInt(key: String): Int {
+    val value = this[key].requireFiniteDouble()
+    return value.toInt().takeIf { it.toDouble() == value } ?: throw PluginError.InvalidArguments
+}
 
 private fun Any?.requireFiniteDouble(): Double {
     val value = (this as? Number)?.toDouble() ?: throw PluginError.InvalidArguments

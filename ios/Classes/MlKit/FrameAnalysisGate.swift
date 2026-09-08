@@ -15,7 +15,6 @@ final class FrameAnalysisGate {
             ProcessInfo.processInfo.systemUptime * 1_000
         }
     ) {
-        precondition(successfulScanPeriodMilliseconds >= 0)
         self.successfulScanPeriodMilliseconds = successfulScanPeriodMilliseconds
         self.currentTimeMilliseconds = currentTimeMilliseconds
     }
@@ -45,7 +44,6 @@ final class FrameAnalysisGate {
 
     /// Updates the cooldown applied after future successful recognitions.
     func updateSuccessfulScanPeriod(_ periodMilliseconds: Int) {
-        precondition(periodMilliseconds >= 0)
         lock.lock()
         successfulScanPeriodMilliseconds = periodMilliseconds
         lock.unlock()

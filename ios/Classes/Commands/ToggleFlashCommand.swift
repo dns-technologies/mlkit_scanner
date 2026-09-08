@@ -1,15 +1,11 @@
 import Flutter
 
-/// Toggles the torch state retained by one platform view.
+/// Applies a point control to the scanner selected by Dart.
 final class ToggleFlashCommand: ScannerCommand {
-    /// Parses the target view and toggles its retained torch state.
-    override func executeCommand(
-        _ call: FlutterMethodCall,
-        result: @escaping FlutterResult
-    ) throws {
-        try scannerSession.toggleFlash(
-            viewId: ScannerMethodArguments.viewId(call.arguments)
-        )
+    override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
+        let values = call.arguments as? [String: Any]
+        let enabled = try PlatformChannelScalar.bool(from: values?[PluginConstants.valueArgument])
+        try scannerDevice.setTorch(enabled: enabled)
         success(result)
     }
 }

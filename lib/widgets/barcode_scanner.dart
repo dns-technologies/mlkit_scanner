@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
-import 'package:mlkit_scanner/models/recognition_type.dart';
-import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
+import 'package:mlkit_scanner/platform/scanner_configuration.dart';
+import 'package:mlkit_scanner/platform/scanner_runtime.dart';
+
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
+
+export 'package:mlkit_scanner/platform/scanner_controller.dart' show BarcodeScannerController;
 
 /// Displays a native camera preview and recognizes barcodes.
 class BarcodeScanner extends StatefulWidget {
@@ -25,8 +28,8 @@ class BarcodeScanner extends StatefulWidget {
   /// The controller has already been delivered through [onScannerInitialized]
   /// when an initial capture fails and remains valid for retained configuration
   /// updates or a later capture. Capture-time retained-control failures arrive
-  /// here as [CameraControlException]. Errors from controller calls complete the
-  /// corresponding [Future] instead.
+  /// here as [CameraControlException]. Controller setters publish desired state;
+  /// asynchronous configuration failures are reported through FlutterError.
   final ValueChanged<PlatformException>? onCameraInitializeError;
 
   /// Called when the native torch state changes.
@@ -63,29 +66,22 @@ class BarcodeScanner extends StatefulWidget {
   _BarcodeScannerState createState() => _BarcodeScannerState();
 }
 
-class _BarcodeScannerState extends State<BarcodeScanner> {
-  late MlKitChannel _channel;
-  late BarcodeScannerController _barcodeScannerController;
+class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObserver {
+  final _runtime = ScannerRuntime.instance;
+  BarcodeScannerController? _barcodeScannerController;
+  bool _isViewActive = false;
   StreamSubscription<Barcode>? _scanStreamSubscription;
   StreamSubscription<bool>? _toggleFlashStreamSubscription;
-  int? _viewId;
-  bool _isCameraVisible = false;
 
   @override
   void initState() {
     super.initState();
-    _channel = MlKitChannel();
-    _barcodeScannerController = BarcodeScannerController._();
-    _barcodeScannerController._attach(this);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   Widget build(BuildContext context) {
     return CameraPreview(
-      initialZoomRatio: widget.initialZoomRatio,
-      initialFlashEnabled: widget.initialFlashEnabled,
-      initialCropRect: widget.initialCropRect,
-      initialCamera: widget.initialCamera,
       onCameraInitialized: _onCameraInitialized,
     );
   }
@@ -99,69 +95,67 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
   @override
   void activate() {
     super.activate();
-    _barcodeScannerController._attach(this);
     _syncCameraVisibility();
   }
 
   @override
   void deactivate() {
-    _setCameraVisible(false);
-    _barcodeScannerController._detach();
+    _isViewActive = false;
     super.deactivate();
   }
 
   @override
   void dispose() {
-    _setCameraVisible(false);
-    _barcodeScannerController._detach();
-    _scanStreamSubscription?.cancel();
-    _scanStreamSubscription = null;
-    _toggleFlashStreamSubscription?.cancel();
-    _toggleFlashStreamSubscription = null;
+    WidgetsBinding.instance.removeObserver(this);
+
+    _cancelSubscriptions();
+    final controller = _barcodeScannerController;
+    if (controller != null) {
+      unawaited(_runtime.release(controller));
+      controller.dispose();
+    }
     super.dispose();
   }
 
-  /// Subscribes to this native view's events and captures the visible camera.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _syncCameraVisibility();
+  }
+
+  /// View registration allocates UI only. Setters in this callback update Dart state.
   Future<void> _onCameraInitialized(int viewId) async {
     if (!mounted) return;
-    _viewId = viewId;
-    await _scanStreamSubscription?.cancel();
-    if (!mounted) return;
-    _scanStreamSubscription = _channel.scanResults(viewId).listen((barcode) {
-      if (mounted && _viewId == viewId && _isCameraVisible) {
-        widget.onScan(barcode);
-      }
-    });
-    await _toggleFlashStreamSubscription?.cancel();
-    if (!mounted) return;
-    _toggleFlashStreamSubscription = _channel.torchToggleStream(viewId).listen((
-      event,
-    ) {
-      if (mounted && _viewId == viewId && _isCameraVisible) {
-        widget.onChangeFlashState?.call(event);
-      }
-    });
-
-    _notifyScannerInitialized();
-    if (_isCameraVisible) await _captureCameraAndHandleResult();
+    final controller = BarcodeScannerController(
+      viewId: viewId,
+      configuration: ScannerConfiguration(
+        zoomRatio: widget.initialZoomRatio ?? 1,
+        torchEnabled: widget.initialFlashEnabled,
+        cropRect: widget.initialCropRect,
+        iosCamera: widget.initialCamera,
+      ),
+    );
+    _barcodeScannerController = controller;
+    _scanStreamSubscription = controller.scanResults.listen((barcode) => widget.onScan(barcode));
+    _toggleFlashStreamSubscription = controller.torchToggleStream.listen((enabled) => widget.onChangeFlashState?.call(enabled));
+    widget.onScannerInitialized(controller);
+    await _capture();
   }
 
-  /// Captures this view and reports failures independently from controller creation.
-  Future<void> _captureCameraAndHandleResult() async {
+  Future<void> _capture() async {
+    final controller = _barcodeScannerController;
+    if (controller == null || !_isViewActive) return;
     try {
-      await _captureCamera();
+      await _runtime.capture(controller);
     } on PlatformException catch (error) {
       if (!mounted) return;
-      final onError = widget.onCameraInitializeError;
-      if (onError == null) rethrow;
-      onError(error);
-    }
-  }
 
-  /// Publishes the controller from the one-time native-view initialization path.
-  void _notifyScannerInitialized() {
-    if (!mounted) return;
-    widget.onScannerInitialized(_barcodeScannerController);
+      final onError = widget.onCameraInitializeError;
+      if (onError != null) {
+        onError.call(error);
+        return;
+      }
+      rethrow;
+    }
   }
 
   /// Maps route ticker visibility to explicit native camera ownership.
@@ -169,207 +163,28 @@ class _BarcodeScannerState extends State<BarcodeScanner> {
     // Popup routes keep the underlying route onstage, while an opaque page
     // route disables tickers in the covered subtree.
     // TickerMode.valuesOf is unavailable in the minimum supported Flutter.
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
     // ignore: deprecated_member_use
-    _setCameraVisible(TickerMode.of(context));
-  }
+    final isRouteVisible = TickerMode.of(context);
+    final isAvailableAppLifecycle = !{AppLifecycleState.paused, AppLifecycleState.hidden, AppLifecycleState.detached}.contains(lifecycle);
 
-  /// Captures or releases the camera when this scanner's visibility changes.
-  void _setCameraVisible(bool isVisible) {
-    if (_isCameraVisible == isVisible) return;
+    final active = isRouteVisible && isAvailableAppLifecycle;
+    if (_isViewActive == active) return;
+    _isViewActive = active;
 
-    _isCameraVisible = isVisible;
-    if (_isCameraVisible) {
-      if (_viewId != null) {
-        unawaited(_captureCameraAndHandleResult());
-      }
+    if (active) {
+      unawaited(_capture());
     } else {
-      unawaited(_releaseCamera());
+      final controller = _barcodeScannerController;
+      if (controller != null) unawaited(_runtime.release(controller));
     }
   }
 
-  /// Toggles torch state for this native platform view.
-  Future<void> _toggleFlash() {
-    return _channel.toggleFlash(viewId: _requireViewId());
-  }
-
-  /// Captures camera ownership for this initialized native view.
-  Future<void> _captureCamera() {
-    return _channel.captureCamera(viewId: _requireViewId());
-  }
-
-  /// Releases camera ownership while retaining this view's configuration.
-  Future<void> _releaseCamera() {
-    final viewId = _viewId;
-    if (viewId == null) return Future<void>.value();
-    return _channel.releaseCamera(viewId: viewId);
-  }
-
-  /// Starts barcode recognition with the requested platform cooldown.
-  Future<void> _startScan(int delay) {
-    return _channel.startScan(
-      RecognitionType.barcodeRecognition,
-      delay,
-      viewId: _requireViewId(),
-    );
-  }
-
-  /// Stops barcode recognition without stopping the camera preview.
-  Future<void> _cancelScan() {
-    return _channel.cancelScan(viewId: _requireViewId());
-  }
-
-  /// Updates this view's successful-result cooldown.
-  Future<void> _setDelay(int delay) {
-    return _channel.setScanDelay(delay, viewId: _requireViewId());
-  }
-
-  /// Pauses camera work requested by this view.
-  Future<void> _pauseCamera() {
-    return _channel.pauseCamera(viewId: _requireViewId());
-  }
-
-  /// Resumes this view's retained camera and recognition intent.
-  Future<void> _resumeCamera() {
-    return _channel.resumeCamera(viewId: _requireViewId());
-  }
-
-  /// Applies an absolute camera zoom ratio to this view.
-  Future<void> _setZoomRatio(double value) {
-    return _channel.setZoomRatio(value, viewId: _requireViewId());
-  }
-
-  /// Applies normalized recognition geometry to this view.
-  Future<void> _setCropArea(CropRect rect) {
-    return _channel.setCropArea(rect, viewId: _requireViewId());
-  }
-
-  /// Selects a capture device for this view on iOS.
-  Future<void> _setIosCamera({
-    required IosCameraPosition position,
-    required IosCameraType type,
-  }) {
-    return _channel.setIosCamera(
-      viewId: _requireViewId(),
-      position: position,
-      type: type,
-    );
-  }
-
-  /// Returns the initialized native view identifier or throws a [StateError].
-  int _requireViewId() {
-    final viewId = _viewId;
-    if (viewId == null) {
-      throw StateError('Camera preview is not initialized');
-    }
-    return viewId;
-  }
-}
-
-/// Controls camera state and barcode recognition for one [BarcodeScanner].
-///
-/// Recognition begins only after [startScan] is called. [cancelScan] stops frame
-/// analysis but keeps the preview available; [pauseCamera] also pauses camera
-/// work. Configuration calls made while the scanner is hidden update its
-/// retained state without changing the active camera. Calls made after the
-/// controller detaches from its widget have no effect.
-class BarcodeScannerController {
-  _BarcodeScannerState? _barcodeScannerState;
-
-  /// Creates a controller that is attached by its owning scanner state.
-  BarcodeScannerController._();
-
-  /// Runs a view-scoped command or completes immediately after detachment.
-  Future<void> _withState(
-    Future<void> Function(_BarcodeScannerState state) command,
-  ) {
-    final state = _barcodeScannerState;
-    return state == null ? Future<void>.value() : command(state);
-  }
-
-  /// Toggles the selected camera's torch.
-  ///
-  /// When this scanner is hidden, the requested state is retained until its
-  /// next camera capture.
-  /// Throws a [PlatformException] when the selected camera has no flash and a
-  /// [CameraControlException] when the torch operation fails.
-  Future<void> toggleFlash() => _withState((state) => state._toggleFlash());
-
-  /// Starts barcode recognition.
-  ///
-  /// [delay] is the minimum cooldown in milliseconds after successful
-  /// recognition. On iOS, it also applies before the first attempt. Failed
-  /// recognition does not restart this timer. On Android, failed attempts wait
-  /// one second before analyzing the next available camera frame.
-  /// A hidden scanner retains this request until it becomes active.
-  Future<void> startScan(int delay) =>
-      _withState((state) => state._startScan(delay));
-
-  /// Stops recognition requested by this scanner widget.
-  Future<void> cancelScan() => _withState((state) => state._cancelScan());
-
-  /// Sets the delay applied after successful recognition.
-  ///
-  /// Failed recognition does not start this timer. A hidden scanner retains the
-  /// value until it becomes active.
-  Future<void> setDelay(int delay) =>
-      _withState((state) => state._setDelay(delay));
-
-  /// Pauses this scanner widget without changing another registered scanner.
-  ///
-  /// Camera ownership is released automatically when the scanner route is no
-  /// longer visible or the widget is disposed.
-  Future<void> pauseCamera() => _withState((state) => state._pauseCamera());
-
-  /// Resumes this scanner widget and its previously requested detection state.
-  ///
-  /// For a hidden scanner this only retains resume intent; camera ownership is
-  /// captured automatically when its route becomes visible again.
-  /// Can throw [PlatformException] if the active camera cannot be resumed.
-  Future<void> resumeCamera() => _withState((state) => state._resumeCamera());
-
-  /// Sets the absolute camera zoom ratio.
-  ///
-  /// `1.0` represents the camera's natural field of view. The supported range
-  /// is device- and camera-dependent.
-  /// A hidden scanner retains the value until its next camera capture.
-  /// Throws [CameraControlException] when the zoom operation fails.
-  Future<void> setZoomRatio(double value) {
-    assert(
-      value.isFinite && value > 0,
-      'Zoom ratio must be a positive finite value',
-    );
-    return _withState((state) => state._setZoomRatio(value));
-  }
-
-  /// Sets the detection area for barcode recognition.
-  ///
-  /// [rect] defines normalized scale and center offsets relative to the
-  /// [CameraPreview]. If it partially exceeds the preview bounds, only its
-  /// visible intersection is analyzed.
-  /// Detection is skipped when the area is completely outside the preview.
-  /// A hidden scanner retains the area until it becomes active.
-  Future<void> setCropArea(CropRect rect) =>
-      _withState((state) => state._setCropArea(rect));
-
-  /// Selects an iOS camera with [position] and [type].
-  ///
-  /// A hidden scanner retains the selection until its next camera capture.
-  /// This operation is unsupported on Android.
-  Future<void> setIosCamera({
-    required IosCameraPosition position,
-    required IosCameraType type,
-  }) =>
-      _withState(
-        (state) => state._setIosCamera(position: position, type: type),
-      );
-
-  /// Attaches this controller to the currently mounted scanner state.
-  void _attach(_BarcodeScannerState state) {
-    _barcodeScannerState = state;
-  }
-
-  /// Detaches the controller so later calls safely become no-ops.
-  void _detach() {
-    _barcodeScannerState = null;
+  /// Removes widget callbacks on disposal.
+  void _cancelSubscriptions() {
+    _scanStreamSubscription?.cancel();
+    _scanStreamSubscription = null;
+    _toggleFlashStreamSubscription?.cancel();
+    _toggleFlashStreamSubscription = null;
   }
 }

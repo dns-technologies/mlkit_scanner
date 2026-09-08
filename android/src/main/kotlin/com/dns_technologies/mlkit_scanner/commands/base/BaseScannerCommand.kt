@@ -1,18 +1,18 @@
 package com.dns_technologies.mlkit_scanner.commands.base
 
 import com.dns_technologies.mlkit_scanner.PluginError
-import com.dns_technologies.mlkit_scanner.session.ScannerSession
+import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import io.flutter.plugin.common.MethodChannel.Result
 
 /** Shared command functionality that does not define sync or async execution policy. */
 internal sealed class BaseScannerCommand(
-    private val scannerSessionProvider: () -> ScannerSession?,
+    private val scannerProvider: () -> Scanner?,
 ) {
     /** Sends a successful command completion. */
     protected fun success(result: Result) = result.success(true)
 
-    /** Returns the active scanner session when it exists. */
-    protected fun scannerSession(): ScannerSession? = scannerSessionProvider()
+    /** Resolves the single SDK executor once, before any permission or device await. */
+    protected fun scanner(): Scanner? = scannerProvider()
 
     /** Sends a typed plugin error response. */
     protected fun reportError(
@@ -25,18 +25,16 @@ internal sealed class BaseScannerCommand(
 
     /** Maps internal exceptions to typed plugin errors. */
     protected fun reportError(result: Result, error: Exception) {
-        if (error is PluginError) {
-            reportError(result, error)
-            return
-        }
-
-        reportError(
-            result,
-            PluginError.UnknownError,
-            mapOf(
-                "message" to (error.message ?: error::class.simpleName),
-                "stackTrace" to error.stackTraceToString(),
-            ),
-        )
+        reportScannerError(result, error)
     }
+}
+
+/** Keeps direct plugin calls and command responses on the same Dart error contract. */
+internal fun reportScannerError(result: Result, error: Exception) {
+    val pluginError = error as? PluginError ?: PluginError.UnknownError
+    val details = if (error is PluginError) error.details else mapOf(
+        "message" to (error.message ?: error::class.simpleName),
+        "stackTrace" to error.stackTraceToString(),
+    )
+    result.error(pluginError.errorCode, pluginError.message, details)
 }

@@ -65,7 +65,7 @@ internal class ScannerLifetimeTest {
     fun `released scanner rejects camera restart and new subscriptions`() = withScanner { f ->
         f.scanner.dispose()
 
-        assertSame(PluginError.CameraSessionDisposed, runCatching { f.startCamera() }.exceptionOrNull())
+        assertTrue(runCatching { f.startCamera() }.exceptionOrNull() is IllegalStateException)
         assertSame(PluginError.CameraSessionDisposed,
             runCatching { f.scanner.subscribeToScanResults {} }.exceptionOrNull())
         assertEquals(1, f.bindCount)
@@ -74,7 +74,7 @@ internal class ScannerLifetimeTest {
     @Test
     fun `released scanner cannot resume analysis of already queued frames`() = withScanner { f ->
         f.scanner.dispose()
-        f.scanner.resumeScan()
+        f.scanner.startScan(0)
         f.scanner.startScan(0)
 
         f.emitFrame()
@@ -88,7 +88,7 @@ internal class ScannerLifetimeTest {
         f.scanner.subscribeToScanResults {
             received += "first"
             f.scanner.pauseScan()
-            f.scanner.resumeScan()
+            f.scanner.startScan(0)
         }
         f.scanner.subscribeToScanResults { received += "second" }
 
@@ -133,7 +133,7 @@ internal class ScannerLifetimeTest {
         f.startCamera()
 
         assertSame(executor, f.executor)
-        assertEquals(2, f.bindCount)
+        assertEquals(1, f.bindCount)
     }
 
     @Test
@@ -210,25 +210,34 @@ internal class ScannerLifetimeTest {
         val camera = mock(Camera::class.java)
         val analyzer = mock(ImageBarcodeAnalyzer::class.java)
         val frame = mock(CameraFrame::class.java)
-        val scanner = Scanner(camera, analyzer)
+        val view = mock(ScannerView::class.java)
+        lateinit var scanner: Scanner
         lateinit var executor: ExecutorService
         lateinit var onFrame: OnCameraFrame
         var bindCount = 0
 
         init {
+            doReturn(mock(android.view.View::class.java)).`when`(camera).previewView
+            doReturn(kotlinx.coroutines.CompletableDeferred(Unit)).`when`(camera).resetFocus()
+            doReturn(kotlinx.coroutines.CompletableDeferred(Unit)).`when`(camera).setZoomRatio(org.mockito.ArgumentMatchers.anyFloat())
+            doReturn(kotlinx.coroutines.CompletableDeferred(Unit)).`when`(camera).setTorch(org.mockito.ArgumentMatchers.anyBoolean())
+            scanner = scannerForTest(camera, analyzer, view)
             doReturn(BOUNDS).`when`(frame).cropRect
             doReturn(BARCODE).`when`(analyzer).analyze(frame, BOUNDS)
             doAnswer {
                 bindCount++
                 executor = it.getArgument(1)
                 onFrame = it.getArgument(2)
+                it.getArgument<() -> Unit>(4)()
+                it.getArgument<com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraAvailabilityChanged>(3)(
+                    com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability.Open)
                 null
             }.`when`(camera).bind(anyValue(), anyValue(), anyValue(), anyValue(), anyValue(), anyValue())
             startCamera()
             scanner.startScan(0)
         }
 
-        fun startCamera() = scanner.startCamera(mock(LifecycleOwner::class.java), {}, {})
+        fun startCamera() { scanner.select(view); scanner.captureForTest() }
         fun emitFrame() = onFrame(frame)
     }
 

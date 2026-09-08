@@ -185,6 +185,45 @@ internal class XCameraBindingTest {
     }
 
     @Test
+    fun `dispose during provider replacement cannot revive camera or leak returned use cases`() = withCameraFixture { f ->
+        f.start()
+        f.bindAction = { f.camera.dispose(); f.nativeCamera }
+
+        f.rotate()
+
+        assertFalse(f.camera.isBound())
+        assertFalse(f.deviceState.hasObservers())
+        assertFalse(f.streamState.hasObservers())
+        assertEquals(2, f.groups.size)
+        verify(f.provider).unbind(*f.groups.last().useCases.toTypedArray())
+        assertSame(PluginError.CameraSessionDisposed, runCatching { f.start() }.exceptionOrNull())
+    }
+
+    @Test
+    fun `dispose during failed replacement does not start rollback`() = withCameraFixture { f ->
+        f.start()
+        f.bindAction = { f.camera.dispose(); error("Replacement stopped") }
+
+        f.rotate()
+
+        assertEquals(2, f.groups.size)
+        assertFalse(f.camera.isBound())
+        assertTrue(f.errors.isEmpty())
+        verify(f.provider).unbind(*f.groups.last().useCases.toTypedArray())
+    }
+
+    @Test
+    fun `dispose during provider initial bind releases the returned use cases`() = withCameraFixture { f ->
+        f.bindAction = { f.camera.dispose(); f.nativeCamera }
+
+        f.start()
+
+        assertFalse(f.camera.isBound())
+        assertEquals(0, f.initialized)
+        verify(f.provider).unbind(*f.groups.single().useCases.toTypedArray())
+    }
+
+    @Test
     fun `reentrant layout during rotation does not repeat startup`() = withCameraFixture { f ->
         f.start()
         f.onAvailability = { if (it is CameraAvailability.Closed) f.layout() }

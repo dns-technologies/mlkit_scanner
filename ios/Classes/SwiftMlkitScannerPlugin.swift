@@ -1,42 +1,39 @@
 import Flutter
 import UIKit
 
-/// iOS plugin entry point backed by one view-scoped scanner session.
+/// iOS plugin entry point backed by one shared native SDK bridge.
 public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
-    private let scannerSession: ScannerSessionImpl
+    private let scannerDevice: ScannerHardware
+    private var isDisposed = false
 
-    /// Creates the plugin and its shared scanner session for one engine channel.
+    /// Creates the plugin and its shared SDK bridge for one engine channel.
     init(channel: FlutterMethodChannel) {
-        let scannerSession = ScannerSessionImpl(
+        let scannerDevice = ScannerHardware(
             onScanResult: { viewId, barcode in
-                DispatchQueue.main.async {
-                    channel.invokeMethod(
-                        PluginConstants.scanResultMethod,
-                        arguments: [
-                            PluginConstants.viewIdArgument: viewId,
-                            PluginConstants.barcodeArgument: barcode.toJson(),
-                        ]
-                    )
-                }
+                channel.invokeMethod(
+                    PluginConstants.scanResultMethod,
+                    arguments: [
+                        PluginConstants.viewIdArgument: viewId,
+                        PluginConstants.barcodeArgument: barcode.toJson(),
+                    ]
+                )
             },
             onTorchChanged: { viewId, value in
-                DispatchQueue.main.async {
-                    channel.invokeMethod(
-                        PluginConstants.changeTorchStateMethod,
-                        arguments: [
-                            PluginConstants.viewIdArgument: viewId,
-                            PluginConstants.valueArgument: value,
-                        ]
-                    )
-                }
+                channel.invokeMethod(
+                    PluginConstants.changeTorchStateMethod,
+                    arguments: [
+                        PluginConstants.viewIdArgument: viewId,
+                        PluginConstants.valueArgument: value,
+                    ]
+                )
             }
         )
-        self.scannerSession = scannerSession
+        self.scannerDevice = scannerDevice
         super.init()
     }
 
     deinit {
-        scannerSession.release()
+        scannerDevice.release()
     }
 
     /// Registers the method channel and native camera platform-view factory.
@@ -46,51 +43,48 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             binaryMessenger: registrar.messenger()
         )
         let instance = SwiftMlkitScannerPlugin(channel: channel)
+        // Engine teardown notifies published plugins; a method-call delegate alone is insufficient.
+        registrar.publish(instance)
         registrar.addMethodCallDelegate(instance, channel: channel)
         registrar.register(instance, withId: PluginConstants.cameraPlatformViewName)
     }
 
+    /// Detachment invalidates replies before resource cleanup can complete pending calls.
+    public func detachFromEngine(for registrar: FlutterPluginRegistrar) {
+        isDisposed = true
+        scannerDevice.release()
+    }
+
     /// Routes a Flutter method call to the corresponding scanner command.
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard !isDisposed else { return }
+        let reply: FlutterResult = { [weak self] value in
+            guard self?.isDisposed == false else { return }
+            result(value)
+        }
         switch call.method {
         case PluginConstants.captureCameraMethod:
-            CaptureCameraCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
+            CaptureCameraCommand(scannerDevice: scannerDevice)
+                .execute(call, result: reply)
         case PluginConstants.releaseCameraMethod:
-            ReleaseCameraCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
-        case PluginConstants.resumeCameraMethod:
-            ResumeCameraCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
-        case PluginConstants.pauseCameraMethod:
-            PauseCameraCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
-        case PluginConstants.toggleFlashMethod:
-            ToggleFlashCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
-        case PluginConstants.startScanMethod:
-            StartScanCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
-        case PluginConstants.cancelScanMethod:
-            CancelScanCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
-        case PluginConstants.setScanDelayMethod:
-            SetScanDelayCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
+            scannerDevice.releaseCamera { reply(nil) }
         case PluginConstants.setZoomRatioMethod:
-            SetZoomRatioCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
+            SetZoomRatioCommand(scannerDevice: scannerDevice).execute(call, result: reply)
+        case PluginConstants.toggleFlashMethod:
+            ToggleFlashCommand(scannerDevice: scannerDevice).execute(call, result: reply)
+        case PluginConstants.startScanMethod:
+            StartScanCommand(scannerDevice: scannerDevice).execute(call, result: reply)
+        case PluginConstants.cancelScanMethod:
+            CancelScanCommand(scannerDevice: scannerDevice).execute(call, result: reply)
+        case PluginConstants.setScanDelayMethod:
+            SetScanDelayCommand(scannerDevice: scannerDevice).execute(call, result: reply)
         case PluginConstants.setCropAreaMethod:
-            SetCropAreaCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
+            SetCropAreaCommand(scannerDevice: scannerDevice).execute(call, result: reply)
         case PluginConstants.getIosAvailableCamerasMethod:
-            GetIosAvailableCamerasCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
-        case PluginConstants.setIosCameraMethod:
-            SetIosCameraCommand(scannerSession: scannerSession)
-                .execute(call, result: result)
+            GetIosAvailableCamerasCommand(scannerDevice: scannerDevice)
+                .execute(call, result: reply)
         default:
-            result(FlutterMethodNotImplemented)
+            reply(FlutterMethodNotImplemented)
         }
     }
 }
@@ -107,11 +101,9 @@ extension SwiftMlkitScannerPlugin: FlutterPlatformViewFactory {
         viewIdentifier viewId: Int64,
         arguments args: Any?
     ) -> FlutterPlatformView {
-        let registration = (try? ScannerMethodArguments.viewRegistration(args)) ?? .empty
-        return scannerSession.createView(
+        return scannerDevice.createView(
             frame: frame,
-            viewId: viewId,
-            registration: registration
+            viewId: viewId
         )
     }
 }

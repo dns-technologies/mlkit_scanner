@@ -5,7 +5,7 @@ import XCTest
 final class GetIosAvailableCamerasCommandTests: XCTestCase {
     func testExecuteReturnsOnlyJsonCompatibleCameraDescriptors() {
         let command = GetIosAvailableCamerasCommand(
-            scannerSession: RecordingScannerSession()
+            scannerDevice: RecordingScannerHardware()
         )
         var resultValue: Any?
 

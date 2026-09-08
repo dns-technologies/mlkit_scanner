@@ -1,10 +1,9 @@
 package com.dns_technologies.mlkit_scanner.commands.base
 
-import android.content.Context
 import com.dns_technologies.mlkit_scanner.PluginError
-import com.dns_technologies.mlkit_scanner.session.ScannerSession
+import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.ScannerView
-import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
+import com.dns_technologies.mlkit_scanner.commands.base.DeviceCall
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CompletableDeferred
@@ -68,74 +67,40 @@ internal class BaseScannerCommandTest {
     }
 }
 
-internal data class SessionCall(
-    val name: String,
-    val viewId: Int? = null,
-    val value: Any? = null,
-)
-
-internal open class RecordingScannerSession : ScannerSession {
-    val calls = mutableListOf<SessionCall>()
+/** Records calls on a concrete device double; these values are test assertions, not a production bus. */
+internal open class RecordingScanner {
+    val isDisposed = false
+    val device: Scanner = mock(Scanner::class.java, org.mockito.AdditionalAnswers.delegatesTo<Any>(this))
+    val events = mutableListOf<DeviceCall>()
     var zoomCompletion: CompletableDeferred<Unit>? = null
     var torchCompletion: CompletableDeferred<Unit>? = null
 
-    override fun createView(
-        context: Context,
-        viewId: Int,
-        initialZoomRatio: Double?,
-        initialCropRect: RecognizeVisorCropRect?,
-        initialFlashEnabled: Boolean?,
-    ): ScannerView = error("createView is not used by command tests")
+    fun releaseCamera() { events += DeviceCall.ReleaseCamera(42) }
+    fun startScan(period: Int) { events += DeviceCall.StartScan(42, period) }
+    fun pauseScan() { events += DeviceCall.PauseScan(42) }
+    fun setScanPeriod(period: Int) { events += DeviceCall.SetScanPeriod(42, period) }
+    fun setCropArea(crop: com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect) { events += DeviceCall.SetCrop(42, crop) }
+    suspend fun setZoomRatio(ratio: Float) { request(DeviceCall.SetZoom(42, ratio), null) }
+    suspend fun setTorch(enabled: Boolean) { request(DeviceCall.ToggleTorch(42), null) }
 
-    override suspend fun captureCamera(
-        viewId: Int,
-        requestCameraPermission: suspend () -> Boolean,
-    ) {
-        calls += SessionCall("captureCamera", viewId)
+    open suspend fun request(event: DeviceCall.Request, permission: (suspend () -> Boolean)?) {
+        events += event
+        when (event) {
+            is DeviceCall.SetZoom -> zoomCompletion?.await()
+            is DeviceCall.ToggleTorch -> torchCompletion?.await()
+        }
     }
+}
 
-    override fun releaseCamera(viewId: Int) {
-        calls += SessionCall("releaseCamera", viewId)
-    }
-
-    override fun resumeCamera(viewId: Int) {
-        calls += SessionCall("resumeCamera", viewId)
-    }
-
-    override fun pauseCamera(viewId: Int) {
-        calls += SessionCall("pauseCamera", viewId)
-    }
-
-    override fun activate() = Unit
-    override fun deactivate() = Unit
-
-    override suspend fun toggleFlashLight(viewId: Int) {
-        calls += SessionCall("toggleFlashLight", viewId)
-        torchCompletion?.await()
-    }
-
-    override fun startScan(viewId: Int, periodMs: Int) {
-        calls += SessionCall("startScan", viewId, periodMs)
-    }
-
-    override fun pauseScan(viewId: Int) {
-        calls += SessionCall("pauseScan", viewId)
-    }
-
-    override fun updateScanPeriod(viewId: Int, periodMs: Int) {
-        calls += SessionCall("updateScanPeriod", viewId, periodMs)
-    }
-
-    open override suspend fun setZoomRatio(viewId: Int, value: Float) {
-        calls += SessionCall("setZoomRatio", viewId, value)
-        zoomCompletion?.await()
-    }
-
-    override fun setCropArea(viewId: Int, cropRect: RecognizeVisorCropRect) {
-        calls += SessionCall("setCropArea", viewId, cropRect)
-    }
-
-    override fun release() {
-        calls += SessionCall("release")
-    }
+/** Expected device calls, including the address supplied to the test's lookup callback. */
+internal sealed interface DeviceCall {
+    val viewId: Int
+    sealed interface Request : DeviceCall
+    data class ReleaseCamera(override val viewId: Int) : DeviceCall
+    data class StartScan(override val viewId: Int, val periodMs: Int) : DeviceCall
+    data class PauseScan(override val viewId: Int) : DeviceCall
+    data class SetScanPeriod(override val viewId: Int, val periodMs: Int) : DeviceCall
+    data class SetCrop(override val viewId: Int, val crop: com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect) : DeviceCall
+    data class SetZoom(override val viewId: Int, val ratio: Float) : Request
+    data class ToggleTorch(override val viewId: Int) : Request
 }

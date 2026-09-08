@@ -15,31 +15,36 @@ import io.flutter.plugin.platform.PlatformView
 /**
  * Android platform view that renders scanner preview and scanner overlays.
  *
- * @property preview Borrowed preview hosted by this container; its resources belong to the caller.
  * @property onDispose Notifies the caller when the platform view is disposed.
  */
 @SuppressLint("ViewConstructor")
 @MainThread
 class ScannerView(
     context: Context,
-    private val preview: View,
+    /** Immutable Flutter routing address, separate from Android View.id and callback ownership. */
+    val viewId: Int,
     onFocusRequest: (resetDelayMs: Long, offsetX: Float, offsetY: Float) -> Unit,
     onDispose: () -> Unit,
 ) : FrameLayout(context), PlatformView {
+    /** Borrowed only while attached; a later capture may supply a newly created scanner preview. */
+    private var preview: View? = null
     private val overlayController = OverlayController(this, onFocusRequest)
     private var onDispose: (() -> Unit)? = onDispose
     private var previewReadyListener: ViewTreeObserver.OnPreDrawListener? = null
     private var previewReady = false
-    private var isDisposed = false
+    var isDisposed = false
+        private set
 
     init {
         layoutParams = ViewGroup.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
     }
 
     /** Moves the shared preview here and reports when its current non-zero layout can be used. */
-    fun attachPreview(onPreviewReady: () -> Unit) {
+    fun attachPreview(preview: View, onPreviewReady: () -> Unit) {
         if (isDisposed) return
         clearPreviewReadiness()
+        val previous = this.preview
+        this.preview = preview
         val listener = object : ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
                 // Android may already be iterating a snapshot containing a removed listener.
@@ -52,6 +57,8 @@ class ScannerView(
             }
         }
         previewReadyListener = listener
+        if (previous !== preview && previous?.parent === this) removeView(previous)
+        if (previewReadyListener !== listener) return
         (preview.parent as? ViewGroup)?.removeView(preview)
         // Removing/adding a child may call external hierarchy listeners synchronously.
         if (previewReadyListener !== listener) return
@@ -64,11 +71,13 @@ class ScannerView(
         overlayController.setScanActive(false)
         overlayController.unbindFocus()
         clearPreviewReadiness()
-        if (preview.parent === this) removeView(preview)
+        val detached = preview
+        preview = null
+        if (detached?.parent === this) removeView(detached)
     }
 
     /** Returns whether this container currently hosts the one shared preview view. */
-    fun hasPreview(): Boolean = preview.parent === this
+    fun hasPreview(): Boolean = preview?.parent === this
 
     /** Returns whether the hosted preview has completed a non-zero layout in this container. */
     fun isPreviewReady(): Boolean = hasPreview() && previewReady

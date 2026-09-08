@@ -1,27 +1,20 @@
 package com.dns_technologies.mlkit_scanner.scanner
 
 import android.content.Context
+import com.dns_technologies.mlkit_scanner.PluginError
+import com.dns_technologies.mlkit_scanner.utils.requireInt
+import com.dns_technologies.mlkit_scanner.utils.requireMap
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 
-/** Creates a scanner platform view for the supplied Flutter platform-view id. */
-typealias CreateScannerView = (context: Context, viewId: Int, creationParams: Any?) -> ScannerView
-
-/**
- * Creates scanner camera platform views.
- *
- * @property createScannerView Creates a view from the supplied context, id and creation arguments.
- */
-class ScannerViewFactory(
-    private val createScannerView: CreateScannerView,
+/** Validates a UI registration address; all scanner configuration arrives from Dart at capture. */
+internal class ScannerViewFactory(
+    private val createView: (Context, Int) -> ScannerView,
 ) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
-    /** Delegates view creation without assuming how the caller registers or owns the view. */
     override fun create(context: Context?, viewId: Int, args: Any?): PlatformView {
-        return createScannerView(
-            requireNotNull(context) { "Flutter did not provide a platform-view context" },
-            viewId,
-            args,
-        )
+        val viewContext = requireNotNull(context) { "Flutter did not provide a platform-view context" }
+        if (viewId < 0 || args.requireMap().requireInt("viewId") != viewId) throw PluginError.InvalidArguments
+        return createView(viewContext, viewId)
     }
 }

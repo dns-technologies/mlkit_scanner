@@ -8,17 +8,17 @@ import XCTest
 @testable import mlkit_scanner
 
 final class MlkitBarcodeScannerTests: XCTestCase {
-    func testProcessVideoOutputRecognizesBarcodeAndPreservesViewIdentity() throws {
-        let scanner = MlkitBarcodeScanner(delay: 0, cropRect: nil, viewId: 42)
-        let delegate = RecognitionDelegateSpy()
-        scanner.delegate = delegate
+    func testProcessVideoOutputRecognizesBarcodeForItsSubscription() throws {
+        let scanner = MlkitBarcodeScanner(delay: 0, cropRect: nil)
+        var barcode: Barcode?
+        var resultCount = 0
         scanner.setDelay(delay: 0)
         scanner.updateCropRect(cropRect: try CropRect(arguments: [:]))
         let sampleBuffer = try makeSampleBuffer(
             from: qrCodeImage(containing: "mlkit-scanner-test")
         )
         let expectation = expectation(description: "scanner result")
-        delegate.onResult = { expectation.fulfill() }
+        let subscription = scanner.subscribe { barcode = $0; resultCount += 1; expectation.fulfill() }
 
         scanner.processVideoOutput(
             sampleBuffer: sampleBuffer,
@@ -28,9 +28,17 @@ final class MlkitBarcodeScannerTests: XCTestCase {
         )
 
         wait(for: [expectation], timeout: 5)
-        XCTAssertNil(delegate.error)
-        XCTAssertEqual(delegate.barcode?.rawValue, "mlkit-scanner-test")
-        XCTAssertEqual(delegate.viewId, 42)
+        XCTAssertEqual(barcode?.rawValue, "mlkit-scanner-test")
+        subscription.cancel()
+        let recognized = try XCTUnwrap(barcode)
+        var replacementCount = 0
+        let replacement = scanner.subscribe { _ in replacementCount += 1 }
+        subscription.deliver(recognized)
+        XCTAssertEqual(resultCount, 1)
+        XCTAssertEqual(replacementCount, 0)
+        replacement.deliver(recognized)
+        XCTAssertEqual(replacementCount, 1)
+        replacement.cancel()
         XCTAssertEqual(scanner.type, .barcodeRecognition)
     }
 
@@ -103,23 +111,5 @@ final class MlkitBarcodeScannerTests: XCTestCase {
         )
         XCTAssertEqual(sampleStatus, noErr)
         return try XCTUnwrap(sampleBuffer)
-    }
-}
-
-private final class RecognitionDelegateSpy: RecognitionResultDelegate {
-    var barcode: Barcode?
-    var viewId: Int64?
-    var error: Error?
-    var onResult: (() -> Void)?
-
-    func onRecognition(result: Barcode, viewId: Int64) {
-        barcode = result
-        self.viewId = viewId
-        onResult?()
-    }
-
-    func onError(error: Error) {
-        self.error = error
-        onResult?()
     }
 }

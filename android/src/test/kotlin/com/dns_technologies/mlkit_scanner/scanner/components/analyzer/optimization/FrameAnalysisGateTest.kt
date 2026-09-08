@@ -6,20 +6,6 @@ import org.junit.Test
 
 internal class FrameAnalysisGateTest {
     @Test
-    fun `negative periods are rejected without changing existing configuration`() {
-        assertTrue(runCatching { FrameAnalysisGate(-1) }.exceptionOrNull() is IllegalArgumentException)
-        val clock = MutableClock()
-        val gate = FrameAnalysisGate(100, clock::read)
-        assertTrue(runCatching { gate.updateSuccessfulScanPeriod(-1) }.exceptionOrNull() is IllegalArgumentException)
-        gate.completeAnalysis(barcodeFound = true)
-
-        clock.timeMs = 99
-        assertFalse(gate.acceptsFrame())
-        clock.timeMs = 100
-        assertTrue(gate.acceptsFrame())
-    }
-
-    @Test
     fun `period update does not retroactively change an active cooldown`() {
         val clock = MutableClock()
         val gate = FrameAnalysisGate(100, clock::read)

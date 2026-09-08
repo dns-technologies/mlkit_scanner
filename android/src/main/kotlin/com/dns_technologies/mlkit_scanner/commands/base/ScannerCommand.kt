@@ -1,13 +1,13 @@
 package com.dns_technologies.mlkit_scanner.commands.base
 
-import com.dns_technologies.mlkit_scanner.session.ScannerSession
+import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 
 /** Base command abstraction for handling a single Dart->native scanner command. */
 internal abstract class ScannerCommand(
-    scannerSessionProvider: () -> ScannerSession?,
-) : BaseScannerCommand(scannerSessionProvider) {
+    scannerProvider: () -> Scanner?,
+) : BaseScannerCommand(scannerProvider) {
     /** Executes command body with shared error handling. */
     fun execute(call: MethodCall, result: Result) {
         try {

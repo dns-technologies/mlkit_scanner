@@ -11,15 +11,6 @@ internal object PluginConstants {
     /** Event key containing the recognized barcode payload. */
     const val barcodeArgument = "barcode"
 
-    /** Optional view-registration argument containing an absolute zoom ratio. */
-    const val initialZoomRatioArgument = "initialZoomRatio"
-
-    /** Optional view-registration argument containing the initial torch state. */
-    const val initialFlashEnabledArgument = "initialFlashEnabled"
-
-    /** Optional view-registration argument containing the recognition area. */
-    const val initialCropRectArgument = "initialCropRect"
-
     /** Argument key containing a camera-control value. */
     const val valueArgument = "value"
 
@@ -41,30 +32,14 @@ internal object PluginConstants {
     /** Method name used to release camera ownership held by one platform view. */
     const val releaseCameraMethod = "releaseCamera"
 
-    /** Method name used to select and resume a platform view's camera preview. */
-    const val resumeCameraMethod = "resumeCameraMethod"
 
-    /** Method name used to pause the camera preview lifecycle. */
-    const val pauseCameraMethod = "pauseCameraMethod"
-
-    /** Method name used to toggle the camera torch. */
+    const val setZoomRatioMethod = "setZoomRatio"
     const val toggleFlashMethod = "toggleFlash"
-
-    /** Method name used to start barcode analysis. */
     const val startScanMethod = "startScan"
-
-    /** Method name used to stop barcode analysis. */
     const val cancelScanMethod = "cancelScan"
-
-    /** Method name used to update the cooldown after successful recognition. */
     const val setScanDelayMethod = "setScanDelay"
+    const val setCropAreaMethod = "setCropArea"
 
     /** Method name used to deliver recognized barcode values to Dart. */
     const val scanResultMethod = "onScanResult"
-
-    /** Method name used to update the absolute camera zoom ratio. */
-    const val setZoomRatioMethod = "setZoomRatio"
-
-    /** Method name used to update the recognized visor crop area. */
-    const val setCropAreaMethod = "setCropAreaMethod"
 }

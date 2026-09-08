@@ -1,14 +1,14 @@
 import Flutter
 import Foundation
 
-/// Shared command functionality for one scanner session.
+/// Shared command functionality for the native scanner.
 class BaseScannerCommand {
-    /// Scanner session targeted by this command.
-    let scannerSession: ScannerSession
+    /// Native scanner targeted by this command.
+    let scannerDevice: ScannerDevice
 
-    /// Creates command functionality for one scanner session.
-    init(scannerSession: ScannerSession) {
-        self.scannerSession = scannerSession
+    /// Creates command functionality for the native scanner.
+    init(scannerDevice: ScannerDevice) {
+        self.scannerDevice = scannerDevice
     }
 
     /// Completes a Flutter call successfully without a return value.

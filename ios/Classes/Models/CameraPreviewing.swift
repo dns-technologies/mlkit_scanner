@@ -1,21 +1,22 @@
 import Foundation
 import UIKit
 
-/// Camera-preview behavior coordinated by a scanner session.
-///
-/// The protocol keeps session ownership and race handling independent from
-/// AVFoundation so those guarantees can be exercised without opening hardware.
+/// Replaceable AVFoundation boundary for the native SDK bridge.
+/// Hardware callbacks and resource cleanup can be tested without opening a camera.
 protocol CameraPreviewing: AnyObject {
-    /// Flutter identifier of the platform view.
-    var viewId: Int64 { get }
-
-    /// Identity of this concrete registration, even if Flutter later reuses an id.
-    var registrationToken: UUID { get }
+    /// Native preview moved between Flutter containers.
+    func view() -> UIView
+    /// Whether the capture session and video output have both been configured.
+    var isInitialized: Bool { get }
+    /// Current physical torch activity, not retained intent.
+    var isTorchActive: Bool { get }
+    /// Completes layout/start waiters without stopping a reusable capture session.
+    func cancelPendingStart(completion: @escaping () -> Void)
 
     /// Recognition handler receiving frames while scanning is active.
     var recognitionHandler: RecognitionHandler? { get set }
 
-    /// Delegate receiving focus and torch events scoped to this view.
+    /// Delegate for physical focus admission and torch observation.
     var cameraPreviewDelegate: CameraPreviewDelegate? { get set }
 
     /// Whether the native preview currently has finite, nonempty bounds.
@@ -24,7 +25,7 @@ protocol CameraPreviewing: AnyObject {
     /// Calls `completion` when the native preview first has usable bounds.
     func whenLayoutReady(_ completion: @escaping () -> Void)
 
-    /// Requests permission and prepares capture resources without starting them.
+    /// Prepares capture resources after the bridge has obtained permission.
     func initCamera(completion: @escaping (Error?) -> Void)
 
     /// Replaces the selected capture device.
@@ -35,9 +36,6 @@ protocol CameraPreviewing: AnyObject {
 
     /// Clears retained focus lock and restores continuous focus where supported.
     func resetFocus()
-
-    /// Stops capture without releasing reusable resources.
-    func pauseCamera(completion: @escaping () -> Void)
 
     /// Starts capture and completes after the first video frame arrives.
     func resumeCamera(completion: @escaping (Error?) -> Void)
