@@ -20,6 +20,9 @@ internal fun Map<*, *>.optionalBoolean(key: String): Boolean? = when (val value 
     else -> throw PluginError.InvalidArguments
 }
 
+internal fun Map<*, *>.requireBoolean(key: String): Boolean =
+    optionalBoolean(key) ?: throw PluginError.InvalidArguments
+
 internal fun Map<*, *>.optionalFiniteDouble(key: String): Double? = when (val value = this[key]) {
     null -> null
     else -> value.requireFiniteDouble()

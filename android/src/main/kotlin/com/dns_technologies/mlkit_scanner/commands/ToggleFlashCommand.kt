@@ -1,11 +1,10 @@
 package com.dns_technologies.mlkit_scanner.commands
 
 import com.dns_technologies.mlkit_scanner.PluginConstants
-import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.commands.base.AsyncScannerCommand
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.utils.requireMap
-import com.dns_technologies.mlkit_scanner.utils.optionalBoolean
+import com.dns_technologies.mlkit_scanner.utils.requireBoolean
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.CoroutineScope
@@ -16,8 +15,7 @@ internal class ToggleFlashCommand(
     commandScope: CoroutineScope,
 ) : AsyncScannerCommand(scannerProvider, commandScope) {
     override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
-        val enabled = call.arguments.requireMap().optionalBoolean(PluginConstants.valueArgument)
-            ?: throw PluginError.InvalidArguments
+        val enabled = call.arguments.requireMap().requireBoolean(PluginConstants.valueArgument)
         scanner()?.setTorch(enabled)
         success(result)
     }
