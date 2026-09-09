@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
+import android.widget.FrameLayout
 import androidx.camera.core.CameraState
 import androidx.camera.view.PreviewView
 import androidx.lifecycle.LifecycleOwner
@@ -11,10 +12,14 @@ import kotlinx.coroutines.Deferred
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.doReturn
+import org.mockito.Mockito.clearInvocations
+import org.mockito.Mockito.inOrder
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.verifyNoInteractions
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
@@ -46,14 +51,41 @@ internal class XCameraTest {
 
     @Test
     fun `hide preview keeps texture attached but invisible during configuration`() {
-        val camera = XCamera(RuntimeEnvironment.getApplication())
+        val context = RuntimeEnvironment.getApplication()
+        val camera = XCamera(context)
+        val container = FrameLayout(context)
+        container.addView(camera.previewView)
+        camera.previewView.layout(0, 0, 100, 200)
         camera.previewView.alpha = 0.35F
 
         camera.hidePreview()
 
         assertEquals(0F, camera.previewView.alpha, 0F)
         assertEquals(android.view.View.VISIBLE, camera.previewView.visibility)
+        assertSame(container, camera.previewView.parent)
+        assertEquals(100, camera.previewView.width)
+        assertEquals(200, camera.previewView.height)
         camera.dispose()
+    }
+
+    @Test
+    fun `hide and show only change transparency without rebinding the camera`() = withCameraFixture { f ->
+        f.start()
+        clearInvocations(f.provider, f.preview)
+
+        f.camera.hidePreview()
+        f.camera.hidePreview()
+        f.camera.showPreview()
+        f.camera.hidePreview()
+
+        inOrder(f.preview).apply {
+            verify(f.preview, org.mockito.Mockito.times(2)).alpha = 0F
+            verify(f.preview).alpha = 1F
+            verify(f.preview).alpha = 0F
+        }
+        assertTrue(f.camera.isBound())
+        assertEquals(CameraAvailability.Open, f.availability.last())
+        verifyNoInteractions(f.provider)
     }
 
     @Test

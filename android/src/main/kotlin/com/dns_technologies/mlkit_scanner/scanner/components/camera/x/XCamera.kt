@@ -175,7 +175,8 @@ class XCamera internal constructor(
     }
 
     override fun hidePreview() {
-        // COMPATIBLE uses a TextureView. Keeping its alpha preserves the last rendered frame.
+        // Keep the preview attached and streaming while startup controls are applied.
+        cameraPreviewView.alpha = 0F
     }
 
     override fun unbind() {
