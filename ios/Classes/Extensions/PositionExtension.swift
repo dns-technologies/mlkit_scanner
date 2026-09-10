@@ -11,7 +11,7 @@ import Foundation
 import AVFoundation
 
 extension AVCaptureDevice.Position {
-    /// Code of unsuppored types.
+    /// Code used for unsupported camera positions.
     static let unsupportedCode = -1
     
     /// Code of position for transmission over the platform channel.

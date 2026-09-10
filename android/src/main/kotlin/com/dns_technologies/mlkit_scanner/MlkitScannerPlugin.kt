@@ -1,404 +1,282 @@
 package com.dns_technologies.mlkit_scanner
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import android.graphics.Point
-import android.util.Log
-import android.view.WindowManager
-import androidx.annotation.NonNull
-import com.otaliastudios.cameraview.CameraView
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleObserver
-import androidx.lifecycle.OnLifecycleEvent
-import com.dns_technologies.mlkit_scanner.analyzer.AnalyzerCreator
-import com.dns_technologies.mlkit_scanner.analyzer.CameraImageAnalyzer
-import com.dns_technologies.mlkit_scanner.analyzer.TAG
-import com.dns_technologies.mlkit_scanner.extensions.toJson
-import com.dns_technologies.mlkit_scanner.models.*
-import com.google.mlkit.vision.barcode.common.Barcode
-
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import androidx.annotation.MainThread
+import androidx.lifecycle.Lifecycle
+import com.dns_technologies.mlkit_scanner.commands.SetZoomRatioCommand
+import com.dns_technologies.mlkit_scanner.commands.ToggleFlashCommand
+import com.dns_technologies.mlkit_scanner.commands.StartScanCommand
+import com.dns_technologies.mlkit_scanner.commands.CancelScanCommand
+import com.dns_technologies.mlkit_scanner.commands.SetScanDelayCommand
+import com.dns_technologies.mlkit_scanner.commands.SetCropAreaCommand
+import com.dns_technologies.mlkit_scanner.commands.base.reportScannerError
+import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
+import com.dns_technologies.mlkit_scanner.scanner.Scanner
+import com.dns_technologies.mlkit_scanner.scanner.ScannerConfiguration
+import com.dns_technologies.mlkit_scanner.scanner.ScannerView
+import com.dns_technologies.mlkit_scanner.scanner.ScannerViewFactory
+import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.mlkit.MlkitImageBarcodeAnalyzer
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.x.XCamera
+import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
+import com.dns_technologies.mlkit_scanner.utils.ExceptionCollector
+import com.dns_technologies.mlkit_scanner.utils.requireInt
+import com.dns_technologies.mlkit_scanner.utils.requireMap
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
-import io.flutter.embedding.engine.plugins.lifecycle.HiddenLifecycleReference
+import io.flutter.embedding.engine.plugins.lifecycle.FlutterLifecycleAdapter
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
-import kotlin.Exception
+import io.flutter.plugin.common.PluginRegistry
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 
-class PermissionsConstants {
-    companion object {
-        const val REQUEST_CODE_PERMISSIONS = 10
-        val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
-    }
-}
+/** Flutter transport, Activity dependencies and one lazily created scanner. */
+@MainThread
+class MlkitScannerPlugin internal constructor(
+    mainHandler: Handler,
+    channel: MethodChannel? = null,
+    private val scannerFactory: (Context, (Scanner, Throwable) -> Unit, (Int, Barcode) -> Unit) -> Scanner =
+        { context, released, result -> createScanner(context, mainHandler, released, result) },
+    private var commandScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    private val permissionGateway: PermissionGateway = PermissionGateway(),
+) : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
+    constructor() : this(Handler(Looper.getMainLooper()))
 
-/**
- * Android plugin for working with ML Kit scanner
- *
- * The [CameraView] library is used for simplification of Camera1
- * [CameraLifecycle] is used for [ScannerCamera] lifecycle managing
- * Plugin inherits [ActivityAware] for checking camera user permissions
- */
-class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, LifecycleObserver {
-    private lateinit var channel: MethodChannel
-    private lateinit var binding: ActivityPluginBinding
-    private lateinit var cameraView: CameraView
-    private var camera: ScannerCamera? = null
-    private var cameraLifecycle: CameraLifecycle? = null
+    internal val isDisposed: Boolean get() = channel == null
 
-    // The field contains the Result passed during initialization. It is necessary for throwing errors
-    // into flutter that can occur asynchronously during initialization. For example,
-    // camera permission error that can be handled in listenPermissionResult method
-    private var initialMethodResult: Result? = null
-    private var cameraImagePreparer = MlKitAnalysingImagePreparer()
-    private var analyzer: CameraImageAnalyzer? = null
-    private var scannerOverlay: ScannerOverlay? = null
+    /** Detached before terminal callbacks. */
+    private var channel: MethodChannel? = channel
 
-    // Parameters configuring the scanner at the time of its initialization.
-    private var initialScannerParameters: ScannerParameters? = null
-    private var isLockedAutoResumeCamera: Boolean = false
+    /** Created on capture; Flutter owns platform-view lifetimes. */
+    private var scanner: Scanner? = null
 
-    private var isAlreadyInitialized: Boolean = false
+    /** Routing references only; Flutter owns platform-view lifetimes. */
+    private val views = mutableMapOf<Int, ScannerView>()
 
-    override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-        channel = MethodChannel(flutterPluginBinding.binaryMessenger, PluginConstants.channelName)
-        channel.setMethodCallHandler(this)
-        flutterPluginBinding
-            .platformViewRegistry
-            .registerViewFactory(PluginConstants.cameraPlatformViewName,
-                CameraViewFactory {
-                    cameraView = it
-                })
+    /** Exact Flutter attachment used to unregister permission callbacks. */
+    private var activityBinding: ActivityPluginBinding? = null
+
+    private val permissionResultListener =
+        PluginRegistry.RequestPermissionsResultListener(permissionGateway::onPermissionResult)
+    private val ActivityPluginBinding.activityLifecycle: Lifecycle
+        get() = FlutterLifecycleAdapter.getActivityLifecycle(this)
+
+    init {
+        channel?.setMethodCallHandler(this)
     }
 
-    override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        check(channel == null) { "Scanner plugin is already attached to an engine" }
+        commandScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val connected = MethodChannel(binding.binaryMessenger, PluginConstants.channelName)
+        channel = connected
+        connected.setMethodCallHandler(this)
+        try {
+            val factory = ScannerViewFactory { context, id ->
+                check(channel === connected) { "Scanner engine is detached" }
+                createView(context, id)
+            }
+            check(
+                binding.platformViewRegistry.registerViewFactory(
+                    PluginConstants.cameraPlatformViewName,
+                    factory
+                )
+            ) {
+                "Scanner platform view factory is already registered"
+            }
+        } catch (error: Exception) {
+            ExceptionCollector(error).attempt(::dispose)
+            throw error
+        }
+    }
+
+    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) = dispose()
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) = attach(binding)
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) =
+        attach(binding)
+
+    override fun onDetachedFromActivityForConfigChanges() = detach(isFinal = false)
+    override fun onDetachedFromActivity() = detach(isFinal = true)
+
+    /** Dart owns command admission; native controls address the single scanner. */
+    internal fun currentScanner(): Scanner? =
+        scanner?.takeIf { !isDisposed && !it.isDisposed }
+
+    internal fun attach(binding: ActivityPluginBinding) {
+        check(!isDisposed) { "Cannot attach an Activity to a disposed scanner plugin" }
+        activityBinding = binding
+        binding.addRequestPermissionsResultListener(permissionResultListener)
+        scanner?.attachActivity(binding.activityLifecycle)
+        permissionGateway.attach(binding.activity)
+    }
+
+    internal fun detach(isFinal: Boolean) {
+        val previous = activityBinding
+        activityBinding = null
+        val failures = ExceptionCollector()
+        failures.attempt { scanner?.detachActivity() }
+        failures.attempt { previous?.removeRequestPermissionsResultListener(permissionResultListener) }
+        failures.attempt { if (isFinal) permissionGateway.detachFinal() else permissionGateway.detachForConfigChange() }
+        if (isFinal) failures.attempt { scanner?.dispose() }
+        failures.throwIfFailed()
+    }
+
+    /** Drops channel ownership before any external cleanup callback. */
+    internal fun dispose() {
+        if (isDisposed) return
+        val connected = channel
+        channel = null
+        val failures = ExceptionCollector()
+        failures.attempt { detach(isFinal = true) }
+        views.clear()
+        failures.attempt { commandScope.cancel() }
+        failures.attempt { connected?.setMethodCallHandler(null) }
+        failures.throwIfFailed()
+    }
+
+    /** Capture selects a view directly; controls resolve only the current scanner. */
+    override fun onMethodCall(call: MethodCall, result: Result) {
+        if (isDisposed) return
         when (call.method) {
-            PluginConstants.initCameraMethod -> invokeInit(call, result)
-            PluginConstants.resumeCameraMethod -> resumeCamera(result)
+            PluginConstants.resumeCameraMethod -> resumeCamera(call, result)
             PluginConstants.pauseCameraMethod -> pauseCamera(result)
-            PluginConstants.disposeCameraMethod -> invokeDispose(result)
-            PluginConstants.toggleFlashMethod -> invokeToggleFlash(result)
-            PluginConstants.startScanMethod -> invokeStartScan(call, result)
-            PluginConstants.cancelScanMethod -> invokeCancelScan(result)
-            PluginConstants.setScanDelayMethod -> invokeSetScanDelay(call, result)
-            PluginConstants.updateConstraintsMethod -> result.success(true) // на Android нет необходимости обрабатывать
-            PluginConstants.setZoomMethod -> invokeSetZoom(call, result)
-            PluginConstants.setCropAreaMethod -> invokeSetCropArea(call, result)
+
+            PluginConstants.setZoomRatioMethod -> SetZoomRatioCommand(::currentScanner, commandScope).execute(call, result)
+            PluginConstants.toggleFlashMethod -> ToggleFlashCommand(::currentScanner, commandScope).execute(call, result)
+            PluginConstants.startScanMethod -> StartScanCommand(::currentScanner).execute(call, result)
+            PluginConstants.cancelScanMethod -> CancelScanCommand(::currentScanner).execute(call, result)
+            PluginConstants.setScanDelayMethod -> SetScanDelayCommand(::currentScanner).execute(call, result)
+            PluginConstants.setCropAreaMethod -> SetCropAreaCommand(::currentScanner).execute(call, result)
+
             else -> result.notImplemented()
         }
     }
 
-    override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
-        channel.setMethodCallHandler(null)
-    }
-
-    override fun onDetachedFromActivity() {
-        val activityLifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
-        activityLifecycle.removeObserver(this)
-        binding.removeRequestPermissionsResultListener(this::listenPermissionResult)
-    }
-
-    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        this.binding = binding
-        binding.addRequestPermissionsResultListener(this::listenPermissionResult)
-    }
-
-    override fun onDetachedFromActivityForConfigChanges() {
-        binding.removeRequestPermissionsResultListener(this::listenPermissionResult)
-    }
-
-    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
-        this.binding = binding
-        val activityLifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
-        activityLifecycle.addObserver(this)
-        binding.addRequestPermissionsResultListener(this::listenPermissionResult)
-    }
-
-    @Suppress("UNUSED_PARAMETER")
-    private fun listenPermissionResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ): Boolean {
-        if (requestCode == PermissionsConstants.REQUEST_CODE_PERMISSIONS) {
-            if (allPermissionsGranted()) {
-                initCamera()
-            } else {
-                initialMethodResult?.error(
-                    PluginError.AuthorizationCameraError.errorCode,
-                    "The app does not have camera permission",
-                    null
-                )
-                initialMethodResult = null
-            }
-        }
-        return true
-    }
-
-    private fun invokeInit(call: MethodCall, result: Result) {
-        // When rebuilding a widget, dispose() is not called,
-        // which causes situations where initCamera() can be called multiple times.
-        if (isAlreadyInitialized) {
-            return
-        }
-        initialMethodResult = result
-        val args = call.arguments as Map<String, Any?>?
-        initialScannerParameters = if (args != null) ScannerParameters(args) else null
-
-        if (allPermissionsGranted()) {
-            initCamera()
-        } else {
-            requestAllPermission()
-        }
-    }
-
-    private fun resumeCamera(result: Result) {
-        isLockedAutoResumeCamera = false
-        cameraLifecycle!!.resume()
-        result.success(true)
-    }
-
     private fun pauseCamera(result: Result) {
-        isLockedAutoResumeCamera = true
-        cameraLifecycle!!.pause()
-        result.success(true)
+        try {
+            currentScanner()?.releaseCamera()
+            result.success(true)
+        } catch (error: Exception) {
+            reportScannerError(result, error)
+        }
     }
 
-    private fun invokeToggleFlash(result: Result) {
-        if (checkCameraActiveStatus(
-                result,
-                "You need to invoke the \'initCameraPreview\' method before using flash"
-            )
-        ) {
+    /** Selects before the first await so a later capture or release can supersede this work. */
+    private fun resumeCamera(call: MethodCall, result: Result) {
+        commandScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                camera?.toggleFlashLight()
+                currentCoroutineContext().ensureActive()
+                val arguments = call.arguments.requireMap()
+                val viewId = arguments.requireInt(PluginConstants.viewIdArgument)
+                if (viewId < 0) throw PluginError.InvalidArguments
+                val configuration = ScannerConfiguration.from(arguments["configuration"])
+                val lifecycle = activityBinding?.activityLifecycle
+                val view = views[viewId]?.takeUnless { it.isDisposed }
+                if (lifecycle == null || view == null) {
+                    // The addressed view or Activity is gone; this capture is superseded work.
+                    result.success(true)
+                    return@launch
+                }
+
+                val device = scanner ?: scannerFactory(view.context, ::scannerReleased, ::emitScanResult)
+                try {
+                    if (scanner == null) {
+                        scanner = device
+                        device.attachActivity(lifecycle)
+                    }
+                    device.select(view)
+                } catch (error: Exception) {
+                    if (scanner === device) scanner = null
+                    ExceptionCollector(error).attempt { device.dispose(error) }
+                    throw error
+                }
+                device.capture(configuration) {
+                    permissionGateway.requestCameraPermission()
+                }
                 result.success(true)
-            } catch (e: HasNoFlashUnitException) {
-                result.error(
-                    PluginError.DeviceHasNotFlash.errorCode,
-                    "Device has no flash",
-                    null
-                )
+            } catch (error: CancellationException) {
+                reportScannerError(result, PluginError.CameraSessionDisposed)
+                throw error
+            } catch (error: Exception) {
+                reportScannerError(result, error)
             }
         }
     }
 
-    private fun invokeStartScan(call: MethodCall, result: Result) {
-        val options = AnalyzeOptions.fromMap(call.arguments as Map<String, Any?>)
-        if (cameraLifecycle == null) {
-            return result.error(
-                PluginError.CameraIsNotInitialized.errorCode,
-                "You need to invoke \'initCameraPreview\' method before start scan",
-                null
-            )
-        }
-        analyzer?.resumeScan(options.periodMs)
-        if (analyzer?.isDisposed == true || analyzer?.type != options.recognizeType) {
-            analyzer = AnalyzerCreator.create(options.recognizeType)
-            analyzer?.init(options.periodMs, this::onScan, cameraImagePreparer::prepare)
-        }
-        camera?.attachAnalyser(analyzer!!)
-        scannerOverlay?.isActive = true
-        result.success(true)
+    /** View registration never allocates a camera, analyzer or a per-view native controller. */
+    private fun createView(context: Context, viewId: Int): ScannerView {
+        check(!isDisposed) { "Cannot create a view in a disposed scanner plugin" }
+        val connected = channel
+        lateinit var view: ScannerView
+        view = ScannerView(
+            context, viewId,
+            { delay, x, y -> if (channel === connected && view.isPreviewReady()) currentScanner()?.focus(delay, x, y) },
+            { if (channel === connected) unregister(view) })
+        views[viewId] = view
+        return view
     }
 
-    private fun invokeCancelScan(result: Result) {
-        analyzer?.pauseScan()
-        scannerOverlay?.isActive = false
-        result.success(true)
+    /** Remove only this instance; a late disposal must not unregister its replacement. */
+    private fun unregister(view: ScannerView) {
+        if (views[view.viewId] !== view) return
+        views.remove(view.viewId)
+        scanner?.takeIf { it.viewId == view.viewId }?.releaseCamera()
     }
 
-    private fun invokeSetScanDelay(call: MethodCall, result: Result) {
-        val delay = call.arguments
-        if (delay !is Number) {
-            result.error(
-                PluginError.InvalidArguments.errorCode,
-                "Invalid argument passed, Number type is expected",
-                null
-            )
-            return
-        }
-        analyzer?.updatePeriod(delay as Int)
-        result.success(true)
+    /** A delayed disposal cannot clear a replacement scanner. */
+    private fun scannerReleased(device: Scanner, cause: Throwable) {
+        if (scanner === device) scanner = null
     }
 
-    private fun invokeDispose(result: Result) {
-        cameraLifecycle?.dispose()
-        cameraLifecycle = null
-        scannerOverlay = null
-        analyzer?.dispose()
-        isAlreadyInitialized = false
-        result.success(true)
-    }
-
-    private fun initCamera() {
-        isLockedAutoResumeCamera = false
-        cameraLifecycle = CameraLifecycle()
-        createScannerCamera()
-        cameraLifecycle!!.resume()
-        cameraView.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
-            val cropRect = scannerOverlay?.cropRect
-            // exclude parasite redraws
-            if ((l != oldL || t != oldT || r != oldR || b != oldB) && cropRect != null) {
-                updateCropOptions(cropRect)
-            }
-        }
-    }
-
-    private fun createScannerCamera() {
-        if (camera == null || camera?.isActive() != true) {
-            camera = CameraViewScannerCamera(cameraLifecycle!!, cameraView)
-            // Some devices can change zoom before camera is initialized.
-            // This is the reason why this method is called twice.
-            if (initialScannerParameters?.zoom != null) {
-                trySetZoom(
-                    initialScannerParameters!!.zoom!!,
-                    result = initialMethodResult
-                )
-            }
-            camera?.startCamera(this::onInitSuccess, this::onInitError)
-        }
-    }
-
-    private fun onInitSuccess() {
-        if (analyzer != null) {
-            camera?.attachAnalyser(analyzer!!)
-        }
-        if (initialScannerParameters?.zoom != null) {
-            trySetZoom(
-                initialScannerParameters!!.zoom!!,
-                result = initialMethodResult
-            )
-        }
-        if (initialScannerParameters?.cropRect != null) {
-            setCropArea(initialScannerParameters!!.cropRect!!)
-        }
-
-        initialMethodResult?.success(true)
-        initialMethodResult = null
-        isAlreadyInitialized = true
-    }
-
-    private fun onInitError(e: Exception) {
-        Log.e(TAG, e.toString())
-        initialMethodResult?.error(
-            PluginError.InitCameraError.errorCode,
-            "Internal camera initialisation error",
-            e.message
+    /** Transport adds the View's routing address to a main-thread recognition result. */
+    private fun emitScanResult(viewId: Int, result: Barcode) {
+        channel?.invokeMethod(
+            PluginConstants.scanResultMethod,
+            mapOf(
+                PluginConstants.viewIdArgument to viewId,
+                PluginConstants.barcodeArgument to result.toMap()
+            ),
         )
-        initialMethodResult = null
     }
 
-    private fun invokeSetZoom(call: MethodCall, result: Result) {
-        if (checkCameraActiveStatus(
-                result,
-                "You need to invoke the 'initCameraPreview' method before using zoom"
-            )
-        ) {
-            val value = call.arguments
-            if (value !is Double) {
-                result.error(
-                    PluginError.InvalidArguments.errorCode,
-                    "Invalid argument passed, Double type is expected",
-                    null
+    private companion object {
+        /** Rollback covers all adapters allocated before hardware construction succeeds. */
+        fun createScanner(
+            context: Context, handler: Handler,
+            released: (Scanner, Throwable) -> Unit, result: (Int, Barcode) -> Unit
+        ): Scanner {
+            val scope = Scanner.createScope()
+            var camera: XCamera? = null
+            var analyzer: MlkitImageBarcodeAnalyzer? = null
+            try {
+                val createdCamera = XCamera(context).also { camera = it }
+                val createdAnalyzer = MlkitImageBarcodeAnalyzer().also { analyzer = it }
+                return Scanner(
+                    createdCamera,
+                    createdAnalyzer,
+                    handler,
+                    released,
+                    result,
+                    scope
                 )
-                return
+            } catch (error: Exception) {
+                val failures = ExceptionCollector(error)
+                failures.attempt { scope.cancel() }
+                failures.attempt { camera?.dispose() }
+                failures.attempt { analyzer?.dispose() }
+                throw error
             }
-            if (trySetZoom(value, result = result)) {
-                result.success(true)
-            }
-        }
-    }
-
-    private fun trySetZoom(value: Double, result: Result?): Boolean {
-        return try {
-            camera?.setZoom(value.toFloat())
-            true
-        } catch (e: ZoomNotSupportedException) {
-            result?.error(
-                PluginError.DeviceHasNotZoom.errorCode,
-                "Zoom is not supported on this device",
-                null
-            )
-            false
-        }
-    }
-
-    private fun invokeSetCropArea(call: MethodCall, result: Result) {
-        val rect = RecognizeVisorCropRect.fromMap(call.arguments as Map<String, Any?>)
-        setCropArea(rect)
-        result.success(true)
-    }
-
-    private fun setCropArea(rect: RecognizeVisorCropRect) {
-        updateCropOptions(rect)
-        if (scannerOverlay != null) {
-            scannerOverlay?.cropRect = rect
-        } else {
-            scannerOverlay = ScannerOverlay(rect, cameraView.context)
-            cameraView.addOverlay(scannerOverlay!!)
-        }
-    }
-
-    private fun checkCameraActiveStatus(result: Result, errorMsg: String): Boolean {
-        if (camera?.isActive() != true) {
-            result.error(PluginError.CameraIsNotInitialized.errorCode, errorMsg, null)
-            return false
-        }
-        return true
-    }
-
-    private fun allPermissionsGranted() = PermissionsConstants.REQUIRED_PERMISSIONS.all {
-        ContextCompat.checkSelfPermission(
-            binding.activity.baseContext,
-            it
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun requestAllPermission() = ActivityCompat.requestPermissions(
-        binding.activity,
-        PermissionsConstants.REQUIRED_PERMISSIONS,
-        PermissionsConstants.REQUEST_CODE_PERMISSIONS
-    )
-
-    private fun updateCropOptions(cropRect: RecognizeVisorCropRect) {
-        val screenSize = getDisplaySize()
-        val scaleX = cameraView.measuredWidth.toDouble() / screenSize.x
-        val scaleY = cameraView.measuredHeight.toDouble() / screenSize.y
-        camera?.changeFocusCenter(
-            cropRect.centerOffsetX.toFloat(),
-            cropRect.centerOffsetY.toFloat()
-        )
-        cameraImagePreparer.visorRectFormer.updateWidgetScales(scaleX, scaleY)
-        cameraImagePreparer.visorRectFormer.recognizeCropRect = cropRect
-    }
-
-    private fun getDisplaySize(): Point {
-        return Point().apply {
-            val display =
-                (binding.activity.applicationContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
-            display.getSize(this)
-        }
-    }
-
-    private fun onScan(barcode: Barcode) =
-        channel.invokeMethod(PluginConstants.scanResultMethod, barcode.toJson())
-
-    @OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
-    private fun onResume() {
-        if (isLockedAutoResumeCamera) return
-        cameraLifecycle?.resume()
-    }
-
-    @OnLifecycleEvent(Lifecycle.Event.ON_PAUSE)
-    private fun onPause() {
-        if (camera?.isActive() == true) {
-            cameraLifecycle?.pause()
         }
     }
 }

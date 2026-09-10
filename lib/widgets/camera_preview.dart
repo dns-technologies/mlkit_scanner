@@ -1,108 +1,52 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:mlkit_scanner/models/scanner_parameters.dart';
-import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 
-/// Signature for the CameraPreview error function.
-typedef CameraInitilizeError = void Function(PlatformException);
+/// Reports UI registration; acquiring the camera is a separate operation.
+typedef CameraInitialized = FutureOr<void> Function(int viewId);
 
-/// Camera Preview of the device camera.
-///
-/// Widget automatically will dispose camera when called [dispose] in state.
-class CameraPreview extends StatefulWidget {
-  /// Callback when device camera initialize.
-  final VoidCallback onCameraInitialized;
+/// Flutter host for a native preview container. No scanner configuration crosses creation.
+class CameraPreview extends StatelessWidget {
+  final CameraInitialized onCameraInitialized;
 
-  /// Callback if camera cannot be initialized.
-  final CameraInitilizeError? onCameraInitializeError;
-
-  /// Parameters for initializing the scanner.
-  final ScannerParameters? initialArguments;
-
-  const CameraPreview({
-    Key? key,
-    required this.onCameraInitialized,
-    this.initialArguments,
-    this.onCameraInitializeError,
-  }) : super(key: key);
-
-  @override
-  _CameraPreviewState createState() => _CameraPreviewState();
-}
-
-class _CameraPreviewState extends State<CameraPreview> {
-  late MlKitChannel _channel;
-
-  @override
-  void initState() {
-    super.initState();
-    _channel = MlKitChannel();
-  }
+  const CameraPreview({super.key, required this.onCameraInitialized});
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        _channel.updateConstraints(constraints.maxWidth, constraints.maxHeight);
-        if (defaultTargetPlatform == TargetPlatform.iOS) {
-          return UiKitView(
-            viewType: 'mlkit/camera_preview',
-            onPlatformViewCreated: _onViewCreated,
-            creationParamsCodec: const StandardMessageCodec(),
-            creationParams: {
-              'width': constraints.maxWidth,
-              'height': constraints.maxHeight,
-            },
-          );
-        }
-        return PlatformViewLink(
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return UiKitView(
+        viewType: 'mlkit/camera_preview',
+        onPlatformViewCreated: (id) => onCameraInitialized(id),
+      );
+    }
+    return PlatformViewLink(
+      viewType: 'mlkit/camera_preview',
+      surfaceFactory: (context, controller) => AndroidViewSurface(
+        controller: controller as AndroidViewController,
+        gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{
+          Factory<TapGestureRecognizer>(TapGestureRecognizer.new),
+          Factory<LongPressGestureRecognizer>(LongPressGestureRecognizer.new),
+        },
+        hitTestBehavior: PlatformViewHitTestBehavior.opaque,
+      ),
+      onCreatePlatformView: (params) {
+        return PlatformViewsService.initSurfaceAndroidView(
+          id: params.id,
           viewType: 'mlkit/camera_preview',
-          surfaceFactory: (context, controller) {
-            return AndroidViewSurface(
-              controller: controller as AndroidViewController,
-              gestureRecognizers: const {},
-              hitTestBehavior: PlatformViewHitTestBehavior.opaque,
-            );
-          },
-          onCreatePlatformView: (params) {
-            return PlatformViewsService.initSurfaceAndroidView(
-              id: params.id,
-              viewType: 'mlkit/camera_preview',
-              layoutDirection: TextDirection.ltr,
-              creationParams: {
-                'width': constraints.maxWidth,
-                'height': constraints.maxHeight,
-              },
-              creationParamsCodec: const StandardMessageCodec(),
-            )
-              ..addOnPlatformViewCreatedListener((id) {
-                params.onPlatformViewCreated(id);
-                _onViewCreated(id);
-              })
-              ..create();
-          },
-        );
+          layoutDirection: TextDirection.ltr,
+          creationParams: {'viewId': params.id},
+          creationParamsCodec: const StandardMessageCodec(),
+        )
+          ..addOnPlatformViewCreatedListener((id) {
+            params.onPlatformViewCreated(id);
+            onCameraInitialized(id);
+          })
+          ..create();
       },
     );
-  }
-
-  @override
-  void dispose() {
-    _channel.dispose();
-    super.dispose();
-  }
-
-  Future<void> _onViewCreated(int id) async {
-    try {
-      await _channel.initCameraPreview(
-          initialArguments: widget.initialArguments);
-      widget.onCameraInitialized();
-    } on PlatformException catch (e) {
-      widget.onCameraInitializeError?.call(e);
-    }
   }
 }

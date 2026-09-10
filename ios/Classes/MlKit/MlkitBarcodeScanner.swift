@@ -10,78 +10,94 @@ import AVFoundation
 import MLKitBarcodeScanning
 import MLKitVision
 
-/// Barcode scanner recognizer, uses MLkit Barcode Scanning API
+/// Barcode recognizer used by the native scanner.
 class MlkitBarcodeScanner: NSObject, RecognitionHandler {
     private let scanner: BarcodeScanner
-    private var delay: Int
-    private var isDelayed = false
+    private let analysisGate: FrameAnalysisGate
+    private let cropRectLock = NSLock()
     private var cropRect: CropRect?
-    private var isRecognitionInProgress = false
+    /// Protected with cropRectLock; frame submissions snapshot this actual subscription.
+    private var subscription: ScanResultSubscription?
     
     var type: RecognitionType = RecognitionType.barcodeRecognition
-    weak var delegate: RecognitionResultDelegate?
     
-    /// Can the barcode be recognized.
-    ///
-    /// Used for optimization so as not to recognize the barcode on every frame.
-    var canRecognize: Bool {
-        !isDelayed && !isRecognitionInProgress
-    }
-    
-    required init(delay: Int, cropRect: CropRect?) {
+    /// Creates a reusable recognizer ready to analyze its first frame immediately.
+    init(delay: Int, cropRect: CropRect?) {
         scanner = BarcodeScanner.barcodeScanner()
-        self.delay = delay
+        analysisGate = FrameAnalysisGate(successfulScanPeriodMilliseconds: delay)
         self.cropRect = cropRect
         super.init()
-        startDelay()
     }
     
-    /// Recognizes a barcode on frame [sampleBuffer].
+    /// Attempts to recognize the first barcode in `sampleBuffer`.
     func processVideoOutput(sampleBuffer: CMSampleBuffer, scaleX: CGFloat, scaleY: CGFloat, orientation: AVCaptureVideoOrientation) {
-        if (!canRecognize) {
-            return
-        }
-        isRecognitionInProgress = true
+        cropRectLock.lock()
+        let listener = subscription
+        let currentCropRect = cropRect
+        cropRectLock.unlock()
+        guard let listener = listener, analysisGate.beginAnalysis() else { return }
         
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            isRecognitionInProgress = false
+            analysisGate.completeAnalysis(barcodeFound: false)
             return
         }
-        
+
         let cimage = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let image = UIImage(ciImage: cimage, scaleX: scaleX, scaleY: scaleY, orientation: orientation, cropRect: cropRect) else {
-            isRecognitionInProgress = false
+        guard let image = UIImage(
+            ciImage: cimage,
+            scaleX: scaleX,
+            scaleY: scaleY,
+            orientation: orientation,
+            cropRect: currentCropRect
+        ) else {
+            analysisGate.completeAnalysis(barcodeFound: false)
             return
         }
         
         let visionImage = VisionImage(image: image)
         scanner.process(visionImage) { [weak self] features, error in
-            defer { self?.isRecognitionInProgress = false }
-            if let error = error {
-                self?.delegate?.onError(error: error)
+            guard let self = self else { return }
+            if error != nil {
+                self.analysisGate.completeAnalysis(barcodeFound: false)
                 return
             }
-            guard let features = features, !features.isEmpty else {
+            guard let barcode = features?.first, barcode.rawValue != nil else {
+                self.analysisGate.completeAnalysis(barcodeFound: false)
                 return
             }
-            guard let barcode = features.first, let _ = barcode.rawValue else { return }
-            self?.delegate?.onRecognition(result: barcode)
-            self?.startDelay()
+            self.analysisGate.completeAnalysis(barcodeFound: true)
+            DispatchQueue.main.async { listener.deliver(barcode) }
         }
     }
 
+    /// Installs a real result listener; an old analysis cannot be reassigned to a new subscription.
+    func subscribe(_ onResult: @escaping (Barcode) -> Void) -> ScanResultSubscription {
+        unsubscribe()
+        let listener = ScanResultSubscription(onResult)
+        cropRectLock.lock()
+        subscription = listener
+        cropRectLock.unlock()
+        return listener
+    }
+
+    /// Called on main; cancellation also suppresses a previously queued main-thread delivery.
+    func unsubscribe() {
+        cropRectLock.lock()
+        let previous = subscription
+        subscription = nil
+        cropRectLock.unlock()
+        previous?.cancel()
+    }
+
+    /// Updates the cooldown applied after successful recognition.
     func setDelay(delay: Int) {
-        self.delay = delay
-    }
-
-    private func startDelay() {
-        isDelayed = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay)) { [weak self] in
-            self?.isDelayed = false
-        }
+        analysisGate.updateSuccessfulScanPeriod(delay)
     }
     
+    /// Updates normalized recognition geometry for future frames.
     func updateCropRect(cropRect: CropRect) {
+        cropRectLock.lock()
         self.cropRect = cropRect
+        cropRectLock.unlock()
     }
 }

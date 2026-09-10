@@ -1,31 +1,34 @@
-///  Model for setting detection area of recognizers.
+/// A normalized barcode recognition rectangle relative to the camera preview.
 ///
-/// If detection area is bigger than [CameraPreview] size, there won't any detection.
+/// The part of the rectangle inside the camera preview is analyzed.
+/// Detection is skipped only when the area is completely outside the preview.
 class CropRect {
-  /// Width relative to width of the [CameraPreview] in percentage.
+  /// Rectangle width as a fraction of the preview width.
   ///
-  /// For example: 0.5 -  widgth of detection area equals to half of the [CameraPreview] width.
+  /// For example, `0.5` makes the recognition area half as wide as the
+  /// preview.
   final double scaleWidth;
 
-  /// Height relative to height of the [CameraPreview] in percentage.
+  /// Rectangle height as a fraction of the preview height.
   ///
-  /// For example: 1 -  height of detection area equals to the [CameraPreview] height.
+  /// For example, `1` makes the recognition area as tall as the preview.
   final double scaleHeight;
 
-  /// X-axis offset in percentage from centerX of [CameraPreview] size rect.
+  /// Horizontal center offset normalized to half the preview width.
   ///
-  /// For example: Coordinate of the centerX is 3. Whole lenght is 6. Coordinates of the crop area centerX
-  /// if 4.5. Offset equals: (4.5 - 3) / 3 = 0.5. Offset forward by 50 %.
-  /// If `offsetX == 0` then centerX of the [CropRect] equals centerX of the [CameraPreview] size rect.
+  /// `0` centers the rectangle. `1` moves its center to the right edge, and
+  /// `-1` moves its center to the left edge.
   final double offsetX;
 
-  /// Y-axis offset in percentage from center Y of [CameraPreview] size rect.
+  /// Vertical center offset normalized to half the preview height.
   ///
-  /// For example: Coordinate of the centerY is 3. Whole lenght is 6. Coordinates of the crop area centerY
-  /// if 1.5. Offset equals: (1.5 - 3) / 3 = -0.5. Offset back by 50 %.
-  /// If `offsetY == 0` then centerY of the [CropRect] equals centerY of the [CameraPreview] size rect.
+  /// `0` centers the rectangle. `1` moves its center to the bottom edge, and
+  /// `-1` moves its center to the top edge.
   final double offsetY;
 
+  /// Creates a normalized recognition rectangle.
+  ///
+  /// Width and height scales must be positive when sent to the native plugin.
   const CropRect({
     this.scaleWidth = 1,
     this.scaleHeight = 1,
@@ -33,6 +36,7 @@ class CropRect {
     this.offsetY = 0,
   });
 
+  /// Converts this rectangle to its platform-channel representation.
   Map<String, double> toJson() {
     return {
       'scaleHeight': scaleHeight,
