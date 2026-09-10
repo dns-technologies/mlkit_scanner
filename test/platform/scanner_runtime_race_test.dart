@@ -171,13 +171,36 @@ void main() {
     expect((h.calls.last.arguments as Map)['configuration'], containsPair('zoomRatio', 4.0));
   });
 
+  for (final captured in [false, true]) {
+    test('inactive release does not disable camera controls (captured: $captured)', () async {
+      final a = h.controller(1);
+      final b = h.controller(2);
+      if (captured) await h.runtime.capture(a);
+      await h.runtime.release(b);
+      if (!captured) await h.runtime.capture(a);
+
+      await a.setZoomRatio(3);
+      await a.toggleFlash();
+      await RuntimeHarness.flush();
+      expect(h.runtime.isCurrent(a), isTrue);
+      expect(h.methods, ['resumeCameraMethod', 'setZoomRatio', 'toggleFlash']);
+      expect(h.calls[1].arguments, {'value': 3.0});
+      expect(h.calls[2].arguments, {'value': true});
+      expect(h.errors, isEmpty);
+    });
+  }
+
   test('concurrent releases share a failure and a later release retries', () async {
     final a = h.controller(1);
     final b = h.controller(2);
     await h.runtime.capture(a);
+    final stopping = Completer<void>();
     final stopped = Completer<void>();
     h.handler = (call) async {
-      if (call.method == 'pauseCameraMethod') await stopped.future;
+      if (call.method == 'pauseCameraMethod') {
+        stopping.complete();
+        await stopped.future;
+      }
       return null;
     };
     final first = h.runtime.release(a);
@@ -186,6 +209,7 @@ void main() {
     final replies = [
       for (final release in [first, repeated, inactive]) expectLater(release, throwsA(isA<PlatformException>())),
     ];
+    await stopping.future;
     stopped.completeError(PlatformException(code: 'stop-failed'));
     await Future.wait(replies);
     expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
@@ -296,9 +320,13 @@ void main() {
     final a = h.controller(1);
     final b = h.controller(2);
     await h.runtime.capture(a);
+    final stopping = Completer<void>();
     final stopped = Completer<void>();
     h.handler = (call) async {
-      if (call.method == 'pauseCameraMethod') await stopped.future;
+      if (call.method == 'pauseCameraMethod') {
+        stopping.complete();
+        await stopped.future;
+      }
       return null;
     };
     final release = h.runtime.release(a);
@@ -308,6 +336,7 @@ void main() {
       expectLater(release, throwsA(failure)),
       expectLater(capture, throwsA(failure)),
     ];
+    await stopping.future;
     stopped.completeError(PlatformException(code: 'stop-failed'));
     await Future.wait(replies);
     expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);

@@ -57,7 +57,7 @@ class ScannerRuntime {
 
   bool isCurrent(BarcodeScannerController controller) {
     final session = _session;
-    if (_releasing == null) return false;
+    if (_releasing != null) return false;
     return session != null && identical(session.controller, controller);
   }
 
@@ -96,19 +96,19 @@ class ScannerRuntime {
     final releasing = _releasing;
     if (releasing != null) return releasing;
 
+    final session = _session;
+    if (session == null || !identical(session.controller, controller)) return;
+
     return _releasing = Future(() async {
-      final session = _session;
-      if (session == null || !identical(session.controller, controller)) return;
       session.cancel();
-      _session = null;
 
       final needsRelease = !session.paused || session.queue.isClosed;
       if (needsRelease) {
         await _channel.pauseCamera();
       }
 
-      _releasing = null;
-    });
+      if (identical(_session, session)) _session = null;
+    }).whenComplete(() => _releasing = null);
   }
 
   Future<void> _configurationChanged(
