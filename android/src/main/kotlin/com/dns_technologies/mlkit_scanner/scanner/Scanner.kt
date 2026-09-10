@@ -86,7 +86,6 @@ internal class Scanner(
         view?.detachPreview()
         view = target
         target.attachPreview(camera.previewView) { scan?.resumeIfReady() }
-        camera.hidePreview()
     }
 
     /** Applies one Dart snapshot, retaining it only for the duration of this operation. */
@@ -99,7 +98,6 @@ internal class Scanner(
         cropArea = configuration.cropArea
         connection.control(id, CameraControlOperation.ZOOM) { camera.setZoomRatio(configuration.zoomRatio) }
         connection.control(id, CameraControlOperation.TORCH) { camera.setTorch(configuration.torchEnabled) }
-        camera.showPreview()
         view?.bindFocus()
         currentCoroutineContext().ensureActive()
         if (configuration.scanEnabled) startScan(configuration.scanDelay)
@@ -166,7 +164,6 @@ internal class Scanner(
         failures.attempt(::cancelOperation)
         failures.attempt(::pauseScan)
         failures.attempt { previous?.detachPreview() }
-        failures.attempt(camera::hidePreview)
         failures.throwIfFailed()
     }
 

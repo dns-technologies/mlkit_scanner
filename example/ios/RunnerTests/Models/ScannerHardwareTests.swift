@@ -27,7 +27,6 @@ final class ScannerHardwareTests: XCTestCase {
         f.camera.starts.removeFirst()(nil)
         XCTAssertEqual(replies, 1)
         XCTAssertTrue(f.camera.preview.superview === view.view())
-        XCTAssertFalse(f.camera.preview.isHidden)
         f.runtime.release()
     }
 
@@ -54,7 +53,7 @@ final class ScannerHardwareTests: XCTestCase {
         f.runtime.release()
     }
 
-    func testCaptureAppliesConfigurationBeforePreviewAndAnalysisAreVisible() throws {
+    func testCaptureAppliesConfigurationBeforeAcknowledgementAndAnalysis() throws {
         let f = Fixture()
         let view = f.view(42)
         try f.activate(view, configuration())
@@ -68,19 +67,17 @@ final class ScannerHardwareTests: XCTestCase {
         XCTAssertEqual(f.allocations, 1)
         XCTAssertTrue(f.permissions.isEmpty)
         XCTAssertTrue(f.camera.preview.superview === view.view())
-        XCTAssertTrue(f.camera.preview.isHidden)
         XCTAssertNil(f.camera.recognitionHandler)
         XCTAssertEqual(f.camera.zooms, [1, 8])
         XCTAssertEqual(f.camera.torches, [false, true])
         XCTAssertFalse(completed)
         f.camera.starts.removeFirst()(nil)
         XCTAssertTrue(completed)
-        XCTAssertFalse(f.camera.preview.isHidden)
         XCTAssertNotNil(f.camera.recognitionHandler)
         f.runtime.release()
     }
 
-    func testPointControlsDoNotHidePreviewResetFocusOrRestartAnalysis() throws {
+    func testPointControlsKeepPreviewAttachedWithoutResettingFocusOrAnalysis() throws {
         let f = Fixture()
         let view = f.view(42)
         try f.activate(view, configuration(scanning: true))
@@ -90,7 +87,6 @@ final class ScannerHardwareTests: XCTestCase {
         try f.runtime.setTorch(enabled: true)
         try f.runtime.updateScanPeriod(delay: 200)
         try f.runtime.setCropArea(cropRect: CropRect(arguments: ["scaleWidth": 0.5]))
-        XCTAssertFalse(f.camera.preview.isHidden)
         XCTAssertTrue(f.camera.preview.superview === view.view())
         XCTAssertTrue(f.camera.recognitionHandler === analyzer)
         XCTAssertEqual(f.camera.focusResets, focusResets)
@@ -255,7 +251,6 @@ final class ScannerHardwareTests: XCTestCase {
         let interrupted = f.camera.starts.removeFirst()
         interrupted(MlKitPluginError.initCameraError)
         XCTAssertEqual(replies, 1)
-        XCTAssertTrue(f.camera.preview.isHidden)
         XCTAssertNil(f.camera.recognitionHandler)
         f.runtime.releaseCamera() {}
         try f.activate(view, configuration(zoom: 3))
@@ -263,7 +258,6 @@ final class ScannerHardwareTests: XCTestCase {
         XCTAssertEqual(replies, 1)
         XCTAssertEqual(f.camera.zooms, [1, 3])
         XCTAssertNil(f.camera.recognitionHandler)
-        XCTAssertFalse(f.camera.preview.isHidden)
         f.runtime.release()
     }
 
@@ -291,13 +285,11 @@ final class ScannerHardwareTests: XCTestCase {
         firstA(nil)
         firstB(MlKitPluginError.initCameraError)
         XCTAssertEqual(replies, 2)
-        XCTAssertTrue(f.camera.preview.isHidden)
         XCTAssertNil(f.camera.recognitionHandler)
         f.camera.starts.removeFirst()(nil)
         XCTAssertEqual(replies, 3)
         XCTAssertEqual(f.camera.zooms, [1, 2, 3])
         XCTAssertTrue(f.camera.preview.superview === a.view())
-        XCTAssertFalse(f.camera.preview.isHidden)
         f.runtime.release()
     }
 

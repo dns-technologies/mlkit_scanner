@@ -19,7 +19,7 @@ internal class ScannerCommandArgumentsTest {
         fun result() = mock(MethodChannel.Result::class.java)
         SetZoomRatioCommand({ scanner }, scope).execute(MethodCall("setZoomRatio", mapOf("value" to 2.5)), result())
         ToggleFlashCommand({ scanner }, scope).execute(MethodCall("toggleFlash", mapOf("value" to true)), result())
-        StartScanCommand { scanner }.execute(MethodCall("startScan", mapOf("type" to 0, "delay" to 250)), result())
+        StartScanCommand { scanner }.execute(MethodCall("startScan", mapOf("delay" to 250)), result())
         SetScanDelayCommand { scanner }.execute(MethodCall("setScanDelay", mapOf("delay" to 300)), result())
         SetCropAreaCommand { scanner }.execute(MethodCall("setCropArea", mapOf("cropRect" to mapOf("scaleWidth" to 0.5))), result())
         CancelScanCommand { scanner }.execute(MethodCall("cancelScan", null), result())
@@ -37,7 +37,6 @@ internal class ScannerCommandArgumentsTest {
         val cases = listOf(
             "setZoomRatio" to null, "setZoomRatio" to mapOf("value" to "bad"),
             "toggleFlash" to mapOf("value" to 1),
-            "startScan" to mapOf("type" to 1, "delay" to 0),
             "startScan" to mapOf("type" to 0, "delay" to 0.5),
             "setScanDelay" to mapOf("delay" to true),
             "setCropArea" to mapOf("cropRect" to "bad"),

@@ -341,10 +341,6 @@ internal class ScannerTest {
             return CompletableDeferred(Unit)
         }
 
-        override fun showPreview() = Unit
-
-        override fun hidePreview() = Unit
-
         override fun unbind() {
             onFrame = null
         }

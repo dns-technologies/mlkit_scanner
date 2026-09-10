@@ -1,54 +1,78 @@
 import 'dart:async';
-import 'dart:collection';
 
-/// Runs commands in FIFO order and settles discarded calls immediately on cancellation.
+/// A replaceable operation; commands with the same [id] share one pending slot.
+class ScannerCommand {
+  /// Identifies operations that replace each other while pending, e.g. `setZoomRatio`.
+  final String id;
+
+  /// Performs the operation; the next command waits for this future to complete.
+  final Future<void> Function() action;
+
+  const ScannerCommand(this.id, this.action);
+}
+
+/// Waits for capture, then runs commands in FIFO order, retaining the latest per id.
 class CommandQueue {
-  final _pending = Queue<_QueuedCommand>();
+  CommandQueue({required this.onError});
+
+  /// Receives command failures while the queue is open; late failures after cancellation are ignored.
+  final void Function(Object error, StackTrace stack) onError;
+
+  /// Pending commands in insertion order, with at most one entry per id.
+  /// The running command is removed before its action starts.
+  final _pending = <String, ScannerCommand>{};
+
+  /// Prevents starting a second drain while this queue is processing commands.
+  bool _isRunning = false;
+
+  /// Allows pending and newly added commands to run after capture succeeds.
+  bool _isCaptured = false;
+
+  /// Permanently disables additions and error delivery after cancellation.
   bool _isClosed = false;
 
+  /// Whether capture has completed and command execution is enabled.
+  bool get isCaptured => _isCaptured;
+
+  /// Whether this queue has been cancelled and cannot be reused.
   bool get isClosed => _isClosed;
 
-  Future<void> add(Future<void> Function() action, {bool stopOnError = false}) async {
+  /// Replaces only pending work, preserving its position. Failures go to [onError].
+  void add(ScannerCommand command) {
     if (_isClosed) return;
-    final command = _QueuedCommand(action, stopOnError);
-    _pending.addLast(command);
-    // The running command stays at the head until its action settles.
-    if (_pending.length == 1) unawaited(_run());
-    return command.reply.future;
+    _pending[command.id] = command;
+    if (_isCaptured && !_isRunning) unawaited(_run());
+  }
+
+  /// Opens the capture barrier and waits for the accumulated work to drain.
+  Future<void> captureComplete() async {
+    if (_isClosed || _isCaptured) return;
+    _isCaptured = true;
+    await _run();
   }
 
   Future<void> _run() async {
-    while (_pending.isNotEmpty) {
-      final command = _pending.first;
-      try {
-        await command.action();
-        if (!command.reply.isCompleted) command.reply.complete();
-      } catch (error, stack) {
-        if (!command.reply.isCompleted) {
-          command.reply.completeError(error, stack);
+    _isRunning = true;
+    try {
+      while (!_isClosed && _pending.isNotEmpty) {
+        final command = _pending.values.first;
+        _pending.remove(command.id);
+        try {
+          await command.action();
+        } catch (error, stack) {
+          if (!_isClosed) onError(error, stack);
         }
-        if (command.stopOnError) cancel();
-      } finally {
-        if (_pending.isNotEmpty) _pending.removeFirst();
       }
+    } finally {
+      _isRunning = false;
     }
   }
 
   /// Withdraws this connection's work. Native cancellation is acknowledged separately.
   void cancel() {
     _isClosed = true;
-    while (_pending.isNotEmpty) {
-      final command = _pending.removeFirst();
-      if (!command.reply.isCompleted) command.reply.complete();
-    }
+    _isCaptured = false;
+    _isRunning = false;
+    _pending.clear();
   }
-}
-
-class _QueuedCommand {
-  final Future<void> Function() action;
-  final reply = Completer<void>();
-
-  final bool stopOnError;
-
-  _QueuedCommand(this.action, this.stopOnError);
 }

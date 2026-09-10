@@ -40,7 +40,7 @@ interface Camera {
     /** Native preview view supplied by the concrete camera implementation. */
     val previewView: View
 
-    /** Binds preview and frame analysis; [showPreview] controls when the preview is revealed. */
+    /** Binds preview and frame analysis; Flutter covers the view until capture completes. */
     fun bind(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
@@ -67,12 +67,6 @@ interface Camera {
 
     /** Applies an absolute torch state; disabling an absent flash unit is a no-op. */
     fun setTorch(enabled: Boolean): Deferred<Unit>
-
-    /** Reveals preview after startup camera controls have been applied. */
-    fun showPreview()
-
-    /** Hides preview while startup controls are applied, without stopping the camera stream. */
-    fun hidePreview()
 
     /** Removes the active CameraX use-case binding while keeping adapter resources reusable. */
     fun unbind()

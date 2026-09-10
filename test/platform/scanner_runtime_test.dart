@@ -90,6 +90,28 @@ void main() {
       expect(h.calls.last.arguments, {'value': 4.0});
     });
 
+    test('returning to the applied value still queues a correction behind an unfinished control', () async {
+      final a = h.controller(1);
+      await h.runtime.capture(a);
+      final ack = Completer<void>();
+      h.handler = (call) async {
+        if (call.method == 'setZoomRatio' && (call.arguments as Map)['value'] == 3) {
+          await ack.future;
+        }
+        return null;
+      };
+      await a.setZoomRatio(3);
+      await RuntimeHarness.flush();
+      await a.setZoomRatio(1);
+      expect(h.methods, ['resumeCameraMethod', 'setZoomRatio']);
+      expect(h.calls.last.arguments, {'value': 3.0});
+      ack.complete();
+      await RuntimeHarness.flush();
+      expect(h.methods, ['resumeCameraMethod', 'setZoomRatio', 'setZoomRatio']);
+      expect(h.calls.last.arguments, {'value': 1.0});
+      expect(h.errors, isEmpty);
+    });
+
     test('changes during capture wait for its acknowledgement', () async {
       final ack = Completer<void>();
       h.handler = (call) async {
@@ -153,11 +175,11 @@ void main() {
       final last = h.runtime.capture(a);
       await a.setZoomRatio(3);
       await skipped;
-      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod']);
+      expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
       ack.complete();
       await last;
       expect(h.methods,
-          ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
+          ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
       expect((h.calls.last.arguments as Map)['configuration'],
           containsPair('zoomRatio', 3.0));
     });
@@ -409,7 +431,7 @@ void main() {
       await next;
       await RuntimeHarness.flush();
       expect(h.methods,
-          ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
+          ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
       expect(h.calls.last.arguments, containsPair('viewId', 2));
     });
 
@@ -498,7 +520,7 @@ void main() {
     });
 
     test(
-        'native events are forwarded without waiting for capture acknowledgement',
+        'native events wait for capture acknowledgement',
         () async {
       final ready = Completer<void>();
       h.handler = (call) async {
@@ -513,13 +535,13 @@ void main() {
       final capture = h.runtime.capture(a);
       await RuntimeHarness.flush();
       await h.event(1, 'not-ready');
-      expect(scans, ['not-ready']);
-      expect(torch, [true]);
+      expect(scans, isEmpty);
+      expect(torch, isEmpty);
       ready.complete();
       await capture;
       await h.event(1, 'ready');
-      expect(scans, ['not-ready', 'ready']);
-      expect(torch, [true, true]);
+      expect(scans, ['ready']);
+      expect(torch, [true]);
     });
 
     test('scan cancellation suppresses results while native zoom is pending',
@@ -574,7 +596,7 @@ void main() {
       await RuntimeHarness.flush();
     });
 
-    test('cancel then restart reject old results until native restart is sent',
+    test('pending cancel then restart coalesce and suppress results until their slot runs',
         () async {
       final a = h.controller(1, scanning: true);
       final scans = <String?>[];
@@ -593,8 +615,7 @@ void main() {
       expect(scans, isEmpty);
       zoomAck.complete();
       await RuntimeHarness.flush();
-      expect(h.methods,
-          ['resumeCameraMethod', 'setZoomRatio', 'cancelScan', 'startScan']);
+      expect(h.methods, ['resumeCameraMethod', 'setZoomRatio']);
       await h.event(1, 'new-run');
       expect(scans, ['new-run']);
     });
@@ -671,7 +692,7 @@ void main() {
       expect(torch, isEmpty);
     });
 
-    test('late capture acknowledgement does not change native event forwarding',
+    test('late capture acknowledgement cannot open the current preview or admit scans',
         () async {
       final oldReply = Completer<void>();
       final newReply = Completer<void>();
@@ -693,11 +714,13 @@ void main() {
       oldReply.complete();
       await h.event(1, 'late-old');
       await h.event(1, 'not-ready');
-      expect(scans, ['late-old', 'not-ready']);
+      expect(scans, isEmpty);
+      expect(a.previewVisible.value, isFalse);
       newReply.complete();
       await next;
       await h.event(1, 'current');
-      expect(scans, ['late-old', 'not-ready', 'current']);
+      expect(scans, ['current']);
+      expect(a.previewVisible.value, isTrue);
     });
 
     test('malformed or untagged results are ignored', () async {

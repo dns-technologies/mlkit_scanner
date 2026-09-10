@@ -81,8 +81,15 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
-    return CameraPreview(
-      onCameraInitialized: _onCameraInitialized,
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        CameraPreview(onCameraInitialized: _onCameraInitialized),
+        ValueListenableBuilder<bool>(
+          valueListenable: _barcodeScannerController?.previewVisible ?? const AlwaysStoppedAnimation(false),
+          builder: (context, visible, child) => visible ? const SizedBox.shrink() : const ColoredBox(color: Colors.black),
+        ),
+      ],
     );
   }
 
@@ -130,7 +137,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
         iosCamera: widget.initialCamera,
       ),
     );
-    _barcodeScannerController = controller;
+    setState(() => _barcodeScannerController = controller);
     _scanStreamSubscription = controller.scanResults.listen((barcode) => widget.onScan(barcode));
     _toggleFlashStreamSubscription = controller.torchToggleStream.listen((enabled) => widget.onChangeFlashState?.call(enabled));
     widget.onScannerInitialized(controller);
@@ -139,7 +146,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
 
   Future<void> _capture() async {
     final controller = _barcodeScannerController;
-    if (controller == null || !_isViewActive) return;
+    if (controller == null || !_isViewActive || _runtime.isCurrent(controller)) return;
     try {
       await _runtime.capture(controller);
     } on PlatformException catch (error) {
@@ -154,26 +161,21 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     }
   }
 
-  /// Maps route ticker visibility to explicit native camera ownership.
+  /// Maps visibility and returning from a popup to native camera ownership.
   void _syncCameraVisibility() {
-    // Popup routes keep the underlying route onstage, while an opaque page
-    // route disables tickers in the covered subtree.
-    // TickerMode.valuesOf is unavailable in the minimum supported Flutter.
     final lifecycle = WidgetsBinding.instance.lifecycleState;
-    // ignore: deprecated_member_use
-    final isRouteVisible = TickerMode.of(context);
-    final isAvailableAppLifecycle = !{AppLifecycleState.paused, AppLifecycleState.hidden, AppLifecycleState.detached}.contains(lifecycle);
+    final route = ModalRoute.of(context);
+    final visible =
+        // ignore: deprecated_member_use
+        TickerMode.of(context) && !{AppLifecycleState.paused, AppLifecycleState.hidden, AppLifecycleState.detached}.contains(lifecycle);
+    final controller = _barcodeScannerController;
+    if (!visible && controller != null) unawaited(_runtime.release(controller));
 
-    final active = isRouteVisible && isAvailableAppLifecycle;
+    final active = visible && (route?.isCurrent ?? true);
     if (_isViewActive == active) return;
     _isViewActive = active;
-
-    if (active) {
-      unawaited(_capture());
-    } else {
-      final controller = _barcodeScannerController;
-      if (controller != null) unawaited(_runtime.release(controller));
-    }
+    // Capture can hide another scanner subtree; finish this build before notifying it.
+    if (active) unawaited(Future<void>.microtask(_capture));
   }
 
   /// Removes widget callbacks on disposal.

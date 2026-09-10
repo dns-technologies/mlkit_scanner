@@ -18,6 +18,7 @@ void main() {
     final pendingPlatformCreates = <Completer<Object?>>[];
     Future<void> sendNativeCall(MethodCall call) => _sendNativeCall(call);
     Completer<void>? captureCompletion;
+    Completer<void>? cropCompletion;
     PlatformException? captureError;
     var completeCaptureOnRelease = true;
     final messenger =
@@ -46,6 +47,7 @@ void main() {
           captureError = null;
           if (error != null) throw error;
         }
+        if (call.method == 'setCropAreaMethod') await cropCompletion?.future;
         return null;
       });
     });
@@ -54,6 +56,7 @@ void main() {
       ScannerRuntime.instance = ScannerRuntime(MlKitChannel());
       calls.clear();
       captureCompletion = null;
+      cropCompletion = null;
       captureError = null;
       completeCaptureOnRelease = true;
     });
@@ -76,6 +79,7 @@ void main() {
 
     void testScannerWidgets(String description, WidgetTesterCallback body) {
       testWidgets(description, (tester) async {
+        final previousPlatform = debugDefaultTargetPlatformOverride;
         try {
           await body(tester);
         } finally {
@@ -85,7 +89,70 @@ void main() {
           }
           pendingPlatformCreates.clear();
           await tester.pump(const Duration(milliseconds: 300));
+          debugDefaultTargetPlatformOverride = previousPlatform;
         }
+      });
+    }
+
+    for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+      testScannerWidgets('covers the entire $platform preview until capture and crop complete', (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        late BarcodeScannerController controller;
+        captureCompletion = Completer<void>();
+        cropCompletion = Completer<void>();
+        final size = ValueNotifier(const Size(320, 240));
+        addTearDown(size.dispose);
+        await tester.pumpWidget(TestApp(
+          child: ValueListenableBuilder<Size>(
+            valueListenable: size,
+            builder: (context, size, child) => SizedBox(width: size.width, height: size.height, child: child),
+            child: BarcodeScanner(onScannerInitialized: (value) => controller = value, onScan: (_) {}),
+          ),
+        ));
+        final previewFinder = find.byType(CameraPreview);
+        final previewElement = tester.element(previewFinder);
+        final cover = find.descendant(
+          of: find.byType(BarcodeScanner),
+          matching: find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.black),
+        );
+        expect(cover, findsOneWidget);
+        expect(tester.getRect(cover), tester.getRect(previewFinder));
+        late Future<void> initialization;
+        await tester.runAsync(() async {
+          initialization = _startCameraInitialization(tester.widget<CameraPreview>(previewFinder), 17);
+        });
+        await tester.pump();
+        await updateController(tester, () => controller.setCropArea(const CropRect(scaleWidth: 0.5)));
+        size.value = const Size(420, 200);
+        await tester.pump();
+        expect(tester.getSize(cover), const Size(420, 200));
+        expect(tester.getRect(cover), tester.getRect(previewFinder));
+        final coverRenderObject = tester.renderObject(cover);
+        expect(tester.hitTestOnBinding(tester.getCenter(cover)).path.any((entry) => entry.target == coverRenderObject), isTrue);
+        await tester.runAsync(() async {
+          captureCompletion!.complete();
+          await Future<void>.delayed(Duration.zero);
+        });
+        await tester.pump();
+        expect(calls.last.method, 'setCropAreaMethod');
+        expect(cover, findsOneWidget);
+        await tester.runAsync(() async {
+          cropCompletion!.complete();
+          await initialization;
+        });
+        await tester.pump();
+        expect(cover, findsNothing);
+        expect(tester.element(previewFinder), same(previewElement));
+        expect(pendingPlatformCreates, hasLength(1));
+        captureCompletion = null;
+        cropCompletion = null;
+        await updateController(tester, controller.pauseCamera);
+        expect(cover, findsOneWidget);
+        await updateController(tester, controller.resumeCamera);
+        await tester.pumpAndSettle();
+        expect(cover, findsNothing);
+        expect(tester.element(previewFinder), same(previewElement));
+        expect(pendingPlatformCreates, hasLength(1));
       });
     }
 
@@ -400,6 +467,198 @@ void main() {
       );
     });
 
+    testScannerWidgets('backgrounding releases the camera below a popup and waits for foreground to restore it', (tester) async {
+      late BarcodeScannerController controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(onScannerInitialized: (value) => controller = value, onScan: (_) {}),
+      ));
+      await _initializeCamera(tester, tester.widget<CameraPreview>(find.byType(CameraPreview)), 11);
+      final context = tester.element(find.byType(BarcodeScanner));
+      final navigator = Navigator.of(context);
+      unawaited(showDialog<void>(context: context, builder: (_) => const AlertDialog(content: Text('Dialog'))));
+      await tester.pumpAndSettle();
+      calls.clear();
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pumpAndSettle();
+      navigator.pop();
+      await tester.pumpAndSettle();
+
+      expect(calls.map((call) => call.method), ['pauseCameraMethod']);
+      expect(controller.previewVisible.value, isFalse);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(calls.map((call) => call.method), ['pauseCameraMethod', 'resumeCameraMethod']);
+      expect(controller.previewVisible.value, isTrue);
+    });
+
+    for (final bottomSheet in [false, true]) {
+      for (final paused in [false, true]) {
+        testScannerWidgets(
+            '${bottomSheet ? 'bottom sheet' : 'dialog'} returns camera ownership to the underlying scanner (paused: $paused)',
+            (tester) async {
+          late BarcodeScannerController firstController;
+          late BarcodeScannerController secondController;
+          const firstKey = ValueKey('first-scanner');
+          const secondKey = ValueKey('modal-scanner');
+          await tester.pumpWidget(TestApp(
+            child: BarcodeScanner(key: firstKey, onScannerInitialized: (value) => firstController = value, onScan: (_) {}),
+          ));
+          await _initializeCamera(tester, tester.widget<CameraPreview>(find.byType(CameraPreview)), 11);
+          if (paused) await updateController(tester, firstController.pauseCamera);
+          final context = tester.element(find.byKey(firstKey));
+          final navigator = Navigator.of(context);
+          Widget modal(BuildContext context) => SizedBox(
+                height: 200,
+                child: BarcodeScanner(key: secondKey, onScannerInitialized: (value) => secondController = value, onScan: (_) {}),
+              );
+          if (bottomSheet) {
+            unawaited(showModalBottomSheet<void>(context: context, builder: modal));
+          } else {
+            unawaited(showDialog<void>(context: context, builder: (context) => Dialog(child: modal(context))));
+          }
+          await tester.pumpAndSettle();
+          await _initializeCamera(
+            tester,
+            tester.widget<CameraPreview>(find.descendant(of: find.byKey(secondKey), matching: find.byType(CameraPreview))),
+            22,
+          );
+          await tester.pumpAndSettle();
+          expect(firstController.previewVisible.value, isFalse);
+          expect(secondController.previewVisible.value, isTrue);
+          await updateController(tester, () => firstController.setZoomRatio(3));
+          calls.clear();
+
+          navigator.pop();
+          await tester.pumpAndSettle();
+
+          if (paused) {
+            expect(calls.where((call) => call.method == 'resumeCameraMethod'), isEmpty);
+            expect(firstController.configuration.cameraPaused, isTrue);
+            expect(firstController.previewVisible.value, isFalse);
+            await updateController(tester, firstController.resumeCamera);
+          }
+          final restored = calls.singleWhere((call) => call.method == 'resumeCameraMethod');
+          expect((restored.arguments as Map)['viewId'], 11);
+          expect((restored.arguments as Map)['configuration'], containsPair('zoomRatio', 3.0));
+          expect(ScannerRuntime.instance.isCurrent(firstController), isTrue);
+          expect(firstController.previewVisible.value, isTrue);
+          expect(find.byKey(secondKey), findsNothing);
+        });
+      }
+    }
+
+    testScannerWidgets('nested dialogs restore the nearest underlying scanner', (tester) async {
+      final controllers = <int, BarcodeScannerController>{};
+      Widget scanner(int id) => SizedBox(
+            height: 200,
+            child: BarcodeScanner(key: ValueKey(id), onScannerInitialized: (value) => controllers[id] = value, onScan: (_) {}),
+          );
+      CameraPreview preview(int id) => tester.widget<CameraPreview>(
+            find.descendant(of: find.byKey(ValueKey(id)), matching: find.byType(CameraPreview)),
+          );
+      await tester.pumpWidget(TestApp(child: scanner(11)));
+      await _initializeCamera(tester, preview(11), 11);
+      final navigator = Navigator.of(tester.element(find.byKey(const ValueKey(11))));
+      for (final id in [22, 33]) {
+        unawaited(showDialog<void>(context: navigator.context, builder: (_) => Dialog(child: scanner(id))));
+        await tester.pumpAndSettle();
+        await _initializeCamera(tester, preview(id), id);
+        await tester.pumpAndSettle();
+      }
+      for (final id in [22, 11]) {
+        calls.clear();
+        navigator.pop();
+        await tester.pumpAndSettle();
+
+        expect(calls.singleWhere((call) => call.method == 'resumeCameraMethod').arguments, containsPair('viewId', id));
+        expect(ScannerRuntime.instance.isCurrent(controllers[id]!), isTrue);
+        expect(controllers[id]!.previewVisible.value, isTrue);
+        if (id == 22) expect(controllers[11]!.previewVisible.value, isFalse);
+      }
+    });
+
+    testScannerWidgets('closing a dialog before its capture completes restores the underlying scanner', (tester) async {
+      late BarcodeScannerController firstController;
+      late BarcodeScannerController secondController;
+      const modalKey = ValueKey('modal-scanner');
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(onScannerInitialized: (value) => firstController = value, onScan: (_) {}),
+      ));
+      await _initializeCamera(tester, tester.widget<CameraPreview>(find.byType(CameraPreview)), 11);
+      final context = tester.element(find.byType(BarcodeScanner));
+      final navigator = Navigator.of(context);
+      unawaited(showDialog<void>(
+        context: context,
+        builder: (_) => Dialog(
+          child: SizedBox(
+            height: 200,
+            child: BarcodeScanner(key: modalKey, onScannerInitialized: (value) => secondController = value, onScan: (_) {}),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      final pending = captureCompletion = Completer<void>();
+      completeCaptureOnRelease = false;
+      late Future<void> initialization;
+      await tester.runAsync(() async {
+        initialization = _startCameraInitialization(
+          tester.widget<CameraPreview>(find.descendant(of: find.byKey(modalKey), matching: find.byType(CameraPreview))),
+          22,
+        );
+        await Future<void>.delayed(Duration.zero);
+      });
+      expect(secondController.previewVisible.value, isFalse);
+      captureCompletion = null;
+      calls.clear();
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+
+      expect(calls.singleWhere((call) => call.method == 'resumeCameraMethod').arguments, containsPair('viewId', 11));
+      expect(firstController.previewVisible.value, isTrue);
+      calls.clear();
+      await tester.runAsync(() async {
+        pending.complete();
+        await initialization;
+      });
+      await tester.pumpAndSettle();
+      expect(ScannerRuntime.instance.isCurrent(firstController), isTrue);
+      expect(firstController.previewVisible.value, isTrue);
+      expect(calls, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+
+    testScannerWidgets('closing a dialog without a scanner does not restart an unfinished capture', (tester) async {
+      late BarcodeScannerController controller;
+      final pending = captureCompletion = Completer<void>();
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(onScannerInitialized: (value) => controller = value, onScan: (_) {}),
+      ));
+      late Future<void> initialization;
+      await tester.runAsync(() async {
+        initialization = _startCameraInitialization(tester.widget<CameraPreview>(find.byType(CameraPreview)), 11);
+        await Future<void>.delayed(Duration.zero);
+      });
+      final context = tester.element(find.byType(BarcodeScanner));
+      final navigator = Navigator.of(context);
+      unawaited(showDialog<void>(context: context, builder: (_) => const AlertDialog(content: Text('Dialog'))));
+      await tester.pumpAndSettle();
+      navigator.pop();
+      await tester.pumpAndSettle();
+
+      expect(calls.map((call) => call.method), ['resumeCameraMethod']);
+      expect(controller.previewVisible.value, isFalse);
+      await tester.runAsync(() async {
+        pending.complete();
+        await initialization;
+      });
+      await tester.pumpAndSettle();
+      expect(controller.previewVisible.value, isTrue);
+    });
+
     testScannerWidgets(
         'A B A restores A settings and routes native events to the current controller',
         (tester) async {
@@ -436,7 +695,7 @@ void main() {
           .widgetList<CameraPreview>(
             find.byType(CameraPreview, skipOffstage: false),
           )
-          .singleWhere((preview) => !identical(preview, firstPreview));
+          .singleWhere((preview) => preview.onCameraInitialized != firstPreview.onCameraInitialized);
       await _initializeCamera(tester, secondPreview, 22);
       await tester.pumpAndSettle();
       calls.clear();
@@ -670,7 +929,7 @@ void main() {
     });
 
     testScannerWidgets(
-        'native events are forwarded while recapture acknowledgement is pending',
+        'native scans wait until the recaptured preview is ready',
         (tester) async {
       BarcodeScannerController? controller;
       final results = <Barcode>[];
@@ -706,7 +965,7 @@ void main() {
 
       await sendNativeCall(event);
       await tester.pump();
-      expect(results, hasLength(1));
+      expect(results, isEmpty);
       await tester.runAsync(() async {
         captureCompletion!.complete();
         await resumed;
@@ -714,7 +973,7 @@ void main() {
       await tester.pumpAndSettle();
       await sendNativeCall(event);
       await tester.pump();
-      expect(results, hasLength(2));
+      expect(results, hasLength(1));
     });
 
     testScannerWidgets('active configuration update retries a failed capture',

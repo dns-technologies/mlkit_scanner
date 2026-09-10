@@ -184,4 +184,22 @@ void main() {
     expect(
         h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod']);
   });
+
+  test('resume retries a failed pause before capturing again', () async {
+    final controller = h.controller(1);
+    await h.runtime.capture(controller);
+    h.handler = (call) async {
+      if (call.method == 'pauseCameraMethod') throw PlatformException(code: 'pause-failed');
+      return null;
+    };
+    await controller.pauseCamera();
+    await RuntimeHarness.flush();
+    expect(h.errors, hasLength(1));
+    h.handler = null;
+    await controller.resumeCamera();
+    await RuntimeHarness.flush();
+    expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
+    expect(controller.previewVisible.value, isTrue);
+    expect(h.errors, hasLength(1));
+  });
 }

@@ -169,16 +169,6 @@ class XCamera internal constructor(
             .asCameraControlDeferred(CameraControlOperation.TORCH)
     }
 
-    override fun showPreview() {
-        if (!isBound()) throw PluginError.CameraIsNotInitialized
-        cameraPreviewView.alpha = 1F
-    }
-
-    override fun hidePreview() {
-        // Keep the preview attached and streaming while startup controls are applied.
-        cameraPreviewView.alpha = 0F
-    }
-
     override fun unbind() {
         val previous = bindingState
         if (previous === Disposed) return

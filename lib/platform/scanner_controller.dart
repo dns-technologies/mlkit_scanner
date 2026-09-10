@@ -22,6 +22,7 @@ class BarcodeScannerController {
   final _states = StreamController<ScannerConfiguration>.broadcast(sync: true);
   final _scans = StreamController<Barcode>.broadcast(sync: true);
   final _torch = StreamController<bool>.broadcast(sync: true);
+  final _previewVisible = ValueNotifier(false);
 
   /// Latest desired settings, also retained while another scanner is active.
   ScannerConfiguration get configuration => _configuration;
@@ -36,6 +37,9 @@ class BarcodeScannerController {
   /// Native torch changes while this view is connected (currently iOS only).
   Stream<bool> get torchToggleStream => _torch.stream;
 
+  /// Whether capture and its queued settings are ready to display, including the crop overlay.
+  ValueListenable<bool> get previewVisible => _previewVisible;
+
   /// Registers a controller for an existing native preview without capturing the camera.
   BarcodeScannerController({
     required this.viewId,
@@ -48,10 +52,13 @@ class BarcodeScannerController {
   /// Later configuration and event calls have no effect.
   void dispose() {
     if (_states.isClosed) return;
-    unawaited(_runtime.unregister(this));
-    unawaited(_states.close());
-    // A scan or torch listener may dispose its own controller during delivery.
+
+    // An event or preview listener may dispose its own controller during delivery.
     scheduleMicrotask(() {
+      _states.close();
+      _runtime.unregister(this);
+      _previewVisible.value = false;
+      _previewVisible.dispose();
       unawaited(_scans.close());
       unawaited(_torch.close());
     });
@@ -67,6 +74,12 @@ class BarcodeScannerController {
   void addTorchState(bool enabled) {
     if (_states.isClosed) return;
     _torch.add(enabled);
+  }
+
+  /// Updates preview visibility after a runtime capture, pause or release.
+  void setPreviewVisible(bool visible) {
+    if (_states.isClosed) return;
+    _previewVisible.value = visible;
   }
 
   Future<void> _update(ScannerConfiguration next) async {

@@ -154,7 +154,6 @@ final class ScannerHardware: ScannerDevice {
     private func prepareCamera(_ request: Capture) {
         guard let target = request.view else { finish(request, error: nil); return }
         if let camera = camera {
-            camera.view().isHidden = true
             target.attach(camera.view())
             activate(request, camera: camera)
             return
@@ -163,7 +162,6 @@ final class ScannerHardware: ScannerDevice {
         camera = device
         device.cameraPreviewDelegate = self
         target.attach(device.view())
-        device.view().isHidden = true
         device.initCamera { [weak self, weak request, weak device] error in
             Self.onMain {
                 guard let self = self, let request = request, let device = device,
@@ -195,7 +193,6 @@ final class ScannerHardware: ScannerDevice {
                     Self.onMain {
                         guard self.isCurrent(request) else { return }
                         if error == nil {
-                            camera.view().isHidden = false
                             if request.configuration.scanEnabled { self.beginScan(delay: request.configuration.scanDelay) }
                         }
                         let failure = error.map { self.controlError(.awaitOpen, viewId: request.view?.viewId, error: $0) }

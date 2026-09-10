@@ -25,7 +25,7 @@ import org.mockito.Mockito.*
 /** Native tests cover physical work. Route selection and retained configuration are tested in Dart. */
 internal class ScannerCaptureTest {
     @Test
-    fun `capture applies all settings before showing preview and starting analysis`() = runBlocking<Unit> {
+    fun `capture applies all settings before binding focus and starting analysis`() = runBlocking<Unit> {
         val f = Fixture()
         try {
             f.activate()
@@ -39,20 +39,18 @@ internal class ScannerCaptureTest {
                 f.scanner.select(f.first)
                 f.scanner.capture(ScannerConfiguration(zoomRatio = 3F, torchEnabled = true, scanEnabled = true, scanDelay = 250)) { true }
             }
-            verify(f.camera).hidePreview()
             verify(f.first).setScanActive(false)
-            verify(f.camera, never()).showPreview()
+            verify(f.first, never()).bindFocus()
             verify(f.first, never()).setScanActive(true)
             zoom.complete(Unit)
             verify(f.camera).setTorch(true)
-            verify(f.camera, never()).showPreview()
+            verify(f.first, never()).bindFocus()
             torch.complete(Unit)
             configure.await()
             inOrder(f.camera, f.first).apply {
-                verify(f.camera).hidePreview()
                 verify(f.camera).setZoomRatio(3F)
                 verify(f.camera).setTorch(true)
-                verify(f.camera).showPreview()
+                verify(f.first).bindFocus()
                 verify(f.first).setScanActive(true)
             }
         } finally { f.close() }
@@ -71,7 +69,6 @@ internal class ScannerCaptureTest {
             f.emitFrame()
             f.drain()
             assertEquals(listOf(42 to BARCODE), f.results)
-            verify(f.camera, never()).hidePreview()
             verify(f.first, never()).setScanActive(false)
             zoom.complete(Unit)
             change.await()
@@ -79,8 +76,7 @@ internal class ScannerCaptureTest {
             f.scanner.setScanPeriod(250)
             f.scanner.setCropArea(com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect(scaleWidth = 0.5))
             verify(f.camera, never()).resetFocus()
-            verify(f.camera, never()).showPreview()
-            verify(f.camera, never()).hidePreview()
+            verify(f.first, never()).bindFocus()
             verify(f.first, never()).setScanActive(false)
         } finally { f.close() }
     }
@@ -95,7 +91,7 @@ internal class ScannerCaptureTest {
             permission.complete(true)
             f.open()
             capture.await()
-            verify(f.camera).showPreview()
+            verify(f.first).bindFocus()
         } finally { f.close() }
     }
 
@@ -149,7 +145,7 @@ internal class ScannerCaptureTest {
             assertFalse(capture.isCompleted)
             f.open()
             capture.await()
-            verify(f.camera).showPreview()
+            verify(f.first).bindFocus()
             assertEquals(Lifecycle.State.STARTED, f.host.lifecycle.currentState)
         } finally { f.close() }
     }
@@ -179,7 +175,7 @@ internal class ScannerCaptureTest {
             assertTrue(runCatching { first.await() }.exceptionOrNull() is PluginError.CameraControlError)
             f.availability(CameraAvailability.Open)
             f.capture().await()
-            verify(f.camera).showPreview()
+            verify(f.first).bindFocus()
         } finally { f.close() }
     }
 
@@ -194,14 +190,14 @@ internal class ScannerCaptureTest {
             assertTrue(failure is PluginError.CameraControlError)
             f.initialized()
             f.availability(CameraAvailability.Open)
-            verify(f.camera, never()).showPreview()
+            verify(f.first, never()).bindFocus()
             f.capture().await()
-            verify(f.camera).showPreview()
+            verify(f.first).bindFocus()
         } finally { f.close() }
     }
 
     @Test
-    fun `capture waits for controls before exposing preview`() = runBlocking<Unit> {
+    fun `capture waits for controls before acknowledging readiness`() = runBlocking<Unit> {
         val f = Fixture()
         try {
             val zoom = CompletableDeferred<Unit>()
@@ -209,11 +205,11 @@ internal class ScannerCaptureTest {
             val capture = f.capture()
             f.open()
             assertFalse(capture.isCompleted)
-            verify(f.camera, never()).showPreview()
+            verify(f.first, never()).bindFocus()
             verify(f.camera, never()).setTorch(false)
             zoom.complete(Unit)
             capture.await()
-            verify(f.camera).showPreview()
+            verify(f.first).bindFocus()
         } finally { f.close() }
     }
 
@@ -229,7 +225,7 @@ internal class ScannerCaptureTest {
             capture.await()
             assertTrue(zoom.isCancelled)
             verify(f.camera, never()).setTorch(false)
-            verify(f.camera, never()).showPreview()
+            verify(f.first, never()).bindFocus()
         } finally { f.close() }
     }
 
@@ -250,7 +246,7 @@ internal class ScannerCaptureTest {
             assertFalse(f.scanner.isDisposed)
             verify(f.camera).unbind()
             verify(f.camera, never()).setTorch(false)
-            verify(f.camera, never()).showPreview()
+            verify(f.first, never()).bindFocus()
             verify(f.camera, never()).dispose()
             verify(f.analyzer, never()).dispose()
             assertEquals(listOf(300L), f.delays)
@@ -291,7 +287,7 @@ internal class ScannerCaptureTest {
 
             verify(f.camera).setZoomRatio(4F)
             verify(f.camera).setTorch(true)
-            verify(f.camera).showPreview()
+            verify(f.second).bindFocus()
             assertEquals(43, f.scanner.viewId)
             verify(f.camera, never()).dispose()
         } finally { f.close() }
@@ -310,7 +306,7 @@ internal class ScannerCaptureTest {
             assertFalse(capture.isCompleted)
             f.availability(CameraAvailability.Open)
             capture.await()
-            verify(f.camera, times(2)).showPreview()
+            verify(f.first, times(2)).bindFocus()
         } finally { f.close() }
     }
 
@@ -537,7 +533,6 @@ internal class ScannerCaptureTest {
             verify(f.camera, never()).resetFocus()
             verify(f.camera, never()).setZoomRatio(anyFloat())
             verify(f.camera, never()).setTorch(anyBoolean())
-            verify(f.camera, never()).hidePreview()
         } finally { f.close() }
     }
 
@@ -555,7 +550,7 @@ internal class ScannerCaptureTest {
             capture.await()
             assertTrue(pending.isCancelled)
             verify(f.camera, never()).setTorch(false)
-            verify(f.camera, never()).showPreview()
+            verify(f.first, never()).bindFocus()
         } finally { f.close() }
     }
 
