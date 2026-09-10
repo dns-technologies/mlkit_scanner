@@ -4,9 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 import 'package:flutter_test/flutter_test.dart';
 import '../support/runtime_harness.dart';
+import '../support/immediate_frame_test_binding.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  ImmediateFrameTestBinding();
 
   group('configuration and queue', () {
     late RuntimeHarness h;
@@ -174,10 +175,10 @@ void main() {
       await b.setZoomRatio(5);
       final last = h.runtime.capture(a);
       await a.setZoomRatio(3);
-      await skipped;
+      await RuntimeHarness.flush();
       expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
       ack.complete();
-      await last;
+      await Future.wait([skipped, last]);
       expect(h.methods,
           ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
       expect((h.calls.last.arguments as Map)['configuration'],

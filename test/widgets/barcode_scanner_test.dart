@@ -8,9 +8,10 @@ import 'package:mlkit_scanner/mlkit_scanner.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 import 'package:mlkit_scanner/platform/scanner_runtime.dart';
+import '../support/immediate_frame_test_binding.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  ImmediateFrameTestBinding();
 
   group('$BarcodeScanner', () {
     const channel = MethodChannel('mlkit_channel');

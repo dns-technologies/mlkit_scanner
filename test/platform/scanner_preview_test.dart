@@ -5,9 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mlkit_scanner/models/crop_rect.dart';
 
 import '../support/runtime_harness.dart';
+import '../support/immediate_frame_test_binding.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  ImmediateFrameTestBinding();
   late RuntimeHarness h;
   setUp(() => h = RuntimeHarness());
   tearDown(() => h.dispose());
@@ -92,7 +93,7 @@ void main() {
     expect(controller.previewVisible.value, isTrue);
   });
 
-  test('takeover and release hide controllers synchronously', () async {
+  test('takeover preserves the old preview and release hides only its controller', () async {
     final first = h.controller(1);
     final second = h.controller(2);
     await h.runtime.capture(first);
@@ -102,15 +103,16 @@ void main() {
       return null;
     };
     final capture = h.runtime.capture(second);
-    expect(first.previewVisible.value, isFalse);
+    expect(first.previewVisible.value, isTrue);
     expect(second.previewVisible.value, isFalse);
     captured.complete();
     await capture;
+    expect(first.previewVisible.value, isTrue);
     expect(second.previewVisible.value, isTrue);
     final release = h.runtime.release(second);
     expect(second.previewVisible.value, isFalse);
     await release;
-    expect(first.previewVisible.value, isFalse);
+    expect(first.previewVisible.value, isTrue);
   });
 
   test('failed queued crop keeps the cover until a later configuration recovers', () async {

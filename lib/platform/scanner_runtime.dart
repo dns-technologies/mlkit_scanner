@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:mlkit_scanner/platform/command_queue.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 import 'package:mlkit_scanner/platform/scanner_configuration.dart';
@@ -17,7 +18,7 @@ class ScannerRuntime {
 
   final MlKitChannel _channel;
 
-  /// Current capture; cleared before its queue is cancelled.
+  /// Current capture, including while waiting for release; cleared before queue cancellation.
   _ScannerSession? _session;
 
   /// Shared result of the current release; cleared after success or failure.
@@ -61,50 +62,62 @@ class ScannerRuntime {
     return session != null && identical(session.controller, controller);
   }
 
-  /// Releases the previous connection before creating the next session.
+  /// Selects the latest request immediately, but waits for release before native capture.
   /// Settings supplied while waiting are folded into the capture snapshot.
   Future<void> capture(BarcodeScannerController controller) async {
     if (!_subscriptions.containsKey(controller)) return;
-    await release(_session?.controller ?? controller);
 
-    if (!_subscriptions.containsKey(controller) || controller.configuration.cameraPaused) return;
     final session = _ScannerSession(controller, onError: _reportConfigurationError);
-    _session = session;
+    final previous = _session?.controller;
 
-    controller.setPreviewVisible(false);
     try {
-      // Fold synchronous initialization settings into the capture snapshot.
-      await Future.value();
+      if (!controller.configuration.cameraPaused) controller.setPreviewVisible(false);
+
+      final session = _ScannerSession(controller, onError: _reportConfigurationError);
+      _session = session;
+
+      if (previous != null) {
+        await release(previous);
+      }
+
       if (!identical(_session, session)) return;
+      if (!_subscriptions.containsKey(controller) || controller.configuration.cameraPaused) {
+        _session = null;
+        session.queue.cancel();
+        return;
+      }
+
       final configuration = controller.configuration;
       await _channel.resumeCamera(viewId: controller.viewId, configuration: configuration);
       if (!identical(_session, session)) return;
       session.applied = configuration;
       await session.queue.captureComplete();
 
+      // Keep the cover through a frame after zoom and queued controls finish.
+      await SchedulerBinding.instance.endOfFrame;
       if (identical(_session, session)) controller.setPreviewVisible(true);
     } catch (_) {
-      if (identical(_session, session)) _session = null;
       session.queue.cancel();
+      if (identical(_session, session)) _session = null;
+      rethrow;
     }
   }
 
-  Future<void> release(BarcodeScannerController controller, {bool keepPreview = false}) async {
+  Future<void> release(BarcodeScannerController controller) async {
     final session = _session;
-    if (session != null && identical(session.controller, controller)) {
+    if (session == null || identical(session.controller, controller)) {
       _session = null;
-      // Publish the shared reply before cancellation or preview listeners can reenter release.
-      _releasing = Future(() async {
+      // Publish one barrier before listeners can reenter, even when no camera needs stopping.
+      _releasing ??= Future.microtask(() async {
         try {
-          await _channel.pauseCamera();
+          if (session != null) await _channel.pauseCamera();
         } finally {
           _releasing = null;
         }
       });
-      session.queue.cancel();
+      session?.queue.cancel();
     }
     final releasing = _releasing;
-    if (!keepPreview) controller.setPreviewVisible(false);
     return releasing;
   }
 
@@ -117,9 +130,11 @@ class ScannerRuntime {
     if (session == null || !isCurrent(controller)) return;
 
     if (next.cameraPaused) {
-      await release(controller, keepPreview: true);
+      await release(controller);
       return;
     }
+    // Waiting captures will read these settings in their complete snapshot.
+    if (_releasing != null) return;
 
     void enqueue(String id, bool changed, Future<void> Function() callback) {
       if (!changed) return;

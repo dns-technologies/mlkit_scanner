@@ -5,9 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mlkit_scanner/models/crop_rect.dart';
 
 import '../support/runtime_harness.dart';
+import '../support/immediate_frame_test_binding.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  ImmediateFrameTestBinding();
   late RuntimeHarness h;
   setUp(() => h = RuntimeHarness());
   tearDown(() => h.dispose());
@@ -90,7 +91,7 @@ void main() {
   });
 
   for (final failed in [false, true]) {
-    test('pause ignores a late capture reply (failed: $failed)', () async {
+    test('pause keeps preview hidden after a late capture reply (failed: $failed)', () async {
       final ack = Completer<void>();
       h.handler = (call) async {
         if (call.method == 'resumeCameraMethod') await ack.future;
@@ -101,12 +102,13 @@ void main() {
       await RuntimeHarness.flush();
       await controller.pauseCamera();
       await RuntimeHarness.flush();
+      final result = expectLater(capture, failed ? throwsA(isA<PlatformException>()) : completes);
       if (failed) {
         ack.completeError(PlatformException(code: 'superseded'));
       } else {
         ack.complete();
       }
-      await capture;
+      await result;
       expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
       expect(controller.previewVisible.value, isFalse);
       expect(h.errors, isEmpty);
@@ -128,12 +130,13 @@ void main() {
       await RuntimeHarness.flush();
       expect(controller.previewVisible.value, isTrue);
 
+      final result = expectLater(capture, failed ? throwsA(isA<PlatformException>()) : completes);
       if (failed) {
         ack.completeError(PlatformException(code: 'superseded'));
       } else {
         ack.complete();
       }
-      await capture;
+      await result;
       await controller.setZoomRatio(3);
       await controller.toggleFlash();
       await RuntimeHarness.flush();
@@ -339,7 +342,7 @@ void main() {
       if (call.method == 'resumeCameraMethod') throw PlatformException(code: 'start-failed');
       return null;
     };
-    await h.runtime.capture(controller);
+    await expectLater(h.runtime.capture(controller), throwsA(isA<PlatformException>()));
     expect(controller.previewVisible.value, isFalse);
 
     h.handler = null;

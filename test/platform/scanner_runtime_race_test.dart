@@ -4,9 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/runtime_harness.dart';
+import '../support/immediate_frame_test_binding.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  ImmediateFrameTestBinding();
   late RuntimeHarness h;
   setUp(() => h = RuntimeHarness());
   tearDown(() => h.dispose());
@@ -46,14 +47,13 @@ void main() {
     };
     final skipped = h.runtime.capture(b);
     final capture = h.runtime.capture(c);
-    await skipped;
     await c.setZoomRatio(4);
     await RuntimeHarness.flush();
     expect(h.runtime.isCurrent(b), isFalse);
     expect(h.runtime.isCurrent(c), isTrue);
     expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     stopped.complete();
-    await capture;
+    await Future.wait([skipped, capture]);
     expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
     expect(h.calls.last.arguments, containsPair('viewId', 3));
     expect((h.calls.last.arguments as Map)['configuration'], containsPair('zoomRatio', 4.0));
@@ -61,7 +61,7 @@ void main() {
     expect(c.previewVisible.value, isTrue);
   });
 
-  test('capture waits for release before selecting the next session', () async {
+  test('selected capture waits for release before starting the camera', () async {
     final a = h.controller(1);
     final b = h.controller(2);
     await h.runtime.capture(a);
@@ -73,7 +73,7 @@ void main() {
     final capture = h.runtime.capture(b);
     await b.setZoomRatio(4);
     await RuntimeHarness.flush();
-    expect(h.runtime.isCurrent(b), isFalse);
+    expect(h.runtime.isCurrent(b), isTrue);
     expect(b.previewVisible.value, isFalse);
     expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     stopped.complete();
@@ -135,14 +135,55 @@ void main() {
     final secondRelease = h.runtime.release(b);
     expect(h.runtime.isCurrent(b), isFalse);
     final capture = h.runtime.capture(c);
-    await skipped;
     await RuntimeHarness.flush();
     expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     stopped.complete();
-    await Future.wait([firstRelease, secondRelease, capture]);
+    await Future.wait([firstRelease, skipped, secondRelease, capture]);
     expect(h.runtime.isCurrent(c), isTrue);
     expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
     expect(h.calls.last.arguments, containsPair('viewId', 3));
+  });
+
+  test('release cancels a capture already waiting for another camera to stop', () async {
+    final a = h.controller(1);
+    final b = h.controller(2);
+    await h.runtime.capture(a);
+    final stopped = Completer<void>();
+    h.handler = (call) async {
+      if (call.method == 'pauseCameraMethod') await stopped.future;
+      return null;
+    };
+    final capture = h.runtime.capture(b);
+    await RuntimeHarness.flush();
+    final release = h.runtime.release(b);
+    stopped.complete();
+    await Future.wait([capture, release]);
+
+    expect(h.runtime.isCurrent(b), isFalse);
+    expect(b.previewVisible.value, isFalse);
+    expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
+  });
+
+  test('a later capture supersedes a request already awaiting release', () async {
+    final a = h.controller(1);
+    final b = h.controller(2);
+    final c = h.controller(3);
+    await h.runtime.capture(a);
+    final stopped = Completer<void>();
+    h.handler = (call) async {
+      if (call.method == 'pauseCameraMethod') await stopped.future;
+      return null;
+    };
+    final skipped = h.runtime.capture(b);
+    await RuntimeHarness.flush();
+    final capture = h.runtime.capture(c);
+    stopped.complete();
+    await Future.wait([skipped, capture]);
+
+    expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
+    expect(h.calls.last.arguments, containsPair('viewId', 3));
+    expect(b.previewVisible.value, isFalse);
+    expect(c.previewVisible.value, isTrue);
   });
 
   test('repeated release shares cancellation and leaves settings local', () async {
@@ -252,9 +293,8 @@ void main() {
     expect(h.runtime.isCurrent(a), isFalse);
   });
 
-  test('capture from a hidden preview listener supersedes the capture hiding it', () async {
+  test('capture from its own preview listener supersedes a recapture', () async {
     final a = h.controller(1);
-    final b = h.controller(2);
     final c = h.controller(3);
     await h.runtime.capture(a);
     final stopped = Completer<void>();
@@ -269,14 +309,15 @@ void main() {
 
     a.previewVisible.addListener(onPreviewChanged);
     addTearDown(() => a.previewVisible.removeListener(onPreviewChanged));
-    await h.runtime.capture(b);
-    expect(h.runtime.isCurrent(c), isTrue);
+    final skipped = h.runtime.capture(a);
+    await RuntimeHarness.flush();
     expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     stopped.complete();
-    await capture;
+    await Future.wait([skipped, capture]);
     expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
+    expect(h.runtime.isCurrent(c), isTrue);
     expect(h.calls.last.arguments, containsPair('viewId', 3));
-    expect(b.previewVisible.value, isFalse);
+    expect(a.previewVisible.value, isFalse);
   });
 
   test('captures before native startup do not send a redundant release', () async {
@@ -289,7 +330,7 @@ void main() {
     expect(h.calls.single.arguments, containsPair('viewId', 2));
   });
 
-  test('failure of a shared release reaches the latest capture and permits retry', () async {
+  test('failure of a shared release reaches all waiting captures and permits retry', () async {
     final a = h.controller(1);
     final b = h.controller(2);
     final c = h.controller(3);
@@ -301,16 +342,17 @@ void main() {
     };
     final skipped = h.runtime.capture(b);
     final capture = h.runtime.capture(c);
-    await skipped;
+    final skippedFailure = expectLater(skipped, throwsA(isA<PlatformException>()));
     final failure = expectLater(capture, throwsA(isA<PlatformException>()));
+    await RuntimeHarness.flush();
     stopped.completeError(PlatformException(code: 'stop-failed'));
-    await failure;
+    await Future.wait([skippedFailure, failure]);
     expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     expect(c.previewVisible.value, isFalse);
     expect(h.errors, isEmpty);
     h.handler = null;
     await h.runtime.capture(c);
-    expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
+    expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'resumeCameraMethod']);
     expect(h.calls.last.arguments, containsPair('viewId', 3));
     expect(c.previewVisible.value, isTrue);
   });
