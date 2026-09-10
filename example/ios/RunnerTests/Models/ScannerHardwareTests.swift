@@ -13,6 +13,27 @@ final class ScannerHardwareTests: XCTestCase {
         f.runtime.release()
     }
 
+    func testReleaseKeepsLastFrameUntilRecapture() throws {
+        let f = Fixture()
+        let view = f.view(42)
+        try f.activate(view, configuration())
+        let frame = UIView()
+        f.camera.preview.snapshot = frame
+
+        f.runtime.releaseCamera() {}
+        f.runtime.releaseCamera() {}
+        XCTAssertNil(f.camera.preview.superview)
+        XCTAssertEqual(view.view().subviews.count, 1)
+        XCTAssertTrue(view.view().subviews.first === frame)
+        XCTAssertEqual(frame.frame, view.view().bounds)
+
+        try f.activate(view, configuration())
+        XCTAssertNil(frame.superview)
+        XCTAssertEqual(view.view().subviews.count, 1)
+        XCTAssertTrue(view.view().subviews.first === f.camera.preview)
+        f.runtime.release()
+    }
+
     func testCaptureWaitsForPermissionAndFirstFrame() throws {
         let f = Fixture()
         let view = f.view(42)
@@ -341,8 +362,14 @@ final class ScannerHardwareTests: XCTestCase {
         }
     }
 
+    private final class TestPreview: UIView {
+        var snapshot: UIView?
+
+        override func snapshotView(afterScreenUpdates afterUpdates: Bool) -> UIView? { snapshot }
+    }
+
     private final class TestCamera: CameraPreviewing {
-        let preview = UIView()
+        let preview = TestPreview()
         var isInitialized = false
         var isTorchActive: Bool { torches.last == true }
         var isLayoutReady = true

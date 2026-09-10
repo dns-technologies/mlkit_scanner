@@ -140,6 +140,10 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     setState(() => _barcodeScannerController = controller);
     _scanStreamSubscription = controller.scanResults.listen((barcode) => widget.onScan(barcode));
     _toggleFlashStreamSubscription = controller.torchToggleStream.listen((enabled) => widget.onChangeFlashState?.call(enabled));
+    // Controller disposal closes this stream. Only a visible widget may recapture after pause.
+    controller.states.listen((configuration) {
+      if (!configuration.cameraPaused) unawaited(_capture());
+    });
     widget.onScannerInitialized(controller);
     await _capture();
   }

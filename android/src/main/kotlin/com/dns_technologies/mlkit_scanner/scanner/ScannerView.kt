@@ -2,12 +2,14 @@ package com.dns_technologies.mlkit_scanner.scanner
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.drawable.BitmapDrawable
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import androidx.annotation.MainThread
+import androidx.camera.view.PreviewView
 import com.dns_technologies.mlkit_scanner.scanner.components.ui.OverlayController
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import io.flutter.plugin.platform.PlatformView
@@ -42,6 +44,7 @@ class ScannerView(
     /** Moves the shared preview here and reports when its current non-zero layout can be used. */
     fun attachPreview(preview: View, onPreviewReady: () -> Unit) {
         if (isDisposed) return
+        background = null
         clearPreviewReadiness()
         val previous = this.preview
         this.preview = preview
@@ -66,14 +69,19 @@ class ScannerView(
         if (previewReadyListener === listener) observePreviewReadiness()
     }
 
-    /** Detaches the borrowed preview without releasing its resources. */
+    /** Keeps the last frame in this container while the shared preview is released or moved. */
     fun detachPreview() {
         overlayController.setScanActive(false)
         overlayController.unbindFocus()
         clearPreviewReadiness()
         val detached = preview
         preview = null
-        if (detached?.parent === this) removeView(detached)
+        if (detached?.parent === this) {
+            if (!isDisposed) {
+                (detached as? PreviewView)?.bitmap?.let { background = BitmapDrawable(resources, it) }
+            }
+            removeView(detached)
+        }
     }
 
     /** Returns whether this container currently hosts the one shared preview view. */
@@ -118,6 +126,7 @@ class ScannerView(
         try {
             detachPreview()
         } finally {
+            background = null
             overlayController.dispose()
         }
     }

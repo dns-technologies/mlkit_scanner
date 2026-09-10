@@ -1,16 +1,21 @@
 package com.dns_technologies.mlkit_scanner.scanner
 
 import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.FrameLayout
+import androidx.camera.view.PreviewView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.Mockito.doReturn
+import org.mockito.Mockito.spy
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -59,6 +64,28 @@ internal class ScannerViewTest {
         assertEquals(1, f.disposeCount)
         assertFalse(f.view.hasPreview())
         assertTrue(f.view.performClick())
+    }
+
+    @Test
+    fun `detached preview keeps its last frame until recapture or disposal`() = withView { f ->
+        val frame = Bitmap.createBitmap(20, 10, Bitmap.Config.ARGB_8888)
+        val preview = spy(PreviewView(f.activity))
+        doReturn(frame).`when`(preview).bitmap
+        f.view.attachPreview(preview) {}
+
+        f.view.detachPreview()
+        f.view.detachPreview()
+        assertFalse(f.view.hasPreview())
+        assertEquals(null, preview.parent)
+        assertSame(frame, (f.view.background as BitmapDrawable).bitmap)
+
+        f.view.attachPreview(preview) {}
+        assertEquals(null, f.view.background)
+        assertTrue(f.view.hasPreview())
+
+        f.view.detachPreview()
+        f.view.dispose()
+        assertEquals(null, f.view.background)
     }
 
     @Test

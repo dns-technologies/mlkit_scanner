@@ -210,12 +210,16 @@ final class ScannerHardware: ScannerDevice {
     /// Release interrupts layout/first-frame waits and gives the next consumer 300 ms to return.
     private func releaseConsumer(completion: @escaping () -> Void) {
         let previous = capture
+        let target = selected
         capture = nil
         selected = nil
         // Reply only after all cancellation work has been submitted to the SDK queue.
         defer { previous?.complete(nil) }
         stopScan()
-        camera?.view().removeFromSuperview()
+        if let preview = camera?.view() {
+            target?.freeze(preview)
+            preview.removeFromSuperview()
+        }
         idleDisposal?.invalidate()
         idleDisposal = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
             self?.disposeHardware()

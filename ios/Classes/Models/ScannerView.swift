@@ -21,10 +21,20 @@ final class ScannerView: NSObject, FlutterPlatformView {
     /// UIKit owns layout; the shared native preview simply fills its current container.
     func attach(_ preview: UIView) {
         preview.removeFromSuperview()
+        container.subviews.forEach { $0.removeFromSuperview() }
         preview.frame = container.bounds
         preview.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         container.addSubview(preview)
         preview.setNeedsLayout()
         preview.layoutIfNeeded()
+    }
+
+    /// Keeps the rendered frame after the shared camera preview is removed.
+    func freeze(_ preview: UIView) {
+        guard preview.superview === container,
+              let snapshot = preview.snapshotView(afterScreenUpdates: false) else { return }
+        snapshot.frame = container.bounds
+        snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.insertSubview(snapshot, belowSubview: preview)
     }
 }

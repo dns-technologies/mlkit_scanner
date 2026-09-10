@@ -17,6 +17,7 @@ class ScannerRuntime {
 
   final MlKitChannel _channel;
 
+  /// Current capture; cleared before its queue is cancelled.
   _ScannerSession? _session;
 
   /// Shared result of the current release; cleared after success or failure.
@@ -57,7 +58,6 @@ class ScannerRuntime {
 
   bool isCurrent(BarcodeScannerController controller) {
     final session = _session;
-    if (_releasing != null) return false;
     return session != null && identical(session.controller, controller);
   }
 
@@ -65,50 +65,47 @@ class ScannerRuntime {
   /// Settings supplied while waiting are folded into the capture snapshot.
   Future<void> capture(BarcodeScannerController controller) async {
     if (!_subscriptions.containsKey(controller)) return;
-    final previous = _session;
-    if (previous != null) {
-      await release(previous.controller);
-    }
+    await release(_session?.controller ?? controller);
 
-    if (!_subscriptions.containsKey(controller)) return;
+    if (!_subscriptions.containsKey(controller) || controller.configuration.cameraPaused) return;
     final session = _ScannerSession(controller, onError: _reportConfigurationError);
     _session = session;
 
     controller.setPreviewVisible(false);
     try {
-      if (session.queue.isClosed) return;
       // Fold synchronous initialization settings into the capture snapshot.
       await Future.value();
-      if (session.queue.isClosed || session.paused) return;
-
+      if (!identical(_session, session)) return;
       final configuration = controller.configuration;
       await _channel.resumeCamera(viewId: controller.viewId, configuration: configuration);
+      if (!identical(_session, session)) return;
       session.applied = configuration;
       await session.queue.captureComplete();
 
-      controller.setPreviewVisible(true);
+      if (identical(_session, session)) controller.setPreviewVisible(true);
     } catch (_) {
+      if (identical(_session, session)) _session = null;
       session.queue.cancel();
     }
   }
 
-  Future<void> release(BarcodeScannerController controller) async {
-    final releasing = _releasing;
-    if (releasing != null) return releasing;
-
+  Future<void> release(BarcodeScannerController controller, {bool keepPreview = false}) async {
     final session = _session;
-    if (session == null || !identical(session.controller, controller)) return;
-
-    return _releasing = Future(() async {
-      session.cancel();
-
-      final needsRelease = !session.paused || session.queue.isClosed;
-      if (needsRelease) {
-        await _channel.pauseCamera();
-      }
-
-      if (identical(_session, session)) _session = null;
-    }).whenComplete(() => _releasing = null);
+    if (session != null && identical(session.controller, controller)) {
+      _session = null;
+      // Publish the shared reply before cancellation or preview listeners can reenter release.
+      _releasing = Future(() async {
+        try {
+          await _channel.pauseCamera();
+        } finally {
+          _releasing = null;
+        }
+      });
+      session.queue.cancel();
+    }
+    final releasing = _releasing;
+    if (!keepPreview) controller.setPreviewVisible(false);
+    return releasing;
   }
 
   Future<void> _configurationChanged(
@@ -118,6 +115,11 @@ class ScannerRuntime {
   ) async {
     final session = _session;
     if (session == null || !isCurrent(controller)) return;
+
+    if (next.cameraPaused) {
+      await release(controller, keepPreview: true);
+      return;
+    }
 
     void enqueue(String id, bool changed, Future<void> Function() callback) {
       if (!changed) return;
@@ -168,12 +170,10 @@ class ScannerRuntime {
   }
 }
 
-/// State owned by one capture, retained until its native release completes.
+/// State owned by one capture; runtime discards it before cancellation.
 class _ScannerSession {
   final BarcodeScannerController controller;
   final CommandQueue queue;
-
-  bool get paused => controller.configuration.cameraPaused;
 
   /// The last fully acknowledged snapshot; null until capture succeeds or after a partial failure.
   ScannerConfiguration? applied;
@@ -182,9 +182,4 @@ class _ScannerSession {
       : queue = CommandQueue(onError: onError);
 
   bool accepts(int viewId) => controller.viewId == viewId && queue.isCaptured;
-
-  void cancel() {
-    queue.cancel();
-    controller.setPreviewVisible(false);
-  }
 }

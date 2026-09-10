@@ -77,6 +77,16 @@ void main() {
       await tester.pump();
     }
 
+    Future<void> waitForPreview(WidgetTester tester, BarcodeScannerController controller) async {
+      // Route captures and native-view callbacks can use different test clocks.
+      for (var attempt = 0; attempt < 10 && !controller.previewVisible.value; attempt++) {
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        await tester.pump(const Duration(milliseconds: 1));
+      }
+      expect(controller.previewVisible.value, isTrue);
+      await tester.pump();
+    }
+
     void testScannerWidgets(String description, WidgetTesterCallback body) {
       testWidgets(description, (tester) async {
         final previousPlatform = debugDefaultTargetPlatformOverride;
@@ -147,9 +157,24 @@ void main() {
         captureCompletion = null;
         cropCompletion = null;
         await updateController(tester, controller.pauseCamera);
-        expect(cover, findsOneWidget);
+        expect(cover, findsNothing);
+        expect(ScannerRuntime.instance.isCurrent(controller), isFalse);
+        calls.clear();
+        await updateController(tester, () => controller.setZoomRatio(3));
+        await updateController(tester, controller.toggleFlash);
+        expect(calls, isEmpty);
+
+        captureCompletion = Completer<void>();
         await updateController(tester, controller.resumeCamera);
-        await tester.pumpAndSettle();
+        expect(cover, findsOneWidget);
+        expect(calls.map((call) => call.method), ['resumeCameraMethod']);
+        expect((calls.single.arguments as Map)['configuration'],
+            allOf(containsPair('zoomRatio', 3.0), containsPair('torchEnabled', true)));
+        await tester.runAsync(() async {
+          captureCompletion!.complete();
+          await Future<void>.delayed(Duration.zero);
+        });
+        await waitForPreview(tester, controller);
         expect(cover, findsNothing);
         expect(tester.element(previewFinder), same(previewElement));
         expect(pendingPlatformCreates, hasLength(1));
@@ -201,7 +226,32 @@ void main() {
       expect(calls, isEmpty);
       expect(controller.configuration.cameraPaused, isTrue);
       await updateController(tester, controller.resumeCamera);
+      await waitForPreview(tester, controller);
       expect(calls.map((call) => call.method), ['resumeCameraMethod']);
+    });
+
+    testScannerWidgets('resuming a hidden paused scanner waits for its route to return', (tester) async {
+      late BarcodeScannerController controller;
+      await tester.pumpWidget(TestApp(
+        child: BarcodeScanner(onScannerInitialized: (value) => controller = value, onScan: (_) {}),
+      ));
+      await _initializeCamera(tester, tester.widget<CameraPreview>(find.byType(CameraPreview)), 17);
+      await updateController(tester, controller.pauseCamera);
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      unawaited(navigator.push<void>(MaterialPageRoute<void>(builder: (_) => const SizedBox.shrink())));
+      await tester.pumpAndSettle();
+      calls.clear();
+
+      await updateController(tester, controller.resumeCamera);
+      await updateController(tester, () => controller.setZoomRatio(3));
+      expect(calls, isEmpty);
+      expect(ScannerRuntime.instance.isCurrent(controller), isFalse);
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+      await waitForPreview(tester, controller);
+      expect(calls.map((call) => call.method), ['resumeCameraMethod']);
+      expect((calls.single.arguments as Map)['configuration'], containsPair('zoomRatio', 3.0));
     });
 
     testScannerWidgets(
@@ -399,9 +449,10 @@ void main() {
 
     testScannerWidgets('route visibility releases and recaptures the camera',
         (tester) async {
+      late BarcodeScannerController controller;
       await tester.pumpWidget(TestApp(
         child: BarcodeScanner(
-          onScannerInitialized: (_) {},
+          onScannerInitialized: (value) => controller = value,
           onScan: (_) {},
         ),
       ));
@@ -416,6 +467,7 @@ void main() {
         MaterialPageRoute<void>(builder: (_) => const SizedBox.shrink()),
       );
       await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 1));
 
       expect(
         calls.where((call) => call.method == 'pauseCameraMethod').single.arguments,
@@ -425,6 +477,7 @@ void main() {
       calls.clear();
       navigator.pop();
       await tester.pumpAndSettle();
+      await waitForPreview(tester, controller);
 
       expect(
         calls.where((call) => call.method == 'resumeCameraMethod').single.arguments,
@@ -526,7 +579,7 @@ void main() {
             22,
           );
           await tester.pumpAndSettle();
-          expect(firstController.previewVisible.value, isFalse);
+          expect(firstController.previewVisible.value, paused);
           expect(secondController.previewVisible.value, isTrue);
           await updateController(tester, () => firstController.setZoomRatio(3));
           calls.clear();
@@ -537,9 +590,10 @@ void main() {
           if (paused) {
             expect(calls.where((call) => call.method == 'resumeCameraMethod'), isEmpty);
             expect(firstController.configuration.cameraPaused, isTrue);
-            expect(firstController.previewVisible.value, isFalse);
+            expect(firstController.previewVisible.value, isTrue);
             await updateController(tester, firstController.resumeCamera);
           }
+          await waitForPreview(tester, firstController);
           final restored = calls.singleWhere((call) => call.method == 'resumeCameraMethod');
           expect((restored.arguments as Map)['viewId'], 11);
           expect((restored.arguments as Map)['configuration'], containsPair('zoomRatio', 3.0));

@@ -37,7 +37,7 @@ class BarcodeScannerController {
   /// Native torch changes while this view is connected (currently iOS only).
   Stream<bool> get torchToggleStream => _torch.stream;
 
-  /// Whether capture and its queued settings are ready to display, including the crop overlay.
+  /// Whether to display the preview, including its last frame during a manual pause.
   ValueListenable<bool> get previewVisible => _previewVisible;
 
   /// Registers a controller for an existing native preview without capturing the camera.
@@ -108,6 +108,7 @@ class BarcodeScannerController {
   }
 
   /// Pauses camera work while retaining zoom, torch and recognition settings.
+  /// Keeps the last preview frame visible while the widget remains on screen.
   /// A hidden scanner only retains pause intent and does not affect another view.
   Future<void> pauseCamera() => _update(_configuration.copyWith(cameraPaused: true));
 

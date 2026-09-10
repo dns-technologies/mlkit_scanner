@@ -38,6 +38,17 @@ class RuntimeHarness {
   }
 
   Iterable<String> get methods => calls.map((call) => call.method);
+
+  /// Simulates the visible widget requesting capture after the controller resumes.
+  Future<void> resumeVisible(BarcodeScannerController controller) async {
+    await controller.resumeCamera();
+    if (!runtime.isCurrent(controller)) {
+      unawaited(runtime.capture(controller).catchError((Object error, StackTrace stack) {
+        errors.add(FlutterErrorDetails(exception: error, stack: stack));
+      }));
+    }
+  }
+
   Future<void> event(int viewId, String value) async {
     await send(MethodCall('onScanResult', {
       'viewId': viewId,

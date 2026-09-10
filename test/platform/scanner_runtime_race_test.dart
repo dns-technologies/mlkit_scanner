@@ -190,7 +190,7 @@ void main() {
     });
   }
 
-  test('concurrent releases share a failure and a later release retries', () async {
+  test('concurrent releases share a failure without retaining the released session', () async {
     final a = h.controller(1);
     final b = h.controller(2);
     await h.runtime.capture(a);
@@ -216,7 +216,7 @@ void main() {
     expect(h.errors, isEmpty);
     h.handler = null;
     await h.runtime.release(a);
-    expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod', 'pauseCameraMethod']);
+    expect(h.methods, ['resumeCameraMethod', 'pauseCameraMethod']);
     expect(h.runtime.isCurrent(a), isFalse);
     await h.runtime.capture(b);
     expect(h.calls.last.arguments, containsPair('viewId', 2));
@@ -383,7 +383,7 @@ void main() {
       return null;
     };
     await a.pauseCamera();
-    await a.resumeCamera();
+    await h.resumeVisible(a);
     await h.event(1, 'old-run');
     expect(scans, isEmpty);
     stopped.complete();
