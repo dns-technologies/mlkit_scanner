@@ -1,3 +1,26 @@
+## Unreleased
+
+- Preserve the pending hardware-stop barrier when a waiting capture is cancelled, so a replacement cannot start before the previous camera stops.
+- Keep zoom/crop range validation in Dart and native argument decoding in shared typed readers, including checked Float conversion on Android.
+- Batch changed zoom, flash and crop settings into one `updateCameraSettings` platform call, preserving capture ownership and paused preview retention.
+- Apply camera controls during manual pause while retaining the frozen preview; resume recognition only when `scanning` is enabled.
+- Simplify the internal controller to widget snapshots and callbacks, remove redundant resource wrappers and unused iOS image helpers, and group tests by the class they exercise. Preserve native Command implementations.
+- Preserve each paused widget's camera image across scanner navigation; await pending image copies before camera handoff and release retained images on resume/disposal.
+
+- **Breaking:** Make `BarcodeScanner` declarative with `zoomRatio`, `flashEnabled`, `cropRect`, `camera`, `cameraPaused`, `scanning` and `scanDelay`. Update properties through Flutter state instead of controller commands.
+- **Breaking:** Remove the public `BarcodeScannerController`, `initial*` properties, `onScannerInitialized` and `onCameraInitializeError`. Use `onError(Object)` for initialization, capture and control failures, preserving typed `CameraControlException` details.
+- Keep recognition disabled by default (`scanning: false`); interpret `scanDelay` as milliseconds and nullable crop/camera properties as resets to their defaults.
+- Deliver errors outside build, suppress delivery after disposal, and demonstrate retrying one scanner with a new key in the example.
+- Keep the camera session alive beneath dropdowns and dialogs while suspending recognition; transfer ownership when a modal contains another scanner.
+- Make manual `cameraPaused` a warm pause: freeze preview and stop native recognition without releasing capture or resetting camera controls. Continue physically stopping hardware when the widget is hidden or the app enters the background.
+- Return camera ownership to paused scanner routes before closing the departing scanner, preserving the running camera until manual resume.
+- Replace per-widget native Platform Views with a shared Flutter camera texture.
+- Keep widget configuration independent and scope commands/results to native capture leases and subscriptions.
+- Reconcile the latest desired settings instead of accumulating command closures.
+- Release scanner resources from Flutter after 300 ms with no registered widgets; remove native grace timers.
+- Render crop/focus overlays in Flutter and show solid black across the widget before camera preview is available.
+- Require Flutter 3.29, Dart 3.7 and iOS 12.0 or newer.
+
 ## 0.6.0
 
 [fix]
@@ -37,7 +60,7 @@
 - Add ability to initialize the scanner with parameters (zoom, cropRect and camera (Ios)).
 
 [fix]
- 
+
 - Fix lock animation when layout changing.
 - Fix cropRect initialization.
 

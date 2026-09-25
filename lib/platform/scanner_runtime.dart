@@ -213,8 +213,13 @@ class ScannerRuntime {
       return;
     }
     _session = null;
-    final closing = session.close(pause: pause);
+    var closing = session.close(pause: pause);
     if (pause) {
+      // A capture cancelled before allocation must still wait for the previous
+      // owner's physical stop. That owner remains responsible for its error.
+      if (_pause case final pending?) {
+        closing = Future.wait<void>([pending.catchError((Object _) {}), closing]).then<void>((_) {});
+      }
       _pause = closing;
       _pausingSession = session;
     }
