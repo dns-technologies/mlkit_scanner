@@ -3,6 +3,19 @@ import XCTest
 @testable import mlkit_scanner
 
 final class PlatformChannelScalarTests: XCTestCase {
+    func testFiniteDoublePreservesNumericValuesWithoutApplicationRanges() throws {
+        for value in [0.0, -1.0, 2.5, Double.leastNonzeroMagnitude, Double.greatestFiniteMagnitude] {
+            XCTAssertEqual(try PlatformChannelScalar.finiteDouble(from: value), value)
+        }
+    }
+
+    func testFiniteDoubleRejectsNonfiniteAndNonnumericValues() {
+        let invalid: [Any?] = [nil, NSNull(), true, "2.5", Double.nan, Double.infinity, -Double.infinity]
+        for value in invalid {
+            assertInvalid { _ = try PlatformChannelScalar.finiteDouble(from: value) }
+        }
+    }
+
     func testNumberAcceptsCodecNumericZeroAndOne() throws {
         XCTAssertEqual(
             try PlatformChannelScalar.number(from: NSNumber(value: Int32(0))).intValue,
