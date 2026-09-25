@@ -10,6 +10,7 @@ import AVFoundation
 
 /// Discovers capture devices supported by the plugin.
 class CameraUtil {
+
     /// Returns all available cameras on device.
     func getAvailableCameras() -> [AVCaptureDevice] {
         var deviceTypes: [AVCaptureDevice.DeviceType] = [

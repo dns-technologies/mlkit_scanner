@@ -46,9 +46,9 @@ extension BarcodeValueTypeCode on BarcodeValueType {
   int get code => _typeToCode[this]!;
 
   /// Returns the type corresponding to the [code].
-  static BarcodeValueType fromCode(int code) =>
-      _codeToType[code] ?? BarcodeValueType.unknown;
+  static BarcodeValueType fromCode(int code) => _codeToType[code] ?? BarcodeValueType.unknown;
 
+  /// Stable ML Kit content-type codes used by both native platforms.
   static final _typeToCode = {
     BarcodeValueType.unknown: 0,
     BarcodeValueType.contactInfo: 1,
@@ -65,7 +65,6 @@ extension BarcodeValueTypeCode on BarcodeValueType {
     BarcodeValueType.driverLicense: 12,
   };
 
-  static final _codeToType = {
-    for (final entry in _typeToCode.entries) entry.value: entry.key,
-  };
+  /// Reverse lookup used while decoding native barcode results.
+  static final _codeToType = {for (final entry in _typeToCode.entries) entry.value: entry.key};
 }

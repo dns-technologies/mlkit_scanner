@@ -1,6 +1,6 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera
 
-import android.view.View
+import android.util.Size
 import androidx.lifecycle.LifecycleOwner
 import java.util.concurrent.ExecutorService
 import kotlinx.coroutines.Deferred
@@ -22,11 +22,14 @@ sealed interface CameraAvailability {
     /** The camera is open and the preview has started delivering frames. */
     data object Open : CameraAvailability
 
-    /** The device is not open; an optional CameraX state error explains the transition. */
-    data class Closed(
-        val errorCode: Int? = null,
-        val cause: Throwable? = null,
-    ) : CameraAvailability
+    /**
+     * The device is not open; an optional camera error explains the transition.
+     *
+     * @property errorCode Original state error code reported by the camera, when known.
+     * @property cause Original camera failure retained for diagnostics.
+     */
+    data class Closed(val errorCode: Int? = null, val cause: Throwable? = null) :
+        CameraAvailability
 }
 
 /**
@@ -37,10 +40,16 @@ sealed interface CameraAvailability {
  * caller. Cancelling a returned result does not guarantee cancellation of hardware work.
  */
 interface Camera {
-    /** Native preview view supplied by the concrete camera implementation. */
-    val previewView: View
+    /** Reports current preview metadata, or null when output is withdrawn. */
+    var onPreviewChanged: (Map<String, Any>?) -> Unit
 
-    /** Binds preview and frame analysis; Flutter covers the view until capture completes. */
+    /** Completes after disposal has released all camera and preview resources. */
+    val disposal: Deferred<Unit>
+
+    /** Updates the preview viewport used to map recognition crops and focus coordinates. */
+    fun updateGeometry(size: Size)
+
+    /** Binds preview and frame analysis to the supplied lifecycle and callbacks. */
     fun bind(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
@@ -50,15 +59,15 @@ interface Camera {
         onError: OnError,
     )
 
-    /** Returns true when use cases have an active lifecycle binding. */
+    /** Returns true when the camera has an active lifecycle binding. */
     fun isBound(): Boolean
 
     /** Clears metering regions and restores continuous focus when supported. */
     fun resetFocus(): Deferred<Unit>
 
     /**
-     * Focuses at [x], [y] in [previewView] pixels, measured from its top-left corner.
-     * The caller chooses the point; a non-positive delay disables auto-reset.
+     * Focuses at [x], [y] in preview viewport pixels, measured from its top-left corner. The caller
+     * chooses the point; a non-positive delay disables auto-reset.
      */
     fun focus(resetDelayMs: Long, x: Float, y: Float): Deferred<Unit>
 
@@ -68,7 +77,7 @@ interface Camera {
     /** Applies an absolute torch state; disabling an absent flash unit is a no-op. */
     fun setTorch(enabled: Boolean): Deferred<Unit>
 
-    /** Removes the active CameraX use-case binding while keeping adapter resources reusable. */
+    /** Removes the active lifecycle binding while keeping camera resources reusable. */
     fun unbind()
 
     /** Releases every resource owned by the concrete camera implementation. */

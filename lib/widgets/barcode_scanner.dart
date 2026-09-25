@@ -1,192 +1,343 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:mlkit_scanner/mlkit_scanner.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:mlkit_scanner/exceptions/camera_control_exception.dart';
+import 'package:mlkit_scanner/models/barcode.dart';
+import 'package:mlkit_scanner/models/crop_rect.dart';
+import 'package:mlkit_scanner/models/ios_camera.dart';
 import 'package:mlkit_scanner/platform/scanner_configuration.dart';
 import 'package:mlkit_scanner/platform/scanner_runtime.dart';
-
+import 'package:mlkit_scanner/src/platform/scanner_controller.dart';
+import 'package:mlkit_scanner/src/widgets/frozen_preview.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
-export 'package:mlkit_scanner/platform/scanner_controller.dart' show BarcodeScannerController;
+import 'scanner_overlay.dart';
 
 /// Displays a native camera preview and recognizes barcodes.
 class BarcodeScanner extends StatefulWidget {
   /// Called for each barcode recognized while scanning is active.
   final ValueChanged<Barcode> onScan;
 
-  /// Called once after the native platform view is registered.
+  /// Receives configuration, initialization and camera operation failures.
   ///
-  /// Camera capture may still be pending. Configuration calls made from this
-  /// callback or while capture is in progress update this view's retained state
-  /// and are applied when the camera becomes ready. Capture failures are reported
-  /// independently through [onCameraInitializeError].
-  final void Function(BarcodeScannerController controller) onScannerInitialized;
-
-  /// Called for every camera capture or initialization failure.
-  ///
-  /// The controller has already been delivered through [onScannerInitialized]
-  /// when an initial capture fails and remains valid for retained configuration
-  /// updates or a later capture. Capture-time retained-control failures arrive
-  /// here as [CameraControlException]. Controller setters publish desired state;
-  /// asynchronous configuration failures are reported through FlutterError.
-  final ValueChanged<PlatformException>? onCameraInitializeError;
+  /// Native control failures retain their [CameraControlException] type. The
+  /// callback may rebuild or replace this scanner; use a new key to recreate
+  /// its internal controller. Without a callback, Flutter reports the error.
+  /// Errors from superseded captures and disposed widgets are not delivered.
+  final ValueChanged<Object>? onError;
 
   /// Called when the native torch state changes.
   ///
   /// This callback is currently supported only on iOS.
   final ValueChanged<bool>? onChangeFlashState;
 
-  /// Optional absolute camera zoom ratio applied before the preview becomes visible.
-  final double? initialZoomRatio;
+  /// Positive absolute zoom ratio, applied initially and whenever it changes.
+  final double zoomRatio;
 
-  /// Initial torch state.
-  final bool initialFlashEnabled;
+  /// Desired torch state, applied whenever this scanner owns the capture.
+  final bool flashEnabled;
 
-  /// Optional recognition area retained for this scanner view.
-  final CropRect? initialCropRect;
+  /// Normalized recognition area; null restores the full preview.
+  final CropRect? cropRect;
 
-  /// Optional iOS camera retained until this scanner is initialized and active.
-  final IosCamera? initialCamera;
+  /// Physical iOS camera; null restores the platform default.
+  /// A non-null value on other platforms is reported through [onError].
+  final IosCamera? camera;
 
-  /// Creates a scanner view with optional initial camera configuration.
+  /// Freezes preview and stops recognition, keeping the camera and settings warm.
+  /// Camera controls still apply immediately while the paused image is retained.
+  /// Resuming reuses the capture; hiding the widget or app still stops hardware.
+  final bool cameraPaused;
+
+  /// Enables recognition while the camera is active and its route is current.
+  /// Modal routes temporarily suspend recognition while retaining the preview.
+  final bool scanning;
+
+  /// Successful-recognition cooldown in milliseconds, from 0 to 2147483647.
+  final int scanDelay;
+
+  /// Creates a scanner controlled by widget parameters, including later rebuilds.
   const BarcodeScanner({
     required this.onScan,
-    required this.onScannerInitialized,
-    this.initialZoomRatio,
-    this.initialFlashEnabled = false,
-    this.initialCropRect,
-    this.initialCamera,
-    this.onCameraInitializeError,
+    this.zoomRatio = 1,
+    this.flashEnabled = false,
+    this.cropRect,
+    this.camera,
+    this.cameraPaused = false,
+    this.scanning = false,
+    this.scanDelay = 0,
+    this.onError,
     this.onChangeFlashState,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
+  /// Full desired state, allowing null camera and crop to reset previous values.
+  ScannerConfiguration get _configuration => ScannerConfiguration(
+    zoomRatio: zoomRatio,
+    torchEnabled: flashEnabled,
+    cropRect: cropRect,
+    iosCamera: camera,
+    cameraPaused: cameraPaused,
+    scanEnabled: scanning,
+    scanDelay: scanDelay,
+  );
+
+  /// Creates the widget registration and lifecycle owner for this scanner.
   @override
-  _BarcodeScannerState createState() => _BarcodeScannerState();
+  State<BarcodeScanner> createState() => _BarcodeScannerState();
 }
 
+/// Bridges widget visibility and gestures to the shared camera runtime.
 class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObserver {
-  final _runtime = ScannerRuntime.instance;
-  BarcodeScannerController? _barcodeScannerController;
-  bool _isViewActive = false;
-  StreamSubscription<Barcode>? _scanStreamSubscription;
-  StreamSubscription<bool>? _toggleFlashStreamSubscription;
+  /// Allocates real widget identifiers, independently of camera lifetimes.
+  static int _nextViewId = 0;
 
+  /// Shared owner of camera resources and registered widget demand.
+  final _runtime = ScannerRuntime.instance;
+
+  /// Retained settings and guarded native callbacks for this widget.
+  late final BarcodeScannerController _controller;
+
+  /// Retained preview whose rasterization must finish before camera handoff.
+  final _previewKey = GlobalKey<FrozenPreviewState>();
+
+  /// Widget demand kept alive even while its route is hidden or paused.
+  late final ScannerConsumerRegistration _consumer;
+
+  /// Whether ticker and application visibility permit retaining camera work.
+  bool _active = false;
+
+  /// Allows recognition and new ownership only on the foremost route.
+  /// The previous owner may restore preview beneath a popup after app resume.
+  bool _routeCurrent = true;
+
+  /// Registration failures are delivered by initialization, never twice by capture.
+  bool _registered = false;
+
+  /// Prevents capture until at least one complete valid snapshot is accepted.
+  bool _validConfiguration = false;
+
+  /// Whether this visible route owns the capture needed for focus gestures.
+  bool get _canFocus => _active && _routeCurrent && _runtime.isCurrent(_controller);
+
+  /// Whether visibility and valid settings permit acquiring a new capture.
+  /// A covered route may restore only its own idle camera beneath a popup.
+  bool get _canRequestCapture =>
+      mounted &&
+      _active &&
+      (_routeCurrent || _runtime.canRestoreCapture(_controller)) &&
+      _validConfiguration &&
+      !_runtime.isCurrent(_controller);
+
+  /// Registers widget demand and routes events to the latest widget callbacks.
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        CameraPreview(onCameraInitialized: _onCameraInitialized),
-        ValueListenableBuilder<bool>(
-          valueListenable: _barcodeScannerController?.previewVisible ?? const AlwaysStoppedAnimation(false),
-          builder: (context, visible, child) => visible ? const SizedBox.shrink() : const ColoredBox(color: Colors.black),
-        ),
-      ],
+    _controller = BarcodeScannerController(
+      viewId: _nextViewId++,
+      onScan: (value) => widget.onScan(value),
+      onTorchChanged: (value) => widget.onChangeFlashState?.call(value),
+      onError: _report,
+      retainPreview: _retainPausedPreview,
     );
+    _applyConfiguration();
+    _consumer = _runtime.register(_controller);
+    _controller.previewVisible.addListener(_updateFocusAvailability);
+    unawaited(_initialize());
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _syncCameraVisibility();
-  }
-
-  @override
-  void activate() {
-    super.activate();
-    _syncCameraVisibility();
-  }
-
-  @override
-  void deactivate() {
-    _isViewActive = false;
-    super.deactivate();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-
-    _cancelSubscriptions();
-    _barcodeScannerController?.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    _syncCameraVisibility();
-  }
-
-  /// View registration allocates UI only. Setters in this callback update Dart state.
-  Future<void> _onCameraInitialized(int viewId) async {
-    if (!mounted) return;
-    final controller = BarcodeScannerController(
-      viewId: viewId,
-      configuration: ScannerConfiguration(
-        zoomRatio: widget.initialZoomRatio ?? 1,
-        torchEnabled: widget.initialFlashEnabled,
-        cropRect: widget.initialCropRect,
-        iosCamera: widget.initialCamera,
-      ),
-    );
-    setState(() => _barcodeScannerController = controller);
-    _scanStreamSubscription = controller.scanResults.listen((barcode) => widget.onScan(barcode));
-    _toggleFlashStreamSubscription = controller.torchToggleStream.listen((enabled) => widget.onChangeFlashState?.call(enabled));
-    // Controller disposal closes this stream. Only a visible widget may recapture after pause.
-    controller.states.listen((configuration) {
-      if (!configuration.cameraPaused) unawaited(_capture());
-    });
-    widget.onScannerInitialized(controller);
-    await _capture();
-  }
-
-  Future<void> _capture() async {
-    final controller = _barcodeScannerController;
-    if (controller == null || !_isViewActive || _runtime.isCurrent(controller)) return;
+  /// Validates all widget settings together before publishing controller intent.
+  void _applyConfiguration() {
     try {
-      await _runtime.capture(controller);
-    } on PlatformException catch (error) {
-      if (!mounted) return;
-
-      final onError = widget.onCameraInitializeError;
-      if (onError != null) {
-        onError.call(error);
-        return;
-      }
-      rethrow;
+      _controller.applyConfiguration(widget._configuration);
+      _validConfiguration = true;
+    } catch (error, stack) {
+      _report(error, stack);
     }
   }
 
-  /// Maps visibility and returning from a popup to native camera ownership.
-  void _syncCameraVisibility() {
-    final lifecycle = WidgetsBinding.instance.lifecycleState;
-    final route = ModalRoute.of(context);
-    final visible =
-        // ignore: deprecated_member_use
-        TickerMode.of(context) && !{AppLifecycleState.paused, AppLifecycleState.hidden, AppLifecycleState.detached}.contains(lifecycle);
-    final controller = _barcodeScannerController;
-    if (!visible && controller != null) unawaited(_runtime.release(controller));
-
-    final active = visible && (route?.isCurrent ?? true);
-    if (_isViewActive == active) return;
-    _isViewActive = active;
-    // Capture can hide another scanner subtree; finish this build before notifying it.
-    if (active) unawaited(Future<void>.microtask(_capture));
+  /// Publishes updated parameters without replacing this widget's registration.
+  @override
+  void didUpdateWidget(covariant BarcodeScanner oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget._configuration.hasSameSettings(oldWidget._configuration)) return;
+    _applyConfiguration();
+    unawaited(_capture());
   }
 
-  /// Removes widget callbacks on disposal.
-  void _cancelSubscriptions() {
-    _scanStreamSubscription?.cancel();
-    _scanStreamSubscription = null;
-    _toggleFlashStreamSubscription?.cancel();
-    _toggleFlashStreamSubscription = null;
+  /// Rebuilds focus controls safely when another route changes capture ownership.
+  void _updateFocusAvailability() {
+    // A different scanner can take ownership while its route is being built.
+    // Update this route's feedback after that build, without delaying capture.
+    if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    } else if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// Observes registration and starts capture once this widget can own the camera.
+  Future<void> _initialize() async {
+    try {
+      await _consumer.ready;
+      if (!mounted) return;
+      _registered = true;
+      await _capture();
+    } catch (error, stack) {
+      _report(error, stack);
+    }
+  }
+
+  /// Combines the shared texture with this widget's crop and focus controls.
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final size = constraints.biggest;
+      final configuration = _controller.configuration;
+      final cameraActive = _active && !configuration.cameraPaused;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _runtime.updateGeometry(_controller, size);
+      });
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          ValueListenableBuilder(
+            valueListenable: _runtime.preview,
+            builder:
+                (context, preview, _) => CameraPreview(
+                  description: preview,
+                  frameKey: _previewKey,
+                  canRetainFrame: () => _runtime.isCurrent(_controller),
+                  paused: configuration.cameraPaused,
+                  onError: _report,
+                ),
+          ),
+          ScannerOverlay(
+            crop: configuration.cropRect ?? const CropRect(),
+            scanning: cameraActive && configuration.scanEnabled,
+            focusEnabled: _controller.previewVisible.value && _canFocus,
+            onFocus: () => _focus(false),
+            onLockFocus: () => _focus(true),
+          ),
+        ],
+      );
+    },
+  );
+
+  /// Preserves paused pixels before camera controls or ownership changes.
+  Future<void> _retainPausedPreview() async {
+    if (_controller.configuration.cameraPaused) {
+      await _previewKey.currentState?.retainFrame();
+    }
+  }
+
+  /// Forwards a gesture only if this visible widget still owns the camera.
+  void _focus(bool locked) {
+    if (!_canFocus) return;
+    unawaited(
+      _runtime.focus(_controller, locked: locked).catchError((Object error, StackTrace stack) {
+        _report(error, stack);
+      }),
+    );
+  }
+
+  /// Claims capture synchronously through the runtime and reports startup errors.
+  Future<void> _capture() async {
+    if (!_canRequestCapture) return;
+    try {
+      await _controller.capture();
+    } catch (error, stack) {
+      if (_registered) _report(error, stack);
+    }
+  }
+
+  /// Delivers errors outside build, using the latest callback of a live widget.
+  void _report(Object error, StackTrace stack) {
+    void deliver() {
+      if (!mounted || _controller.isDisposed) return;
+      if (widget.onError case final callback?) {
+        callback(error);
+      } else {
+        FlutterError.reportError(FlutterErrorDetails(exception: error, stack: stack, library: 'mlkit_scanner'));
+      }
+    }
+
+    if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => deliver());
+    } else {
+      scheduleMicrotask(deliver);
+    }
+  }
+
+  /// Reevaluates ownership after route or TickerMode changes.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncVisibility();
+  }
+
+  /// Restores visibility tracking when this state is reinserted into the tree.
+  @override
+  void activate() {
+    super.activate();
+    _syncVisibility();
+  }
+
+  /// Stops admitting visible-widget work while this state is outside the tree.
+  @override
+  void deactivate() {
+    _active = false;
+    super.deactivate();
+  }
+
+  /// Updates camera ownership and clears feedback when the app leaves foreground.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _syncVisibility(deferRelease: false);
+    setState(() {});
+  }
+
+  /// Keeps preview beneath popups, suspending only recognition until uncovered.
+  /// Hidden pages and background apps release hardware after possible handoff.
+  void _syncVisibility({bool deferRelease = true}) {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    final route = ModalRoute.of(context);
+    final routeCurrent = route?.isCurrent ?? true;
+    // Keep compatibility with Flutter 3.29; valuesOf was introduced later.
+    final active =
+        // ignore: deprecated_member_use
+        TickerMode.of(context) && !{AppLifecycleState.paused, AppLifecycleState.hidden, AppLifecycleState.detached}.contains(lifecycle);
+    final routeChanged = _routeCurrent != routeCurrent;
+    if (_active == active && !routeChanged) return;
+    _active = active;
+    _routeCurrent = routeCurrent;
+    _controller.setForeground(routeCurrent);
+    if (active) {
+      unawaited(_capture());
+    } else if (deferRelease) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _releaseIfHidden());
+    } else {
+      // A background app may render no further frame to run a deferred release.
+      _releaseIfHidden();
+    }
+  }
+
+  /// Stops hardware only if this hidden widget still owns the shared camera.
+  void _releaseIfHidden() {
+    if (!mounted || _active || !_runtime.isCurrent(_controller)) return;
+    unawaited(_controller.release().catchError(_report));
+  }
+
+  /// Removes lifecycle listeners and releases widget demand.
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller.previewVisible.removeListener(_updateFocusAvailability);
+    _controller.dispose();
+    super.dispose();
   }
 }

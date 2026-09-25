@@ -29,20 +29,15 @@ class CropRect {
   /// Creates a normalized recognition rectangle.
   ///
   /// Width and height scales must be positive when sent to the native plugin.
-  const CropRect({
-    this.scaleWidth = 1,
-    this.scaleHeight = 1,
-    this.offsetX = 0,
-    this.offsetY = 0,
-  });
+  const CropRect({this.scaleWidth = 1, this.scaleHeight = 1, this.offsetX = 0, this.offsetY = 0});
+
+  /// Whether scales are positive and all coordinates are finite.
+  /// The rectangle may extend beyond the preview; native geometry clips it.
+  bool get isValid =>
+      scaleWidth.isFinite && scaleWidth > 0 && scaleHeight.isFinite && scaleHeight > 0 && offsetX.isFinite && offsetY.isFinite;
 
   /// Converts this rectangle to its platform-channel representation.
   Map<String, double> toJson() {
-    return {
-      'scaleHeight': scaleHeight,
-      'scaleWidth': scaleWidth,
-      'offsetX': offsetX,
-      'offsetY': offsetY,
-    };
+    return {'scaleHeight': scaleHeight, 'scaleWidth': scaleWidth, 'offsetX': offsetX, 'offsetY': offsetY};
   }
 }

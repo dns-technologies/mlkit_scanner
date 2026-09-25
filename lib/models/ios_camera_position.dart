@@ -18,13 +18,9 @@ extension IosCameraPositionCode on IosCameraPosition {
   /// Returns the position corresponding to the [code].
   static IosCameraPosition fromCode(int code) => _codeToPosition[code]!;
 
-  static final _positionToCode = {
-    IosCameraPosition.unspecified: 0,
-    IosCameraPosition.back: 1,
-    IosCameraPosition.front: 2,
-  };
+  /// AVFoundation position codes sent over the platform channel.
+  static final _positionToCode = {IosCameraPosition.unspecified: 0, IosCameraPosition.back: 1, IosCameraPosition.front: 2};
 
-  static final _codeToPosition = {
-    for (final entry in _positionToCode.entries) entry.value: entry.key,
-  };
+  /// Reverse lookup for native camera discovery results.
+  static final _codeToPosition = {for (final entry in _positionToCode.entries) entry.value: entry.key};
 }

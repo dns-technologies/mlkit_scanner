@@ -31,13 +31,13 @@ struct CameraData {
         self.type = type
         self.position = position
     }
-    
+
     /// Creates a camera selection from a native type and position.
     init(type: AVCaptureDevice.DeviceType, position: AVCaptureDevice.Position) {
         self.type = type
         self.position = position
     }
-    
+
     /// Creates a JSON-compatible platform-channel representation.
     func toJson() -> [String: Any] {
         [

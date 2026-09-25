@@ -27,6 +27,7 @@ extension IosCameraTypeCode on IosCameraType {
   /// Returns the type corresponding to the [code].
   static IosCameraType fromCode(int code) => _codeToType[code]!;
 
+  /// Stable numeric device-type codes used for iOS camera selection.
   static final _typeToCode = {
     IosCameraType.builtInWideAngleCamera: 0,
     IosCameraType.builtInTelephotoCamera: 1,
@@ -36,7 +37,6 @@ extension IosCameraTypeCode on IosCameraType {
     IosCameraType.builtInTripleCamera: 5,
   };
 
-  static final _codeToType = {
-    for (final entry in _typeToCode.entries) entry.value: entry.key,
-  };
+  /// Reverse lookup for device types returned by native camera discovery.
+  static final _codeToType = {for (final entry in _typeToCode.entries) entry.value: entry.key};
 }

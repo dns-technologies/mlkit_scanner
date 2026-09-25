@@ -5,27 +5,14 @@ import 'package:mlkit_scanner/exceptions/camera_control_exception.dart';
 void main() {
   group('$CameraControlException', () {
     test('decodes known values and falls back for unknown values', () {
-      expect(
-        CameraControlOperation.fromWireValue('zoom'),
-        CameraControlOperation.zoom,
-      );
-      expect(
-        CameraControlOperation.fromWireValue('futureOperation'),
-        CameraControlOperation.unknown,
-      );
-      expect(
-        CameraControlOperation.fromWireValue(null),
-        CameraControlOperation.unknown,
-      );
+      expect(CameraControlOperation.fromWireValue('zoom'), CameraControlOperation.zoom);
+      expect(CameraControlOperation.fromWireValue('futureOperation'), CameraControlOperation.unknown);
+      expect(CameraControlOperation.fromWireValue(null), CameraControlOperation.unknown);
     });
 
     group('$CameraControlExceptionCause', () {
       test('decodes well-formed details and formats its message', () {
-        final cause = CameraControlExceptionCause.fromDetails(const {
-          'type': 'NativeError',
-          'message': 'failed',
-          'stackTrace': 'trace',
-        });
+        final cause = CameraControlExceptionCause.fromDetails(const {'type': 'NativeError', 'message': 'failed', 'stackTrace': 'trace'});
 
         expect(cause?.type, 'NativeError');
         expect(cause?.message, 'failed');
@@ -34,19 +21,12 @@ void main() {
       });
 
       test('ignores malformed optional fields and rejects a missing type', () {
-        final cause = CameraControlExceptionCause.fromDetails(const {
-          'type': 'NativeError',
-          'message': 1,
-          'stackTrace': false,
-        });
+        final cause = CameraControlExceptionCause.fromDetails(const {'type': 'NativeError', 'message': 1, 'stackTrace': false});
 
         expect(cause?.message, isNull);
         expect(cause?.stackTrace, isNull);
         expect(cause.toString(), 'NativeError');
-        expect(
-          CameraControlExceptionCause.fromDetails(const {'message': 'failed'}),
-          isNull,
-        );
+        expect(CameraControlExceptionCause.fromDetails(const {'message': 'failed'}), isNull);
         expect(CameraControlExceptionCause.fromDetails('failed'), isNull);
       });
     });
@@ -59,10 +39,7 @@ void main() {
           'operation': 'awaitOpen',
           'viewId': 42,
           'cameraStateErrorCode': 4,
-          'cause': {
-            'type': 'NativeError',
-            'message': 'disconnected',
-          },
+          'cause': {'type': 'NativeError', 'message': 'disconnected'},
         },
         stacktrace: 'dart trace',
       );
@@ -84,9 +61,7 @@ void main() {
     });
 
     test('uses safe defaults for malformed details', () {
-      final result = CameraControlException.fromPlatformException(
-        PlatformException(code: '9', details: 'invalid'),
-      );
+      final result = CameraControlException.fromPlatformException(PlatformException(code: '9', details: 'invalid'));
 
       expect(result.operation, CameraControlOperation.unknown);
       expect(result.viewId, isNull);

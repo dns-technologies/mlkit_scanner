@@ -30,28 +30,28 @@ struct CropRect {
     /// `0` centers the rectangle; `1` and `-1` move its center to the bottom and
     /// top preview edges respectively.
     let offsetY: CGFloat
-    
-    /// Creates validated crop geometry from Flutter platform-channel arguments.
+
+    /// Creates a centered recognition area covering the full preview.
+    init() {
+        scaleWidth = 1
+        scaleHeight = 1
+        offsetX = 0
+        offsetY = 0
+    }
+
+    /// Decodes crop geometry; Dart validates the positive scale requirement.
     init(arguments: [String: Any]) throws {
+
         /// Reads one finite numeric argument or its cross-platform default.
         func finiteValue(_ key: String, default defaultValue: CGFloat) throws -> CGFloat {
             guard let rawValue = arguments[key], !(rawValue is NSNull) else {
                 return defaultValue
             }
-            let number = try PlatformChannelScalar.number(from: rawValue)
-            guard number.doubleValue.isFinite else {
-                throw MlKitPluginError.invalidArguments
-            }
-            return CGFloat(number.doubleValue)
+            return CGFloat(try PlatformChannelScalar.finiteDouble(from: rawValue))
         }
 
-        let scaleWidth = try finiteValue("scaleWidth", default: 1)
-        let scaleHeight = try finiteValue("scaleHeight", default: 1)
-        guard scaleWidth > 0, scaleHeight > 0 else {
-            throw MlKitPluginError.invalidArguments
-        }
-        self.scaleWidth = scaleWidth
-        self.scaleHeight = scaleHeight
+        scaleWidth = try finiteValue("scaleWidth", default: 1)
+        scaleHeight = try finiteValue("scaleHeight", default: 1)
         self.offsetX = try finiteValue("offsetX", default: 0)
         self.offsetY = try finiteValue("offsetY", default: 0)
     }

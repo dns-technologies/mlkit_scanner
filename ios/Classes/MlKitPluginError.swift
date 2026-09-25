@@ -27,6 +27,7 @@ enum MlKitPluginError: String, Error, LocalizedError {
     /// The scanner session was released before an operation completed.
     case cameraSessionDisposed = "8"
 
+    /// Human-readable description exposed through native error reporting.
     var errorDescription: String? {
         switch self {
         case .initCameraError:
@@ -51,22 +52,33 @@ enum MlKitPluginError: String, Error, LocalizedError {
 
 /// Camera operation attached to method-channel error code 9.
 enum CameraControlOperation: String {
+    /// Awaiting the first usable frame from the selected camera.
     case awaitOpen
+    /// Applying an absolute zoom factor.
     case zoom
+    /// Applying the desired torch state.
     case torch
+    /// Applying focus and exposure controls.
     case focus
 }
 
 /// Adds view and operation context to an underlying camera-control failure.
 struct CameraControlError: Error, LocalizedError {
+    /// Stable platform-channel code for camera-control failures.
     static let errorCode = "9"
+    /// Shared platform-channel message for camera-control failures.
     static let errorMessage = "Camera control operation failed"
 
+    /// Camera operation that failed.
     let operation: CameraControlOperation
+    /// Logical Flutter consumer associated with the failure, when available.
     let viewId: Int64?
+    /// Original native failure retained for diagnostics.
     let underlyingError: Error?
+    /// Optional native camera-state code included in channel diagnostics.
     let cameraStateErrorCode: Int?
 
+    /// Captures operation and consumer context for a camera-control failure.
     init(
         operation: CameraControlOperation,
         viewId: Int64? = nil,
@@ -79,6 +91,7 @@ struct CameraControlError: Error, LocalizedError {
         self.cameraStateErrorCode = cameraStateErrorCode
     }
 
+    /// Human-readable description exposed through native error reporting.
     var errorDescription: String? {
         Self.errorMessage
     }

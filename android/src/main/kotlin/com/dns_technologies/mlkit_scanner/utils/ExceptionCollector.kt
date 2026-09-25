@@ -15,6 +15,10 @@ internal class ExceptionCollector(initialFailure: Exception? = null) {
         }
     }
 
-    /** Throws the first collected exception, with later exceptions attached as suppressed causes. */
-    fun throwIfFailed() { failure?.let { throw it } }
+    /**
+     * Throws the first collected exception, with later exceptions attached as suppressed causes.
+     */
+    fun throwIfFailed() {
+        failure?.let { throw it }
+    }
 }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 /** Base command abstraction for asynchronous Dart->native scanner commands. */
 internal abstract class AsyncScannerCommand(
     scannerProvider: () -> Scanner?,
+    /** Capture-owned coroutine scope that cancels controls when the lease closes. */
     private val commandScope: CoroutineScope,
 ) : BaseScannerCommand(scannerProvider) {
     /** Executes suspend command body with shared coroutine error handling. */
@@ -32,8 +33,5 @@ internal abstract class AsyncScannerCommand(
     }
 
     /** Suspend command-specific implementation. */
-    protected abstract suspend fun executeSuspendCommand(
-        call: MethodCall,
-        result: Result,
-    )
+    protected abstract suspend fun executeSuspendCommand(call: MethodCall, result: Result)
 }

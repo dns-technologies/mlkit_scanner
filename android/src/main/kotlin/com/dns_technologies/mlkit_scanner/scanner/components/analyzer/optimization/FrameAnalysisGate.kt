@@ -7,9 +7,12 @@ import java.util.concurrent.atomic.AtomicLong
 /** Accepts the first frame available after the cooldown selected by the previous result. */
 internal class FrameAnalysisGate(
     successfulScanPeriodMs: Int,
+    /** Monotonic clock used to compare analysis cooldown deadlines. */
     private val currentTimeMs: () -> Long = SystemClock::elapsedRealtime,
 ) {
+    /** Cooldown applied after a barcode is found; safe to update during analysis. */
     private val successfulScanPeriodMs = AtomicInteger(successfulScanPeriodMs)
+    /** Earliest monotonic time at which another frame may be recognized. */
     private val nextAnalysisTimeMs = AtomicLong()
 
     /** Returns whether the current frame is the first one available after the active cooldown. */
@@ -23,11 +26,12 @@ internal class FrameAnalysisGate(
     /** Starts the next cooldown from completion using the recognition outcome. */
     fun completeAnalysis(barcodeFound: Boolean) {
         nextAnalysisTimeMs.set(
-            currentTimeMs() + if (barcodeFound) {
-                successfulScanPeriodMs.get().toLong()
-            } else {
-                FAILED_ANALYSIS_INTERVAL_MS
-            },
+            currentTimeMs() +
+                if (barcodeFound) {
+                    successfulScanPeriodMs.get().toLong()
+                } else {
+                    FAILED_ANALYSIS_INTERVAL_MS
+                }
         )
     }
 

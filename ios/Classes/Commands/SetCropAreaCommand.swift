@@ -1,7 +1,9 @@
 import Flutter
 
-/// Applies a point control to the scanner selected by Dart.
+/// Updates the selected scanner recognition area.
 final class SetCropAreaCommand: ScannerCommand {
+
+    /// Validates and applies the normalized recognition area.
     override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
         try scannerDevice.setCropArea(cropRect: ScannerMethodArguments.cropRect(call.arguments))
         success(result)

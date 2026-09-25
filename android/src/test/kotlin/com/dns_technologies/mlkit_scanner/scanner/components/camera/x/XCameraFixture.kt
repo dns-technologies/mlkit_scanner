@@ -15,7 +15,7 @@ import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.ViewPort
 import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
+import io.flutter.view.TextureRegistry
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
@@ -32,7 +32,8 @@ import org.robolectric.shadows.ShadowLooper
 /** Real CameraX use cases and LiveData; only platform boundaries are replaced. */
 internal class XCameraFixture {
     val provider = mock(ProcessCameraProvider::class.java)
-    val preview = mock(PreviewView::class.java)
+    val producer = mock(TextureRegistry.SurfaceProducer::class.java)
+    lateinit var surfaceCallback: TextureRegistry.SurfaceProducer.Callback
     val nativeCamera = mock(Camera::class.java)
     val cameraInfo = mock(CameraInfo::class.java)
     val control = mock(CameraControl::class.java)
@@ -40,7 +41,6 @@ internal class XCameraFixture {
     val executor = mock(ExecutorService::class.java)
     val future = CameraTestFuture<ProcessCameraProvider>()
     val deviceState = RecordingLiveData(CameraState.create(CameraState.Type.OPEN))
-    val streamState = RecordingLiveData(PreviewView.StreamState.STREAMING)
     val zoomState = MutableLiveData<ZoomState>()
     val groups = mutableListOf<UseCaseGroup>()
     val errors = mutableListOf<Exception>()
@@ -50,7 +50,6 @@ internal class XCameraFixture {
     var onAvailability: (CameraAvailability) -> Unit = {}
     var onFrame: OnCameraFrame = {}
     var bindAction: () -> Camera = { nativeCamera }
-    lateinit var layoutListener: View.OnLayoutChangeListener
     val camera: XCamera
 
     init {
@@ -58,23 +57,14 @@ internal class XCameraFixture {
         doReturn(control).`when`(nativeCamera).cameraControl
         doReturn(deviceState).`when`(cameraInfo).cameraState
         doReturn(zoomState).`when`(cameraInfo).zoomState
-        doReturn(streamState).`when`(preview).previewStreamState
-        doReturn(mock(Preview.SurfaceProvider::class.java)).`when`(preview).surfaceProvider
-        doReturn(viewPort()).`when`(preview).viewPort
-        doReturn(100).`when`(preview).width
-        doReturn(200).`when`(preview).height
-        doReturn(SurfaceOrientedMeteringPointFactory(100F, 200F)).`when`(preview).meteringPointFactory
-        doAnswer {
-            layoutListener = it.getArgument(0)
-            null
-        }.`when`(preview).addOnLayoutChangeListener(anyValue())
+        doAnswer { it.getArgument<TextureRegistry.SurfaceProducer.Callback?>(0)?.let { callback -> surfaceCallback = callback }; null }.`when`(producer).setCallback(anyValue())
         doAnswer {
             groups += it.getArgument<UseCaseGroup>(2)
             bindAction()
         }.`when`(provider).bindToLifecycle(
             anyValue<LifecycleOwner>(), anyValue<CameraSelector>(), anyValue<UseCaseGroup>(),
         )
-        camera = XCamera(RuntimeEnvironment.getApplication(), preview) { future }
+        camera = XCamera(RuntimeEnvironment.getApplication(), producer, {}) { future }
     }
 
     fun start(completeProvider: Boolean = true) {
@@ -89,14 +79,7 @@ internal class XCameraFixture {
         ShadowLooper.idleMainLooper()
     }
 
-    fun layout(width: Int = 100, height: Int = 100) {
-        layoutListener.onLayoutChange(preview, 0, 0, width, height, 0, 0, 100, 100)
-    }
-
-    fun rotate() {
-        doReturn(viewPort(Surface.ROTATION_90)).`when`(preview).viewPort
-        layout()
-    }
+    fun layout(width: Int = 100, height: Int = 100) { camera.updateGeometry(android.util.Size(width, height)) }
 
     fun analyzer(group: UseCaseGroup = groups.last()): ImageAnalysis.Analyzer {
         val analysis = group.useCases.filterIsInstance<ImageAnalysis>().single()

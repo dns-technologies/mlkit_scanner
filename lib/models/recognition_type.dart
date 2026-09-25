@@ -1,7 +1,7 @@
 /// Object recognition modes supported by the native plugin.
 enum RecognitionType {
   /// Barcode recognition.
-  barcodeRecognition
+  barcodeRecognition,
 }
 
 /// Converts a [RecognitionType] to its native platform value.

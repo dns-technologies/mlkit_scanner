@@ -1,4 +1,5 @@
-import 'package:mlkit_scanner/mlkit_scanner.dart';
+import 'barcode_format.dart';
+import 'barcode_value_type.dart';
 
 /// Represents a single recognized barcode and its value.
 class Barcode {
@@ -15,12 +16,7 @@ class Barcode {
   final BarcodeValueType valueType;
 
   /// Creates a decoded barcode returned by the native recognizer.
-  const Barcode({
-    required this.rawValue,
-    required this.valueType,
-    required this.format,
-    this.displayValue,
-  });
+  const Barcode({required this.rawValue, required this.valueType, required this.format, this.displayValue});
 
   /// Creates a barcode from its platform-channel representation.
   factory Barcode.fromJson(Map<String, dynamic> json) {

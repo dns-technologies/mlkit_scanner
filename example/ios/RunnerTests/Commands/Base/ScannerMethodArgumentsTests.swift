@@ -76,14 +76,14 @@ final class ScannerMethodArgumentsTests: XCTestCase {
         }
     }
 
-    func testZoomRatioAcceptsPositiveFiniteValuesAndRejectsInvalidValues() throws {
+    func testZoomRatioRequiresFiniteNumericValues() throws {
         let value = try ScannerMethodArguments.zoomRatio([
             "viewId": 42,
             "value": 3.0,
         ])
 
         XCTAssertEqual(value, 3)
-        for invalidValue: Any in [Double.nan, Double.infinity, -0.01, 0.0, "2.0"] {
+        for invalidValue: Any in [Double.nan, Double.infinity, "2.0"] {
             assertInvalid {
                 _ = try ScannerMethodArguments.zoomRatio([
                     "viewId": 42,
@@ -105,8 +105,8 @@ final class ScannerMethodArgumentsTests: XCTestCase {
         XCTAssertEqual(value.offsetY, 0)
 
         let invalidCrops: [[String: Any]] = [
-            ["scaleWidth": 0.0],
-            ["scaleHeight": -1.0],
+            ["scaleWidth": true],
+            ["scaleHeight": Double.infinity],
             ["offsetX": Double.nan],
             ["offsetY": -Double.infinity],
             ["scaleWidth": "0.5"],

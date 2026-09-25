@@ -2,6 +2,7 @@ import Flutter
 
 /// Returns cameras supported by the native scanner.
 final class GetIosAvailableCamerasCommand: ScannerCommand {
+    /// Discovers native camera devices for this command.
     private let cameraUtil: CameraUtil
 
     /// Creates a camera-discovery command for the native scanner.

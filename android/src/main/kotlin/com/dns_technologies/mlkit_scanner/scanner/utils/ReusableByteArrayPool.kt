@@ -5,12 +5,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
-/** Thread-safe pool that never shares a byte array between active leases. */
-internal class ReusableByteArrayPool(
-    private val maxRetainedBuffers: Int = 1,
-) {
+/**
+ * Thread-safe pool that never shares a byte array between active leases.
+ *
+ * @property maxRetainedBuffers Maximum idle arrays retained between conversion requests.
+ */
+internal class ReusableByteArrayPool(private val maxRetainedBuffers: Int = 1) {
+    /** Protects retained buffers and the terminal pooling state. */
     private val lock = ReentrantLock()
+    /** Unleased arrays ordered from oldest to newest return. */
     private val availableBuffers = ArrayDeque<ByteArray>()
+    /** Disables retention while allowing independent temporary acquisitions. */
     private var isDisposed = false
 
     init {
@@ -20,9 +25,10 @@ internal class ReusableByteArrayPool(
     /** Acquires exclusive ownership of an array with the requested exact size. */
     fun acquire(size: Int): ByteArrayLease {
         require(size > 0)
-        val buffer = lock.withLock {
-            if (isDisposed) ByteArray(size) else takeBuffer(size) ?: ByteArray(size)
-        }
+        val buffer =
+            lock.withLock {
+                if (isDisposed) ByteArray(size) else takeBuffer(size) ?: ByteArray(size)
+            }
         return ByteArrayLease(buffer) { release(it) }
     }
 
@@ -59,11 +65,15 @@ internal class ReusableByteArrayPool(
     }
 }
 
-/** Exclusive, idempotently releasable ownership of a pooled byte array. */
-internal class ByteArrayLease(
-    val data: ByteArray,
-    private val release: (ByteArray) -> Unit,
-) : AutoCloseable {
+/**
+ * Exclusive, idempotently releasable ownership of a pooled byte array.
+ *
+ * @property data Exclusively borrowed bytes valid until this lease closes.
+ * @property release Returns this lease's array to its owning pool.
+ */
+internal class ByteArrayLease(val data: ByteArray, private val release: (ByteArray) -> Unit) :
+    AutoCloseable {
+    /** Atomic guard ensuring the buffer is returned at most once. */
     private val isClosed = AtomicBoolean(false)
 
     /** Returns [data] to its owner once; subsequent calls have no effect. */

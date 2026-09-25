@@ -17,6 +17,7 @@ enum CameraControlOperation {
   /// An operation value not recognized by this plugin version.
   unknown('unknown');
 
+  /// Associates an operation with its stable native transport value.
   const CameraControlOperation(this.wireValue);
 
   /// Value transported through the platform channel.
@@ -34,11 +35,7 @@ enum CameraControlOperation {
 /// Original native failure that caused a camera control operation to fail.
 class CameraControlExceptionCause {
   /// Creates structured native failure information.
-  const CameraControlExceptionCause({
-    required this.type,
-    this.message,
-    this.stackTrace,
-  });
+  const CameraControlExceptionCause({required this.type, this.message, this.stackTrace});
 
   /// Fully qualified native exception type.
   final String type;
@@ -63,6 +60,7 @@ class CameraControlExceptionCause {
     );
   }
 
+  /// Formats the native exception type and optional message for diagnostics.
   @override
   String toString() => message == null ? type : '$type: $message';
 }
@@ -78,20 +76,13 @@ class CameraControlException extends PlatformException {
     required this.viewId,
     this.cause,
     this.cameraStateErrorCode,
-    String? message,
-    Object? details,
-    String? stacktrace,
-  }) : super(
-          code: errorCode,
-          message: message,
-          details: details,
-          stacktrace: stacktrace,
-        );
+    super.message,
+    Object? super.details,
+    super.stacktrace,
+  }) : super(code: errorCode);
 
   /// Converts a code `9` platform exception into its typed representation.
-  factory CameraControlException.fromPlatformException(
-    PlatformException exception,
-  ) {
+  factory CameraControlException.fromPlatformException(PlatformException exception) {
     final rawDetails = exception.details as Object?;
     final details = rawDetails is Map ? rawDetails : const <Object?, Object?>{};
     final rawViewId = details['viewId'];
@@ -100,8 +91,7 @@ class CameraControlException extends PlatformException {
       operation: CameraControlOperation.fromWireValue(details['operation']),
       viewId: rawViewId is int ? rawViewId : null,
       cause: CameraControlExceptionCause.fromDetails(details['cause']),
-      cameraStateErrorCode:
-          rawCameraStateErrorCode is int ? rawCameraStateErrorCode : null,
+      cameraStateErrorCode: rawCameraStateErrorCode is int ? rawCameraStateErrorCode : null,
       message: exception.message,
       details: rawDetails,
       stacktrace: exception.stacktrace,
@@ -114,7 +104,7 @@ class CameraControlException extends PlatformException {
   /// Camera operation that failed.
   final CameraControlOperation operation;
 
-  /// Flutter platform-view identifier associated with the failed operation.
+  /// Logical scanner widget identifier associated with the failed operation.
   final int? viewId;
 
   /// Original native failure, when available.
@@ -123,13 +113,13 @@ class CameraControlException extends PlatformException {
   /// Native camera-state error code for [CameraControlOperation.awaitOpen].
   final int? cameraStateErrorCode;
 
+  /// Summarizes the operation and native failure context for diagnostics.
   @override
   String toString() {
     final context = <String>[
       'operation: ${operation.wireValue}',
       if (viewId != null) 'viewId: $viewId',
-      if (cameraStateErrorCode != null)
-        'cameraStateErrorCode: $cameraStateErrorCode',
+      if (cameraStateErrorCode != null) 'cameraStateErrorCode: $cameraStateErrorCode',
       if (cause != null) 'cause: $cause',
     ].join(', ');
     return 'CameraControlException(code: $code, $context)';

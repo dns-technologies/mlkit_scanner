@@ -2,7 +2,6 @@ import AVFoundation
 import CoreImage
 import CoreMedia
 import CoreVideo
-import MLKitBarcodeScanning
 import UIKit
 import XCTest
 @testable import mlkit_scanner
@@ -10,7 +9,7 @@ import XCTest
 final class MlkitBarcodeScannerTests: XCTestCase {
     func testProcessVideoOutputRecognizesBarcodeForItsSubscription() throws {
         let scanner = MlkitBarcodeScanner(delay: 0, cropRect: nil)
-        var barcode: Barcode?
+        var barcode: ScannerBarcode?
         var resultCount = 0
         scanner.setDelay(delay: 0)
         scanner.updateCropRect(cropRect: try CropRect(arguments: [:]))
@@ -22,9 +21,7 @@ final class MlkitBarcodeScannerTests: XCTestCase {
 
         scanner.processVideoOutput(
             sampleBuffer: sampleBuffer,
-            scaleX: 1,
-            scaleY: 1,
-            orientation: .portrait
+            viewport: CGSize(width: 400, height: 400)
         )
 
         wait(for: [expectation], timeout: 5)

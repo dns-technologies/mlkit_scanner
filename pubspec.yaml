@@ -5,8 +5,8 @@ homepage: https://www.dns-tech.ru/
 repository: https://github.com/dns-technologies/mlkit_scanner
 
 environment:
-  sdk: '>=3.4.0 <4.0.0'
-  flutter: ">=3.22.0"
+  sdk: '>=3.7.0 <4.0.0'
+  flutter: ">=3.29.0"
 
 dependencies:
   flutter:
@@ -26,4 +26,3 @@ flutter:
         pluginClass: MlkitScannerPlugin
       ios:
         pluginClass: MlkitScannerPlugin
-

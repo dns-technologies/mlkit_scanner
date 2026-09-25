@@ -16,10 +16,10 @@ import org.mockito.Mockito.mock
 internal fun scannerForTest(
     camera: Camera,
     analyzer: ImageBarcodeAnalyzer,
-    view: ScannerView = mock(ScannerView::class.java),
+    view: ScannerConsumer = mock(ScannerConsumer::class.java),
 ): Scanner {
     doReturn(42).`when`(view).viewId
-    doReturn(true).`when`(view).isPreviewReady()
+    doReturn(mock(android.util.Size::class.java)).`when`(view).size
     return Scanner(camera, analyzer, mock(Handler::class.java), { _, _ -> },
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
         connection = CameraConnection()).apply {
@@ -29,5 +29,5 @@ internal fun scannerForTest(
 }
 
 internal fun Scanner.captureForTest() = runBlocking {
-    capture(ScannerConfiguration()) { true }
+    capture(ScannerConfiguration())
 }

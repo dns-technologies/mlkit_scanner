@@ -9,11 +9,14 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 
 /** Applies a point control to the scanner selected by Dart. */
-internal class SetCropAreaCommand(
-    scannerProvider: () -> Scanner?,
-) : ScannerCommand(scannerProvider) {
+internal class SetCropAreaCommand(scannerProvider: () -> Scanner?) :
+    ScannerCommand(scannerProvider) {
+    /** Validates crop geometry and applies it to subsequent recognition frames. */
     override fun executeCommand(call: MethodCall, result: Result) {
-        val crop = RecognizeVisorCropRect.fromMap(call.arguments.requireMap().requireMap(PluginConstants.cropRectArgument))
+        val crop =
+            RecognizeVisorCropRect.fromMap(
+                call.arguments.requireMap().requireMap(PluginConstants.cropRectArgument)
+            )
         scanner()?.setCropArea(crop)
         success(result)
     }

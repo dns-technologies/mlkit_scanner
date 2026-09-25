@@ -89,12 +89,6 @@ final class RecordingScannerHardware: ScannerDevice {
     var thrownError: Error?
     var releaseCount = 0
 
-    func createView(
-        frame: CGRect,
-        viewId: Int64
-    ) -> ScannerView {
-        fatalError("createView is not used by command tests")
-    }
 
     func captureCamera(viewId: Int64, configuration: ScannerConfiguration, completion: @escaping ScannerCompletion) {
         captureViewId = viewId

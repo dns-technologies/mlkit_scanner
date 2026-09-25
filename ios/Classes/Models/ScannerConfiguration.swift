@@ -2,27 +2,20 @@ import Foundation
 
 /// Transient capture arguments. Desired configuration lives exclusively in Dart.
 struct ScannerConfiguration {
+    /// Absolute zoom factor requested for this capture.
     let zoomRatio: Double
+    /// Desired torch state for this capture.
     let torchEnabled: Bool
+    /// Normalized recognition and focus area.
     let cropRect: CropRect
-    let scanEnabled: Bool
-    let scanDelay: Int
+    /// Requested native camera type and position.
     let camera: CameraData
 
+    /// Decodes capture settings whose application-level ranges are validated by Dart.
     init(arguments: Any?) throws {
-        guard let values = arguments as? [String: Any] else {
-            throw MlKitPluginError.invalidArguments
-        }
-        let zoom = try PlatformChannelScalar.number(from: values["zoomRatio"]).doubleValue
-        let delay = try PlatformChannelScalar.number(from: values["scanDelay"])
-        guard zoom.isFinite, zoom > 0,
-              delay.compare(NSNumber(value: delay.intValue)) == .orderedSame else {
-            throw MlKitPluginError.invalidArguments
-        }
-        zoomRatio = zoom
-        scanDelay = delay.intValue
+        let values = try ScannerMethodArguments.map(arguments)
+        zoomRatio = try PlatformChannelScalar.finiteDouble(from: values["zoomRatio"])
         torchEnabled = try PlatformChannelScalar.bool(from: values["torchEnabled"])
-        scanEnabled = try PlatformChannelScalar.bool(from: values["scanEnabled"])
         cropRect = try CropRect(arguments: Self.map(values["cropRect"]) ?? [:])
         if let cameraMap = try Self.map(values["iosCamera"]) {
             camera = try CameraData(arguments: cameraMap)
@@ -34,7 +27,6 @@ struct ScannerConfiguration {
     /// Null means the cross-platform default, not an unvalidated dictionary.
     private static func map(_ value: Any?) throws -> [String: Any]? {
         guard let value = value, !(value is NSNull) else { return nil }
-        guard let map = value as? [String: Any] else { throw MlKitPluginError.invalidArguments }
-        return map
+        return try ScannerMethodArguments.map(value)
     }
 }

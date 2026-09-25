@@ -13,18 +13,21 @@ import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
  *
  * @param currentTimeMs Monotonic clock used by the analysis throttle.
  */
-abstract class ImageBarcodeAnalyzer protected constructor(
-    currentTimeMs: () -> Long = android.os.SystemClock::elapsedRealtime,
-) {
+abstract class ImageBarcodeAnalyzer
+protected constructor(currentTimeMs: () -> Long = android.os.SystemClock::elapsedRealtime) {
+    /** Monotonic cooldown gate shared by all recognition attempts. */
     private val frameAnalysisGate = FrameAnalysisGate(0, currentTimeMs)
+    /** Protects analysis ownership and deferred disposal decisions. */
     private val lifecycleLock = Any()
     // Guarded by lifecycleLock. Recognition and resource cleanup never hold this lock.
+    /** Exclusive recognition ownership, guarded by [lifecycleLock]. */
     private var isAnalyzing = false
+    /** Terminal state that transfers cleanup to an active recognition invocation. */
     private var isDisposed = false
 
     /**
-     * Attempts recognition synchronously; busy, disposed or throttled calls return null.
-     * The caller owns [frame] and must keep it open until this call returns.
+     * Attempts recognition synchronously; busy, disposed or throttled calls return null. The caller
+     * owns [frame] and must keep it open until this call returns.
      */
     fun analyze(frame: CameraFrame, cropRect: Rect?): Barcode? {
         synchronized(lifecycleLock) {
@@ -40,10 +43,11 @@ abstract class ImageBarcodeAnalyzer protected constructor(
                 frameAnalysisGate.completeAnalysis(barcodeFound = result != null)
             }
         } finally {
-            val shouldClose = synchronized(lifecycleLock) {
-                isAnalyzing = false
-                isDisposed
-            }
+            val shouldClose =
+                synchronized(lifecycleLock) {
+                    isAnalyzing = false
+                    isDisposed
+                }
             if (shouldClose) disposeAnalyzer()
         }
     }
@@ -58,11 +62,12 @@ abstract class ImageBarcodeAnalyzer protected constructor(
      * owns deferred cleanup; this call does not wait for it or invalidate its result.
      */
     fun dispose() {
-        val shouldClose = synchronized(lifecycleLock) {
-            if (isDisposed) return
-            isDisposed = true
-            !isAnalyzing
-        }
+        val shouldClose =
+            synchronized(lifecycleLock) {
+                if (isDisposed) return
+                isDisposed = true
+                !isAnalyzing
+            }
         // Either this call owns cleanup, or the active analyze() will do it in its finally.
         if (shouldClose) disposeAnalyzer()
     }

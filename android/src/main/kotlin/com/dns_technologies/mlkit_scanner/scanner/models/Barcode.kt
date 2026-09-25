@@ -15,10 +15,11 @@ class Barcode(
     val valueType: Int,
 ) {
     /** Converts this barcode into the Dart platform-channel payload. */
-    fun toMap(): Map<String, Any?> = mapOf(
-        "raw_value" to rawValue,
-        "display_value" to displayValue,
-        "format" to format,
-        "value_type" to valueType,
-    )
+    fun toMap(): Map<String, Any?> =
+        mapOf(
+            "raw_value" to rawValue,
+            "display_value" to displayValue,
+            "format" to format,
+            "value_type" to valueType,
+        )
 }

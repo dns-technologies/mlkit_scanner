@@ -1,54 +1,65 @@
-import Foundation
-import UIKit
+import AVFoundation
+import CoreGraphics
 
-/// Replaceable AVFoundation boundary for the native SDK bridge.
-/// Hardware callbacks and resource cleanup can be tested without opening a camera.
+/// Receives camera state changes for the current scanner owner.
+protocol CameraPreviewDelegate: AnyObject {
+    /// Reports preview metadata from the camera that owns the output.
+    func onPreviewChanged(_ camera: CameraPreviewing, description: [String: Any]?)
+
+    /// Forwards torch changes from the currently selected camera.
+    func onTorchChanged(_ camera: CameraPreviewing, enabled: Bool)
+
+    /// Whether an active owner is ready for focus control.
+    func canApplyFocus() -> Bool
+}
+
+/// Camera session and preview-stream operations, independent of view ownership.
 protocol CameraPreviewing: AnyObject {
-    /// Native preview moved between Flutter containers.
-    func view() -> UIView
-    /// Whether the capture session and video output have both been configured.
+    /// Whether native session initialization has completed.
     var isInitialized: Bool { get }
-    /// Current physical torch activity, not retained intent.
+    /// Whether the selected camera currently reports its torch as active.
     var isTorchActive: Bool { get }
-    /// Completes layout/start waiters without stopping a reusable capture session.
-    func cancelPendingStart(completion: @escaping () -> Void)
-
-    /// Recognition handler receiving frames while scanning is active.
+    /// Recognition endpoint used for subsequently submitted camera frames.
     var recognitionHandler: RecognitionHandler? { get set }
-
-    /// Delegate for physical focus admission and torch observation.
+    /// Receives changes from the active native camera.
     var cameraPreviewDelegate: CameraPreviewDelegate? { get set }
 
-    /// Whether the native preview currently has finite, nonempty bounds.
-    var isLayoutReady: Bool { get }
-
-    /// Calls `completion` when the native preview first has usable bounds.
-    func whenLayoutReady(_ completion: @escaping () -> Void)
-
-    /// Prepares capture resources after the bridge has obtained permission.
+    /// Initializes the native camera session and reports completion on main.
     func initCamera(completion: @escaping (Error?) -> Void)
 
-    /// Replaces the selected capture device.
+    /// Applies capture settings and viewport geometry before starting the stream.
+    func prepare(_ settings: ScannerConfiguration, geometry: CGSize, completion: @escaping (Error?) -> Void)
+
+    /// Cancels outstanding preparation and first-frame responses.
+    func cancelPendingStart(completion: @escaping () -> Void)
+
+    /// Selects the capture device while preserving the session on failure.
     func setCamera(_ cameraData: CameraData) throws
 
-    /// Applies an explicit torch state.
+    /// Applies the requested torch state or reports unsupported hardware.
     func setFlash(_ enabled: Bool) throws
 
-    /// Clears retained focus lock and restores continuous focus where supported.
+    /// Best-effort restoration of continuous focus before capture.
     func resetFocus()
 
-    /// Starts capture and completes after the first video frame arrives.
+    /// Applies autofocus and exposure modes at the recognition-area center.
+    func focus(locked: Bool) throws
+
+    /// Starts the stream and completes when its first preview frame arrives.
     func resumeCamera(completion: @escaping (Error?) -> Void)
 
-    /// Applies an absolute camera zoom ratio.
+    /// Stops capture while retaining the most recent preview frame.
+    func pauseCamera(completion: @escaping () -> Void)
+
+    /// Applies an absolute zoom factor to the selected camera.
     func setZoomRatio(_ value: Double) throws
 
-    /// Updates the recognition rectangle and its focus center.
+    /// Updates the normalized area used for focus and recognition.
     func setCropArea(_ cropRect: CropRect)
 
-    /// Updates whether the scanner overlay indicates active recognition.
-    func setScanActive(_ isActive: Bool)
+    /// Updates the viewport used to map preview coordinates into camera frames.
+    func updateGeometry(_ size: CGSize)
 
-    /// Releases all resources owned by this preview.
-    func dispose()
+    /// Releases camera and preview resources before reporting completion.
+    func dispose(completion: @escaping () -> Void)
 }

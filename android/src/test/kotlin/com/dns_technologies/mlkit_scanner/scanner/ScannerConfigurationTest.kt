@@ -7,13 +7,13 @@ import org.junit.Test
 
 internal class ScannerConfigurationTest {
     @Test
-    fun `complete Dart snapshot parses defaults`() {
+    fun `camera settings parse without Dart recognition preferences`() {
         assertEquals(ScannerConfiguration(), ScannerConfiguration.from(arguments))
     }
 
     @Test
     fun `required fields cannot be omitted`() {
-        for (key in listOf("zoomRatio", "torchEnabled", "scanEnabled", "scanDelay")) {
+        for (key in listOf("zoomRatio", "torchEnabled")) {
             assertSame(PluginError.InvalidArguments, runCatching {
                 ScannerConfiguration.from(arguments - key)
             }.exceptionOrNull())
@@ -21,11 +21,10 @@ internal class ScannerConfigurationTest {
     }
 
     @Test
-    fun `invalid snapshot never reaches hardware`() {
+    fun `malformed fields cannot be decoded`() {
         for ((key, value) in listOf(
-            "zoomRatio" to 0, "zoomRatio" to Double.NaN, "zoomRatio" to Double.MIN_VALUE,
-            "scanDelay" to 0.5, "scanDelay" to 4_294_967_296L,
-            "torchEnabled" to 1, "scanEnabled" to "true", "cropRect" to mapOf("scaleWidth" to 0),
+            "zoomRatio" to true, "zoomRatio" to Double.NaN, "zoomRatio" to Double.MIN_VALUE,
+            "torchEnabled" to 1, "cropRect" to mapOf("scaleWidth" to "bad"),
         )) {
             assertSame(PluginError.InvalidArguments, runCatching {
                 ScannerConfiguration.from(arguments + (key to value))
@@ -33,6 +32,15 @@ internal class ScannerConfigurationTest {
         }
     }
 
+    @Test
+    fun `decoding leaves application ranges to Dart`() {
+        val decoded = ScannerConfiguration.from(arguments + mapOf(
+            "zoomRatio" to 0.0, "cropRect" to mapOf("scaleWidth" to -1.0),
+        ))
+        assertEquals(0F, decoded.zoomRatio)
+        assertEquals(-1.0, decoded.cropArea?.scaleWidth)
+    }
+
     private val arguments = mapOf("zoomRatio" to 1.0, "torchEnabled" to false,
-        "cropRect" to null, "scanEnabled" to false, "scanDelay" to 0)
+        "cropRect" to null)
 }

@@ -16,18 +16,13 @@ interface CameraFrame : AutoCloseable {
     /** Clockwise rotation required to display the buffer upright. */
     val rotationDegree: Int
 
-    /** Camera-library crop that corresponds to the field of view shown by preview. */
+    /** Source crop that corresponds to the field of view shown by preview. */
     val cropRect: Rect
         get() = Rect(0, 0, width, height)
 
     /** Provides a full or cropped NV21 buffer that remains valid only during [block]. */
     fun <T> useNv21(
         cropRect: Rect?,
-        block: (
-            bytes: ByteArray,
-            width: Int,
-            height: Int,
-            rotationDegree: Int,
-        ) -> T,
+        block: (bytes: ByteArray, width: Int, height: Int, rotationDegree: Int) -> T,
     ): T
 }

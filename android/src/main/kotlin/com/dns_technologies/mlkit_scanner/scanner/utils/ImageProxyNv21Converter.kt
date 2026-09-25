@@ -5,7 +5,8 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 
 /** Copies only the requested camera image region into reusable NV21 storage. */
 internal class ImageProxyNv21Converter(
-    private val bufferPool: ReusableByteArrayPool = ReusableByteArrayPool(),
+    /** Exclusive NV21 buffers reused between conversion callbacks. */
+    private val bufferPool: ReusableByteArrayPool = ReusableByteArrayPool()
 ) {
     /** Converts a full or cropped frame and scopes access to the pooled NV21 buffer. */
     fun <T> convert(
@@ -37,11 +38,7 @@ internal class ImageProxyNv21Converter(
     }
 
     /** Clamps, orders, and chroma-aligns a requested crop to the camera buffer. */
-    private fun normalizeCropRect(
-        cropRect: Rect?,
-        width: Int,
-        height: Int,
-    ): Rect {
+    private fun normalizeCropRect(cropRect: Rect?, width: Int, height: Int): Rect {
         val imageWidth = width.roundDownToEven()
         val imageHeight = height.roundDownToEven()
         require(imageWidth >= MIN_CROP_SIZE && imageHeight >= MIN_CROP_SIZE)
@@ -49,25 +46,17 @@ internal class ImageProxyNv21Converter(
         val left = minOf(requested.left, requested.right).roundUpToEven().coerceIn(0, imageWidth)
         val top = minOf(requested.top, requested.bottom).roundUpToEven().coerceIn(0, imageHeight)
         val right = maxOf(requested.left, requested.right).roundDownToEven().coerceIn(0, imageWidth)
-        val bottom = maxOf(requested.top, requested.bottom).roundDownToEven().coerceIn(0, imageHeight)
+        val bottom =
+            maxOf(requested.top, requested.bottom).roundDownToEven().coerceIn(0, imageHeight)
         require(right - left >= MIN_CROP_SIZE && bottom - top >= MIN_CROP_SIZE) {
             "Camera crop must contain at least one YUV chroma sample"
         }
 
-        return Rect(
-            left,
-            top,
-            right,
-            bottom,
-        )
+        return Rect(left, top, right, bottom)
     }
 
     /** Copies the cropped luminance plane into the beginning of [output]. */
-    private fun copyYPlane(
-        plane: ImageProxy.PlaneProxy,
-        crop: Rect,
-        output: ByteArray,
-    ) {
+    private fun copyYPlane(plane: ImageProxy.PlaneProxy, crop: Rect, output: ByteArray) {
         val buffer = plane.buffer.duplicate()
         val baseOffset = buffer.position()
         var outputOffset = 0
@@ -108,12 +97,10 @@ internal class ImageProxyNv21Converter(
             val uRowOffset = uBaseOffset + (chromaTop + row) * uPlane.rowStride
             val vRowOffset = vBaseOffset + (chromaTop + row) * vPlane.rowStride
             for (column in 0 until chromaWidth) {
-                output[destinationOffset++] = vBuffer.get(
-                    vRowOffset + (chromaLeft + column) * vPlane.pixelStride,
-                )
-                output[destinationOffset++] = uBuffer.get(
-                    uRowOffset + (chromaLeft + column) * uPlane.pixelStride,
-                )
+                output[destinationOffset++] =
+                    vBuffer.get(vRowOffset + (chromaLeft + column) * vPlane.pixelStride)
+                output[destinationOffset++] =
+                    uBuffer.get(uRowOffset + (chromaLeft + column) * uPlane.pixelStride)
             }
         }
     }
@@ -125,10 +112,15 @@ internal class ImageProxyNv21Converter(
     private fun Int.roundUpToEven(): Int = (this + 1) and -2
 
     private companion object {
+        /** Required plane count for a YUV 4:2:0 CameraX image. */
         const val PLANE_COUNT = 3
+        /** Luminance plane position in the CameraX plane array. */
         const val Y_PLANE_INDEX = 0
+        /** U chroma plane position in the CameraX plane array. */
         const val U_PLANE_INDEX = 1
+        /** V chroma plane position in the CameraX plane array. */
         const val V_PLANE_INDEX = 2
+        /** Minimum axis length containing a complete YUV chroma sample. */
         const val MIN_CROP_SIZE = 2
     }
 }

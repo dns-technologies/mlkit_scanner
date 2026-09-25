@@ -17,8 +17,8 @@ internal class RecognizeVisorCropRectTest {
     @Test
     fun `map factory rejects invalid components`() {
         listOf(
-            mapOf("scaleWidth" to 0.0),
-            mapOf("scaleHeight" to -1.0),
+            mapOf("scaleWidth" to true),
+            mapOf("scaleHeight" to Double.POSITIVE_INFINITY),
             mapOf("offsetX" to Double.NaN),
             mapOf("offsetY" to Double.NEGATIVE_INFINITY),
             mapOf("scaleWidth" to "0.5"),

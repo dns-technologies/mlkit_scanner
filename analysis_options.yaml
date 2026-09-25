@@ -1,5 +1,8 @@
 include: package:flutter_lints/flutter.yaml
 
+formatter:
+  page_width: 140
+
 analyzer:
   exclude:
     - "**/generated/**"
@@ -7,3 +10,6 @@ analyzer:
 
 linter:
   rules:
+    public_member_api_docs: true
+    directives_ordering: true
+    use_super_parameters: true

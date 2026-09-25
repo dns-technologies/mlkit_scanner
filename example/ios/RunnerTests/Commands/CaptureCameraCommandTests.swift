@@ -37,6 +37,6 @@ final class CaptureCameraCommandTests: XCTestCase {
     }
 
     private func call(viewId: NSNumber) -> FlutterMethodCall {
-        FlutterMethodCall(methodName: "resumeCameraMethod", arguments: ["viewId": viewId, "configuration": ["zoomRatio": 1.0, "torchEnabled": false, "scanEnabled": false, "scanDelay": 0] as [String: Any]])
+        FlutterMethodCall(methodName: "resumeCameraMethod", arguments: ["viewId": viewId, "configuration": ["zoomRatio": 1.0, "torchEnabled": false] as [String: Any]])
     }
 }

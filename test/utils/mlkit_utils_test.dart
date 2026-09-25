@@ -8,14 +8,12 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('mlkit_channel');
-  final messenger =
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
   group('$MLKitUtils', () {
     tearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
-    test('getIosAvailableCameras delegates to the channel and decodes values',
-        () async {
+    test('getIosAvailableCameras delegates to the channel and decodes values', () async {
       final calls = <MethodCall>[];
       messenger.setMockMethodCallHandler(channel, (call) async {
         calls.add(call);
@@ -25,7 +23,7 @@ void main() {
         ];
       });
 
-      final cameras = await MLKitUtils().getIosAvailableCameras();
+      final cameras = await MLKitUtils.getIosAvailableCameras();
 
       expect(calls.map((call) => call.method), ['getIosAvailableCameras']);
       expect(cameras, hasLength(2));

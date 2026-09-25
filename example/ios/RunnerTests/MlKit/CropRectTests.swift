@@ -27,8 +27,8 @@ final class CropRectTests: XCTestCase {
 
     func testInvalidGeometryIsRejected() {
         let invalidValues: [[String: Any]] = [
-            ["scaleWidth": 0],
-            ["scaleHeight": -1],
+            ["scaleWidth": "bad"],
+            ["scaleHeight": true],
             ["offsetX": Double.nan],
             ["offsetY": Double.infinity],
             ["scaleWidth": NSNumber(value: true)],

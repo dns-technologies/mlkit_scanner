@@ -1,157 +1,206 @@
 package com.dns_technologies.mlkit_scanner
 
-import android.content.Context
-import android.os.Handler
-import com.dns_technologies.mlkit_scanner.scanner.Scanner
+import android.Manifest
+import android.app.Activity
+import android.content.pm.PackageManager
+import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import io.flutter.embedding.engine.plugins.FlutterPlugin
-import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
-import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.platform.PlatformViewFactory
-import io.flutter.plugin.platform.PlatformViewRegistry
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.isActive
 import org.junit.Assert.*
+import org.junit.runner.RunWith
 import org.junit.Test
-import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.*
+import org.robolectric.annotation.Config
+import org.robolectric.RobolectricTestRunner
 
+// region MlkitScannerPluginTest
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 internal class MlkitScannerPluginTest {
-    @Test
-    fun `pause method delegates to the scanner without view arguments`() {
-        val scanner = mock(Scanner::class.java)
-        val plugin = releasePlugin(scanner)
-        val result = mock(MethodChannel.Result::class.java)
-
-        plugin.onMethodCall(MethodCall(PluginConstants.pauseCameraMethod, null), result)
-
-        verify(scanner).releaseCamera()
-        verify(result).success(true)
-        verifyNoMoreInteractions(result)
-        plugin.dispose()
+    @Test fun `permission completes before scanner receives any capture work`() {
+        val f = PermissionFixture()
+        val lease = f.plugin.open(1)
+        clearInvocations(f.plugin.scanner)
+        val reply = f.capture(lease)
+        assertEquals(1, f.prompts)
+        assertEquals(0, reply.replies)
+        verifyNoInteractions(f.plugin.scanner)
+        f.complete(false)
+        assertEquals(PluginError.AuthorizationCameraError.errorCode, reply.error)
+        assertEquals(1, reply.replies)
+        verifyNoInteractions(f.plugin.scanner)
     }
 
-    @Test
-    fun `pause method succeeds repeatedly without an allocated scanner`() {
-        val plugin = releasePlugin(null)
-        val result = mock(MethodChannel.Result::class.java)
-
-        repeat(2) { plugin.onMethodCall(MethodCall(PluginConstants.pauseCameraMethod, null), result) }
-
-        verify(result, times(2)).success(true)
-        verifyNoMoreInteractions(result)
-        plugin.dispose()
+    @Test fun `closing capture cannot revive scanner after late permission approval`() {
+        val f = PermissionFixture()
+        val lease = f.plugin.open(1)
+        val reply = f.capture(lease)
+        f.plugin.call("closeCapture", mapOf("captureId" to lease))
+        clearInvocations(f.plugin.scanner)
+        f.complete(true)
+        assertEquals(1, reply.replies)
+        assertEquals(PluginError.CameraSessionDisposed.errorCode, reply.error)
+        verifyNoInteractions(f.plugin.scanner)
     }
 
-    @Test
-    fun `pause method reports native cancellation failure`() {
-        val scanner = mock(Scanner::class.java)
-        val plugin = releasePlugin(scanner)
-        val result = mock(MethodChannel.Result::class.java)
-        doAnswer { throw PluginError.CameraSessionDisposed }.`when`(scanner).releaseCamera()
-
-        plugin.onMethodCall(MethodCall(PluginConstants.pauseCameraMethod, null), result)
-
-        verify(result).error(PluginError.CameraSessionDisposed.errorCode, PluginError.CameraSessionDisposed.message, null)
-        verifyNoMoreInteractions(result)
-        plugin.dispose()
+    @Test fun `replacement capture shares pending permission prompt without reviving old owner`() {
+        val f = PermissionFixture()
+        val first = f.capture(f.plugin.open(1))
+        val second = f.capture(f.plugin.open(2))
+        clearInvocations(f.plugin.scanner)
+        assertEquals(1, f.prompts)
+        assertEquals(PluginError.CameraSessionDisposed.errorCode, first.error)
+        f.complete(false)
+        assertEquals(1, first.replies)
+        assertEquals(1, second.replies)
+        assertEquals(PluginError.AuthorizationCameraError.errorCode, second.error)
+        verifyNoInteractions(f.plugin.scanner)
     }
 
-    @Test
-    fun `each engine attachment gets a fresh command scope`() {
-        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
-        val engine = engine()
-        plugin.onAttachedToEngine(engine)
-        val firstScope = plugin.scope()
-        plugin.onDetachedFromEngine(engine)
-        assertTrue(plugin.isDisposed)
-        assertFalse(firstScope.isActive)
-
-        plugin.onAttachedToEngine(engine)
-
-        assertNotSame(firstScope, plugin.scope())
-        assertTrue(plugin.scope().isActive)
-        plugin.onDetachedFromEngine(engine)
-    }
-
-    @Test
-    fun `removed capture and release channel methods are not dispatched`() {
-        val scanner = mock(Scanner::class.java)
-        val plugin = releasePlugin(scanner)
-        val result = mock(MethodChannel.Result::class.java)
-
-        for (method in listOf("captureCamera", "releaseCamera")) {
-            plugin.onMethodCall(MethodCall(method, null), result)
+    private class PermissionFixture {
+        val plugin = TexturePluginFixture()
+        var granted = false
+        var prompts = 0
+        private val gateway = PermissionGateway(
+            permissionChecker = { _, _ -> granted },
+            permissionRequester = { _, _, _ -> prompts++ },
+        )
+        init {
+            gateway.attach(mock(Activity::class.java))
+            plugin.set("permissions", gateway)
         }
-
-        verify(result, times(2)).notImplemented()
-        verifyNoMoreInteractions(result)
-        verifyNoInteractions(scanner)
-        plugin.dispose()
-    }
-
-    @Test
-    fun `stale factory cannot create a view after engine reattachment`() {
-        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
-        val firstEngine = engine()
-        var factory: PlatformViewFactory? = null
-        val registry = firstEngine.platformViewRegistry
-        doAnswer { factory = it.getArgument(1); true }.`when`(registry)
-            .registerViewFactory(anyString(), anyValue())
-        plugin.onAttachedToEngine(firstEngine)
-        val oldFactory = checkNotNull(factory)
-        plugin.onDetachedFromEngine(firstEngine)
-        val secondEngine = engine()
-        plugin.onAttachedToEngine(secondEngine)
-
-        val error = runCatching { oldFactory.create(mock(Context::class.java), 42, mapOf("viewId" to 42)) }.exceptionOrNull()
-
-        assertTrue(error is IllegalStateException)
-        assertFalse(plugin.isDisposed)
-        plugin.onDetachedFromEngine(secondEngine)
-    }
-
-    @Test
-    fun `failed factory registration releases attachment resources`() {
-        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
-        val engine = engine()
-        val registry = engine.platformViewRegistry
-        doReturn(false).`when`(registry).registerViewFactory(anyString(), anyValue())
-
-        assertTrue(runCatching { plugin.onAttachedToEngine(engine) }.exceptionOrNull() is IllegalStateException)
-
-        assertTrue(plugin.isDisposed)
-        assertFalse(plugin.scope().isActive)
-    }
-
-    @Test
-    fun `duplicate engine attach cannot replace a live attachment`() {
-        val plugin = MlkitScannerPlugin(mock(Handler::class.java))
-        val engine = engine()
-        plugin.onAttachedToEngine(engine)
-        val scope = plugin.scope()
-
-        assertTrue(runCatching { plugin.onAttachedToEngine(engine()) }.exceptionOrNull() is IllegalStateException)
-
-        assertSame(scope, plugin.scope())
-        assertFalse(plugin.isDisposed)
-        plugin.onDetachedFromEngine(engine)
-    }
-
-    private fun releasePlugin(scanner: Scanner?): MlkitScannerPlugin =
-        MlkitScannerPlugin(mock(Handler::class.java), mock(MethodChannel::class.java)).also { plugin ->
-            plugin.javaClass.getDeclaredField("scanner").apply { isAccessible = true }.set(plugin, scanner)
+        fun capture(lease: String) = plugin.call("resumeCameraMethod", mapOf(
+            "captureId" to lease,
+            "configuration" to mapOf("zoomRatio" to 1.0, "torchEnabled" to false),
+            "geometry" to mapOf("width" to 100.0, "height" to 100.0),
+        ))
+        fun complete(allowed: Boolean) {
+            granted = allowed
+            assertTrue(gateway.onPermissionResult(0, arrayOf(Manifest.permission.CAMERA),
+                intArrayOf(if (allowed) PackageManager.PERMISSION_GRANTED else PackageManager.PERMISSION_DENIED)))
         }
-
-    private fun engine(): FlutterPlugin.FlutterPluginBinding = mock(FlutterPlugin.FlutterPluginBinding::class.java).also {
-        doReturn(mock(BinaryMessenger::class.java)).`when`(it).binaryMessenger
-        val registry = mock(PlatformViewRegistry::class.java)
-        doReturn(true).`when`(registry).registerViewFactory(anyString(), anyValue())
-        doReturn(registry).`when`(it).platformViewRegistry
     }
 
-    private fun MlkitScannerPlugin.scope(): CoroutineScope =
-        javaClass.getDeclaredField("commandScope").apply { isAccessible = true }.get(this) as CoroutineScope
-
-    private companion object { fun <T> anyValue(): T = org.mockito.ArgumentMatchers.any<T>() }
+    @Test fun `engine detach disposes hardware and rejects subsequent work`() {
+        val f = TexturePluginFixture(); f.open(1)
+        f.plugin.onDetachedFromEngine(mock(FlutterPlugin.FlutterPluginBinding::class.java))
+        verify(f.scanner).dispose()
+        assertEquals(PluginError.CameraSessionDisposed.errorCode, f.call("registerScanner", mapOf("viewId" to 2)).error)
+    }
+    @Test fun `invalid registration cannot allocate a capture`() {
+        val f = TexturePluginFixture()
+        for (id in listOf(-1, true, "1")) {
+            assertEquals(PluginError.InvalidArguments.errorCode, f.call("registerScanner", mapOf("viewId" to id)).error)
+        }
+        assertNotNull(f.call("openCapture", mapOf("viewId" to 1)).error)
+    }
 }
+// endregion
+
+// region MlkitScannerPluginLifecycleTest
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+internal class MlkitScannerPluginLifecycleTest {
+    @Test fun `cleanup failure still waits for actual surface disposal before replying`() {
+        val f = TexturePluginFixture()
+        val disposal = kotlinx.coroutines.CompletableDeferred<Unit>()
+        doReturn(disposal).`when`(f.scanner).disposal
+        doThrow(IllegalStateException("analyzer cleanup failed")).`when`(f.scanner).dispose()
+        val reply = f.call("disposeScanner")
+        assertEquals(0, reply.replies)
+        disposal.complete(Unit)
+        assertEquals(1, reply.replies)
+        assertNotNull(reply.error)
+    }
+    @Test fun `repeated disposal waits for the same scanner resource completion`() {
+        val f = TexturePluginFixture()
+        val disposal = kotlinx.coroutines.CompletableDeferred<Unit>()
+        doReturn(disposal).`when`(f.scanner).disposal
+        val first = f.call("disposeScanner")
+        val second = f.call("disposeScanner")
+        assertEquals(0, first.replies); assertEquals(0, second.replies)
+        verify(f.scanner, times(1)).dispose()
+        disposal.complete(Unit)
+        assertEquals(1, first.replies); assertEquals(1, second.replies)
+    }
+    @Test fun `logical registration allocates no camera or view`() {
+        val f = TexturePluginFixture(); clearInvocations(f.scanner)
+        assertNull(f.call("registerScanner", mapOf("viewId" to 1)).error)
+        verifyNoInteractions(f.scanner)
+    }
+    @Test fun `unregistering inactive widget leaves current capture usable`() {
+        val f = TexturePluginFixture(); f.open(1); val current = f.open(2)
+        f.call("unregisterScanner", mapOf("viewId" to 1))
+        assertNull(f.call("setScanDelay", mapOf("captureId" to current, "delay" to 2)).error)
+    }
+    @Test fun `dispose releases hardware and next lease requires a surviving registration`() {
+        val f = TexturePluginFixture(); f.open(1)
+        assertNull(f.call("disposeScanner").error); verify(f.scanner).dispose()
+        assertTrue(f.call("openCapture", mapOf("viewId" to 1)).value is String)
+        f.call("unregisterScanner", mapOf("viewId" to 1))
+        assertNotNull(f.call("openCapture", mapOf("viewId" to 1)).error)
+    }
+    @Test fun `pause succeeds before hardware allocation`() {
+        val f = TexturePluginFixture(); f.set("scanner", null)
+        val lease = f.open(1)
+        val reply = f.call("pauseCameraMethod", mapOf("captureId" to lease))
+        assertNull(reply.error); assertEquals(1, reply.replies)
+    }
+}
+// endregion
+
+// region ScannerPluginTransportTest
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+internal class ScannerPluginTransportTest {
+    @Test fun `batched settings execute only for the selected lease`() = kotlinx.coroutines.runBlocking<Unit> {
+        val f = TexturePluginFixture()
+        val old = f.open(1)
+        val current = f.open(2)
+        clearInvocations(f.scanner)
+        val stale = f.call("updateCameraSettings", mapOf("captureId" to old, "zoomRatio" to 2.0, "torchEnabled" to true))
+        assertEquals(PluginError.CameraSessionDisposed.errorCode, stale.error)
+        assertEquals(1, stale.replies)
+        verifyNoInteractions(f.scanner)
+        val reply = f.call("updateCameraSettings", mapOf("captureId" to current, "zoomRatio" to 2.0, "torchEnabled" to false))
+        verify(f.scanner).setZoomRatio(2.0F)
+        verify(f.scanner).setTorch(false)
+        assertNull(reply.error)
+        assertEquals(1, reply.replies)
+    }
+
+    @Test fun `stale lease cannot change or pause current scanner`() {
+        val f = TexturePluginFixture()
+        val old = f.open(1); val current = f.open(2)
+        clearInvocations(f.scanner)
+        val reply = f.call("pauseCameraMethod", mapOf("captureId" to old))
+        assertEquals(PluginError.CameraSessionDisposed.errorCode, reply.error)
+        verifyNoInteractions(f.scanner)
+        assertNull(f.call("pauseCameraMethod", mapOf("captureId" to current)).error)
+        verify(f.scanner).pauseCamera()
+    }
+    @Test fun `late close of an old lease leaves current lease valid`() {
+        val f = TexturePluginFixture(); val a = f.open(1); val b = f.open(2)
+        f.call("closeCapture", mapOf("captureId" to a))
+        assertNull(f.call("setScanDelay", mapOf("captureId" to b, "delay" to 100)).error)
+        verify(f.scanner).setScanPeriod(100)
+    }
+    @Test fun `preview subscriptions return a snapshot and independent endpoint identities`() {
+        val f = TexturePluginFixture()
+        val a = f.call("subscribePreview").value as Map<*, *>
+        val b = f.call("subscribePreview").value as Map<*, *>
+        assertNotEquals(a["subscriptionId"], b["subscriptionId"])
+        assertTrue(a.containsKey("description")); assertNull(a["description"])
+        assertNull(f.call("unsubscribePreview", mapOf("subscriptionId" to a["subscriptionId"])).error)
+    }
+    @Test fun `starting an obsolete scan endpoint is rejected`() {
+        val f = TexturePluginFixture(); val lease = f.open(1)
+        val old = f.call("subscribeScan", mapOf("captureId" to lease)).value
+        val current = f.call("subscribeScan", mapOf("captureId" to lease)).value
+        assertNotEquals(old, current)
+        assertNotNull(f.call("startScan", mapOf("captureId" to lease, "subscriptionId" to old, "type" to 0, "delay" to 0)).error)
+        assertNull(f.call("startScan", mapOf("captureId" to lease, "subscriptionId" to current, "type" to 0, "delay" to 0)).error)
+        verify(f.scanner).startScan(0)
+    }
+}
+// endregion

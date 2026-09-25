@@ -1,27 +1,35 @@
 import CoreGraphics
 
-/// Completion used by asynchronous camera ownership and lifecycle operations.
+/// Completes a native scanner request with an optional failure.
 typealias ScannerCompletion = (Error?) -> Void
 
-/// Operations exposed by the single iOS scanner SDK bridge shared by platform views.
+/// Native controls for the shared scanner; widget configuration remains in Dart.
 protocol ScannerDevice: AnyObject {
-    /// Creates a native platform view without assigning camera ownership.
-    func createView(
-        frame: CGRect,
-        viewId: Int64
-    ) -> ScannerView
 
-    /// Selects the preview and applies the complete transient Dart snapshot.
+    /// Acquires the shared camera for a registered consumer using its settings.
     func captureCamera(viewId: Int64, configuration: ScannerConfiguration, completion: @escaping ScannerCompletion)
-    /// Releases the single scanner after cancelling pending native work.
-    func releaseCamera( completion: @escaping () -> Void)
-    /// Applies point controls without reacquiring or hiding the preview.
+
+    /// Revokes the active consumer while retaining the shared camera.
+    func releaseCamera(completion: @escaping () -> Void)
+
+    /// Applies the desired torch state to the active camera.
     func setTorch(enabled: Bool) throws
+
+    /// Applies an absolute zoom factor to the selected camera.
     func setZoomRatio(value: Double) throws
+
+    /// Updates the normalized area used for focus and recognition.
     func setCropArea(cropRect: CropRect) throws
+
+    /// Changes the cooldown after successful barcode recognition.
     func updateScanPeriod(delay: Int) throws
+
+    /// Enables barcode delivery with the requested recognition cooldown.
     func startScan(type: RecognitionType, delay: Int) throws
+
+    /// Cancels the current barcode subscription and suppresses queued deliveries.
     func cancelScan() throws
-    /// Releases SDK resources and forgets borrowed Flutter views.
+
+    /// Permanently releases scanner ownership, observers, and camera resources.
     func release()
 }

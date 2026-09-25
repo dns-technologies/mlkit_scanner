@@ -1,672 +1,523 @@
-//
-//  CameraPreview.swift
-//  mlkit_scanner
-//
-//  Created by ООО "ДНС Технологии" on 04.03.2021.
-//
-
 import AVFoundation
 import UIKit
 
-/// Receives view-scoped camera preview events.
-protocol CameraPreviewDelegate: AnyObject {
-    /// Reports the current physical device state on main.
-    func onTorchChanged(_ camera: CameraPreviewing, enabled: Bool)
-    /// Returns whether a focus gesture still belongs to the active camera owner.
-    func canApplyFocus() -> Bool
-}
-
-/// One reusable AVFoundation adapter, borrowed by the current Flutter container.
-class CameraPreview: NSObject, CameraPreviewing {
-    private let preview: UIContainer
-    private var scaleX, scaleY: CGFloat
-    private var offsetX, offsetY: CGFloat
-    private var focusPoint: CGPoint
-    private var captureSession: AVCaptureSession?
+/// Serial AVFoundation session, independently of the Flutter texture's consumer widgets.
+final class CameraPreview: NSObject, CameraPreviewing {
+    /// Shared Flutter texture receiving frames on main.
+    private let output: CameraPreviewOutput
+    /// Serial owner of AVFoundation session configuration and camera controls.
+    private let queue = DispatchQueue(label: "mlkit_scanner.camera_session", qos: .userInitiated)
+    /// Serial sample-buffer delivery queue; recognition uses its own receiver queue.
+    private let analysisQueue = DispatchQueue(label: "mlkit_scanner.analysis", qos: .userInitiated)
+    /// Detects reentry to the session queue before synchronous dispatch.
+    private let queueKey = DispatchSpecificKey<Void>()
+    /// Capture session accessed on the session queue.
+    private var session: AVCaptureSession?
+    /// Selected capture device accessed on the session queue.
     private var camera: AVCaptureDevice?
+    /// Video output configured on the session queue.
     private var videoOutput: AVCaptureVideoDataOutput?
-    private var previewLayer: AVCaptureVideoPreviewLayer?
-    private let frameStateLock = NSLock()
-    private let lifecycleLock = NSLock()
-    /// Serializes physical camera-session work across every Flutter preview.
-    ///
-    /// A single queue prevents one route from starting capture before the
-    /// previous route has finished releasing the physical camera.
-    private static let sessionQueueKey = DispatchSpecificKey<Void>()
-    private static let sessionQueue: DispatchQueue = {
-        let queue = DispatchQueue(
-            label: "mlkit_scanner.camera_session",
-            qos: .userInitiated
-        )
-        queue.setSpecific(key: sessionQueueKey, value: ())
-        return queue
-    }()
-    private let videoOutputQueue: DispatchQueue
-    private var torchObserver: NSKeyValueObservation?
-    private var captureSessionObservers: [NSObjectProtocol] = []
-    private var layoutReadyCompletions: [() -> Void] = []
-    private var streamingCompletion: ((Error?) -> Void)?
-    private var isStreaming = false
-    private var scannerOverlay: ScannerOverlay?
-    private var disposed = false
-    /// Main-thread acknowledgment; querying readiness must not block behind startRunning().
-    private var configured = false
-    
-    private let focusView: FocusView
-    private weak var currentRecognitionHandler: RecognitionHandler?
-    var recognitionHandler: RecognitionHandler? {
+    /// Receiver storage protected by lifetimeLock.
+    private var frameReceiver: CameraFrameReceiver?
+    /// Lock-protected access to the current stream receiver.
+    private var receiver: CameraFrameReceiver? {
         get {
-            frameStateLock.lock()
-            defer { frameStateLock.unlock() }
-            return currentRecognitionHandler
+            lifetimeLock.lock()
+            defer {
+                lifetimeLock.unlock()
+            }
+            return frameReceiver
         }
         set {
-            frameStateLock.lock()
-            currentRecognitionHandler = newValue
-            frameStateLock.unlock()
+            lifetimeLock.lock()
+            frameReceiver = newValue
+            lifetimeLock.unlock()
         }
     }
+    /// First-frame response owned by the main thread.
+    private var pendingStart: CameraStart?
+    /// Current configuration response owned by the main thread.
+    private var preparation: CameraPreparation?
+    /// Protects lifetime and endpoint state crossing main and session queues.
+    private let lifetimeLock = NSLock()
+    /// Disposal flag accessed only through the locked closed property.
+    private var isClosed = false
+    /// Lock-protected disposal state visible to queued callbacks.
+    private var closed: Bool {
+        get {
+            lifetimeLock.lock()
+            defer {
+                lifetimeLock.unlock()
+            }
+            return isClosed
+        }
+        set {
+            lifetimeLock.lock()
+            isClosed = newValue
+            lifetimeLock.unlock()
+        }
+    }
+    /// Current viewport geometry owned by the session queue.
+    private var viewport = CGSize(width: 1, height: 1)
+    /// Current normalized focus area owned by the session queue.
+    private var crop = CropRect()
+    /// Physical video orientation applied on the session queue.
+    private var orientation: AVCaptureVideoOrientation = .portrait
+    /// Torch observation installed and invalidated on main.
+    private var torchObserver: NSKeyValueObservation?
+    /// Device identity used to discard stale torch notifications on main.
+    private weak var observedDevice: AVCaptureDevice?
+    /// Session notification tokens removed during disposal on main.
+    private var observers: [NSObjectProtocol] = []
+    /// Main-thread interface-orientation notification token.
+    private var orientationObserver: NSObjectProtocol?
+    /// Recognition endpoint storage protected by lifetimeLock.
+    private var frameHandler: RecognitionHandler?
+    /// Lock-protected access to the current recognition endpoint.
+    private var handler: RecognitionHandler? {
+        get {
+            lifetimeLock.lock()
+            defer {
+                lifetimeLock.unlock()
+            }
+            return frameHandler
+        }
+        set {
+            lifetimeLock.lock()
+            frameHandler = newValue
+            lifetimeLock.unlock()
+        }
+    }
+    /// Receives changes from the active native camera.
     weak var cameraPreviewDelegate: CameraPreviewDelegate?
-    
-    /// Creates a native preview without starting camera capture.
-    init(
-        frame: CGRect,
-        offsetX: CGFloat = 0,
-        offsetY: CGFloat = 0
-    ) {
-        videoOutputQueue = DispatchQueue(
-            label: "mlkit_scanner.video_output",
-            qos: .userInitiated
-        )
-        preview = UIContainer(frame: frame)
-        (scaleX, scaleY) = CameraPreview.previewScale(for: frame)
-        (self.offsetX, self.offsetY) = (offsetX, offsetY)
-        focusPoint = PreviewGeometry.normalizedFocusPoint(offsetX: offsetX, offsetY: offsetY)
-        focusView = FocusView(
-            frame: preview.bounds,
-            point: PreviewGeometry.focusPosition(
-                in: preview.bounds,
-                normalizedPoint: focusPoint
-            )
-        )
+    /// Whether native session initialization has completed.
+    private(set) var isInitialized = false
+    /// Whether the selected camera currently reports its torch as active.
+    var isTorchActive: Bool { sync { camera?.isTorchActive ?? false } }
+    /// Recognition endpoint used for subsequently submitted camera frames.
+    var recognitionHandler: RecognitionHandler? {
+        get { handler }
+        set {
+            handler = newValue
+            receiver?.setHandler(newValue)
+        }
+    }
+
+    /// Binds the shared texture and observes interface orientation on main.
+    init(output: CameraPreviewOutput) {
+        self.output = output
         super.init()
-        preview.delegate = self
-        focusView.delegate = self
-        addFocusView()
-    }
-
-    deinit {
-        dispose()
-    }
-
-    /// Whether UIKit has supplied finite, nonempty preview bounds.
-    var isLayoutReady: Bool {
-        PreviewGeometry.isLayoutReady(preview.bounds)
-    }
-
-    /// Whether resource teardown has already started.
-    private var isDisposed: Bool {
-        lifecycleLock.lock()
-        defer { lifecycleLock.unlock() }
-        return disposed
-    }
-
-    /// Calls `completion` after the preview first receives usable bounds.
-    func whenLayoutReady(_ completion: @escaping () -> Void) {
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.whenLayoutReady(completion)
-            }
-            return
+        output.publish = { [weak self] description in
+            guard let self = self else { return }
+            self.cameraPreviewDelegate?.onPreviewChanged(self, description: description)
         }
-        guard !isDisposed else { return }
-        if isLayoutReady {
-            completion()
-        } else {
-            layoutReadyCompletions.append(completion)
-        }
+        queue.setSpecific(key: queueKey, value: ())
+        orientationObserver = NotificationCenter.default.addObserver(forName: UIDevice.orientationDidChangeNotification,
+            object: nil, queue: .main) { [weak self] _ in self?.updateOrientation() }
     }
 
-    /// Clears camera and overlay focus-lock state.
-    private func clearFocusLock() {
-        focusOnCenter(needLock: false)
-        DispatchQueue.main.async { [weak self] in
-            self?.focusView.cancelLockFocus()
-        }
-    }
-    
-    /// Returns the native view hosted by Flutter.
-    func view() -> UIView {
-        return preview
-    }
-    
-    /// Permission belongs to the bridge; this adapter only configures AVFoundation.
+    /// Initializes the native camera session and reports completion on main.
     func initCamera(completion: @escaping (Error?) -> Void) {
-        guard !isDisposed else { completion(MlKitPluginError.cameraSessionDisposed); return }
-        configureCamera { [weak self] error in
-            DispatchQueue.main.async {
-                guard let self = self, !self.isDisposed else {
+        guard !closed else {
+            completion(MlKitPluginError.cameraSessionDisposed)
+            return
+        }
+        updateOrientation()
+        queue.async { [weak self] in
+            guard let self = self, !self.closed else {
+                DispatchQueue.main.async {
                     completion(MlKitPluginError.cameraSessionDisposed)
-                    return
                 }
-                self.configured = error == nil
-                completion(error)
+                return
             }
+            do {
+                let session = AVCaptureSession()
+                session.sessionPreset = .hd1280x720
+                guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+                    throw MlKitPluginError.initCameraError
+                }
+                let input = try AVCaptureDeviceInput(device: camera)
+                guard session.canAddInput(input) else { throw MlKitPluginError.initCameraError }
+                session.addInput(input)
+                let video = AVCaptureVideoDataOutput()
+                video.alwaysDiscardsLateVideoFrames = true
+                video.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)]
+                guard session.canAddOutput(video) else { throw MlKitPluginError.initCameraError }
+                session.addOutput(video)
+                self.session = session
+                self.camera = camera
+                self.videoOutput = video
+                self.installReceiver()
+                DispatchQueue.main.async {
+                    guard !self.closed else {
+                        completion(MlKitPluginError.cameraSessionDisposed)
+                        return
+                    }
+                    self.observeSession(session)
+                    self.isInitialized = true
+                    self.observeTorch(camera)
+                    completion(nil)
+                }
+            } catch { DispatchQueue.main.async { completion(error) } }
         }
     }
 
-    /// Main-thread acknowledgment of the completed SDK configuration.
-    var isInitialized: Bool { configured && !isDisposed }
-
-    var isTorchActive: Bool { camera?.isTorchActive == true }
-
-    /// Cancels real pending callbacks, then acknowledges preceding native queue work.
-    func cancelPendingStart(completion: @escaping () -> Void) {
-        layoutReadyCompletions.removeAll()
-        CameraPreview.sessionQueue.async { [weak self] in
-            let pending = self?.streamingCompletion
-            self?.streamingCompletion = nil
-            pending?(nil)
-            completion()
-        }
-    }
-
-    /// Builds a camera session without acquiring the camera for frame capture.
-    private func configureCamera(
-        completion: @escaping (Error?) -> ()
-    ) {
-        do {
-            camera = createWideAngleCamera()
-            guard let camera = camera else {
-                completion(MlKitPluginError.initCameraError)
-                return
-            }
-
-            let input = try AVCaptureDeviceInput.init(device: camera)
-            captureSession = AVCaptureSession()
-            captureSession?.sessionPreset = .hd1280x720
-            guard captureSession?.canAddInput(input) == true else {
-                completion(MlKitPluginError.initCameraError)
-                return
-            }
-            captureSession?.addInput(input)
-        } catch {
-            completion(error)
-            return
-        }
-
-        guard let captureSession = captureSession else {
-            completion(MlKitPluginError.cameraIsNotInitialized)
-            return
-        }
-        let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-        self.previewLayer = previewLayer
-        previewLayer.videoGravity = .resizeAspectFill
-        updateVideoOrientation()
-        previewLayer.frame = preview.bounds
-        preview.layer.insertSublayer(previewLayer, at: 0)
-
-        subscribeOrientationChanges()
-        observeCaptureSession(captureSession)
-        observeTorchToggle()
-        CameraPreview.sessionQueue.async { [weak self] in
-            guard let self = self, !self.isDisposed, let session = self.captureSession else {
-                completion(MlKitPluginError.cameraIsNotInitialized)
-                return
-            }
-            let videoOutput = AVCaptureVideoDataOutput()
-            videoOutput.alwaysDiscardsLateVideoFrames = true
-            videoOutput.videoSettings = [
-                kCVPixelBufferPixelFormatTypeKey as String:
-                    Int(kCVPixelFormatType_32BGRA),
-            ]
-            videoOutput.setSampleBufferDelegate(
-                self,
-                queue: self.videoOutputQueue
-            )
-            guard session.canAddOutput(videoOutput) else {
-                completion(MlKitPluginError.initCameraError)
-                return
-            }
-            self.videoOutput = videoOutput
-            session.addOutput(videoOutput)
-            completion(nil)
-        }
-    }
-
-    /// Replaces the active capture device while preserving the session output.
-    ///
-    /// Throws when capture is not initialized or the requested camera cannot be
-    /// attached.
-    func setCamera(_ cameraData: CameraData) throws {
-        guard let session = self.captureSession else {
-            throw MlKitPluginError.cameraIsNotInitialized
-        }
-
-        guard let newCamera = AVCaptureDevice.default(cameraData.type, for: .video, position: cameraData.position) else {
-            throw MlKitPluginError.initCameraError
-        }
-
-        if camera?.uniqueID == newCamera.uniqueID { return }
-        let newInput = try AVCaptureDeviceInput.init(device: newCamera)
-
-        try CameraPreview.syncOnSessionQueue {
-            let currentInputs = session.inputs
+    /// Selects the capture device while preserving the session on failure.
+    func setCamera(_ data: CameraData) throws {
+        let device = try sync {
+            guard let session = session, !closed else { throw MlKitPluginError.cameraIsNotInitialized }
+            guard let device = AVCaptureDevice.default(data.type, for: .video, position: data.position) else { throw MlKitPluginError.initCameraError }
+            if camera?.uniqueID == device.uniqueID { return device }
+            let input = try AVCaptureDeviceInput(device: device)
+            let previous = session.inputs
             session.beginConfiguration()
             defer { session.commitConfiguration() }
-
-            currentInputs.forEach { session.removeInput($0) }
-            guard session.canAddInput(newInput) else {
-                currentInputs
-                    .filter { session.canAddInput($0) }
-                    .forEach { session.addInput($0) }
+            previous.forEach(session.removeInput)
+            guard session.canAddInput(input) else {
+                previous.filter(session.canAddInput).forEach(session.addInput)
                 throw MlKitPluginError.initCameraError
             }
-            session.addInput(newInput)
+            session.addInput(input)
+            camera = device
+            installReceiver()
+            return device
         }
-
-        camera = newCamera
-        observeTorchToggle()
-
-    }    
-
-    /// Returns the default back wide-angle camera.
-    private func createWideAngleCamera() -> AVCaptureDevice? {
-        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        DispatchQueue.main.async { [weak self] in if self?.closed == false { self?.observeTorch(device) } }
     }
 
-    /// Places the focus gesture overlay above the native preview layer.
-    private func addFocusView() {
-        preview.addSubview(focusView)
-    }
-
-    /// Updates the camera and overlay focus point from normalized center offsets.
-    func changeFocusCenter(offsetX: CGFloat, offsetY: CGFloat) {
-        (self.offsetX, self.offsetY) = (offsetX, offsetY)
-        focusPoint = PreviewGeometry.normalizedFocusPoint(offsetX: offsetX, offsetY: offsetY)
-        focusView.moveFocus(
-            to: PreviewGeometry.focusPosition(
-                in: preview.bounds,
-                normalizedPoint: focusPoint
-            )
-        )
-    }
-
-    /// Applies an explicit retained torch state.
-    func setFlash(_ enabled: Bool) throws {
-        guard
-            captureSession != nil,
-            let camera = camera,
-            camera.isConnected
-        else {
-            throw MlKitPluginError.cameraIsNotInitialized
+    /// Replaces the stream receiver on the session queue, revoking prior queued frames.
+    private func installReceiver() {
+        receiver?.close()
+        let receiver = CameraFrameReceiver()
+        self.receiver = receiver
+        receiver.setRecognition(handler, viewport: viewport)
+        receiver.onPreview = { [weak self, weak receiver] buffer in
+            guard let self = self, let receiver = receiver, !self.closed,
+                  self.receiver === receiver else { return }
+            self.output.present(buffer)
+            if let pending = self.pendingStart, pending.receiver === receiver {
+                self.pendingStart = nil
+                pending.finish(nil)
+            }
         }
-        guard camera.hasTorch else {
-            if !enabled { return }
-            throw MlKitPluginError.deviceHasNotFlash
-        }
-        let requestedMode: AVCaptureDevice.TorchMode = enabled ? .on : .off
-        guard camera.isTorchModeSupported(requestedMode) else {
-            if !enabled { return }
-            throw MlKitPluginError.deviceHasNotFlash
-        }
-        try camera.lockForConfiguration()
-        defer { camera.unlockForConfiguration() }
-        camera.torchMode = requestedMode
+        videoOutput?.setSampleBufferDelegate(receiver, queue: analysisQueue)
+        configureOrientation()
     }
 
-    /// Clears focus state retained by a previous camera owner.
-    func resetFocus() {
-        clearFocusLock()
-    }
-
-    /// Updates the recognition rectangle and its focus center.
-    func setCropArea(_ cropRect: CropRect) {
-        changeFocusCenter(offsetX: cropRect.offsetX, offsetY: cropRect.offsetY)
-        if let scannerOverlay = scannerOverlay {
-            scannerOverlay.updateCropRect(rect: cropRect)
-        } else {
-            let scannerOverlay = ScannerOverlay(cropRect: cropRect)
-            self.scannerOverlay = scannerOverlay
-            preview.insertSubview(scannerOverlay, belowSubview: focusView)
-        }
-    }
-
-    /// Updates whether the scanner overlay indicates active recognition.
-    func setScanActive(_ isActive: Bool) {
-        scannerOverlay?.isActive = isActive
-    }
-
-    /// Restarts the capture session asynchronously.
-    ///
-    /// `completion` receives an error when the camera is not initialized.
-    func resumeCamera(completion: @escaping (Error?) -> ()) {
-        CameraPreview.sessionQueue.async { [weak self] in
-            guard let self = self,
-                  !self.isDisposed,
-                  let session = self.captureSession,
-                  let camera = self.camera,
-                  camera.isConnected else {
-                completion(MlKitPluginError.cameraIsNotInitialized)
+    /// Starts the stream and completes when its first preview frame arrives.
+    func resumeCamera(completion: @escaping (Error?) -> Void) {
+        let request = CameraStart(completion)
+        pendingStart?.finish(MlKitPluginError.cameraSessionDisposed)
+        pendingStart = request
+        queue.async { [weak self, weak request] in
+            guard let self = self, let request = request else { return }
+            guard request.active, !self.closed, let session = self.session else {
+                DispatchQueue.main.async {
+                    request.finish(MlKitPluginError.cameraIsNotInitialized)
+                }
                 return
             }
-            if session.isRunning, self.isStreaming {
-                completion(nil)
-                return
-            }
-            self.streamingCompletion = completion
-            self.isStreaming = false
-            if !session.isRunning {
-                session.startRunning()
-            }
-            if !session.isRunning {
-                let pendingCompletion = self.streamingCompletion
-                self.streamingCompletion = nil
-                pendingCompletion?(MlKitPluginError.initCameraError)
-            }
+            self.installReceiver()
+            request.receiver = self.receiver
+            if !session.isRunning { session.startRunning() }
+            if !session.isRunning { DispatchQueue.main.async { request.finish(MlKitPluginError.initCameraError) } }
         }
     }
 
-    /// Idempotently releases capture, observation, and preview resources.
-    func dispose() {
-        lifecycleLock.lock()
-        guard !disposed else {
-            lifecycleLock.unlock()
-            return
-        }
-        disposed = true
-        lifecycleLock.unlock()
-        layoutReadyCompletions.removeAll()
-        torchObserver?.invalidate()
-        torchObserver = nil
-        captureSessionObservers.forEach(NotificationCenter.default.removeObserver)
-        captureSessionObservers.removeAll()
-        NotificationCenter.default.removeObserver(self)
-        recognitionHandler = nil
-        cameraPreviewDelegate = nil
-        scannerOverlay?.removeFromSuperview()
-        scannerOverlay = nil
-        previewLayer?.removeFromSuperlayer()
-        previewLayer = nil
-        let resources = CameraPreview.syncOnSessionQueue { () -> (
-            AVCaptureSession?,
-            AVCaptureVideoDataOutput?,
-            ((Error?) -> Void)?
-        ) in
-            let resources = (captureSession, videoOutput, streamingCompletion)
-            streamingCompletion = nil
-            isStreaming = false
-            captureSession = nil
-            camera = nil
-            videoOutput = nil
-            return resources
-        }
-        resources.1?.setSampleBufferDelegate(nil, queue: nil)
-        CameraPreview.sessionQueue.async {
-            if let session = resources.0, session.isRunning {
-                session.stopRunning()
-            }
-            resources.2?(MlKitPluginError.cameraSessionDisposed)
-        }
+    /// Cancels outstanding preparation and first-frame responses.
+    func cancelPendingStart(completion: @escaping () -> Void) {
+        let previous = preparation
+        preparation = nil
+        previous?.finish(MlKitPluginError.cameraSessionDisposed)
+        let pending = pendingStart
+        pendingStart = nil
+        pending?.finish(MlKitPluginError.cameraSessionDisposed)
+        completion()
     }
 
-    /// Subscribes to interface-orientation changes affecting preview output.
-    private func subscribeOrientationChanges() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(onOrientationChanges),
-            name: UIDevice.orientationDidChangeNotification,
-            object: nil
-        )
-    }
-
-    /// Updates the preview connection after interface orientation changes.
-    @objc private func onOrientationChanges() {
-        updateVideoOrientation()
-    }
-
-    /// Applies the current interface orientation when the preview connection supports it.
-    private func updateVideoOrientation() {
-        guard let connection = previewLayer?.connection,
-              connection.isVideoOrientationSupported else {
-            return
-        }
-        connection.videoOrientation = getVideoOrientation()
-    }
-
-    /// Maps the current interface orientation to camera output orientation.
-    private func getVideoOrientation() -> AVCaptureVideoOrientation {
-        let interfaceOrientation: UIInterfaceOrientation
-        if #available(iOS 13.0, *),
-           let windowOrientation = preview.window?.windowScene?.interfaceOrientation {
-            interfaceOrientation = windowOrientation
-        } else {
-            interfaceOrientation = UIApplication.shared.statusBarOrientation
-        }
-        switch interfaceOrientation {
-        case .landscapeRight:
-            return .landscapeRight
-        case .landscapeLeft:
-            return .landscapeLeft
-        case .portrait:
-            return .portrait
-        case .portraitUpsideDown:
-            return .portraitUpsideDown
-        default:
-            return .portrait
-        }
-    }
-
-    /// Applies an absolute zoom ratio supported by the selected capture device.
-    func setZoomRatio(_ value: Double) throws {
-        guard let camera = camera else {
-            throw MlKitPluginError.cameraIsNotInitialized
-        }
-        let zoomRatio = CGFloat(value)
-        guard
-            zoomRatio.isFinite,
-            zoomRatio >= camera.minAvailableVideoZoomFactor,
-            zoomRatio <= camera.maxAvailableVideoZoomFactor
-        else {
-            throw MlKitPluginError.invalidArguments
-        }
-        try camera.lockForConfiguration()
-        defer { camera.unlockForConfiguration() }
-        camera.videoZoomFactor = zoomRatio
-    }
-    
-    /// KVO is a wake-up signal. Read the live device on main, not an old value queued during rebinding.
-    private func observeTorchToggle() {
-        torchObserver?.invalidate()
-        torchObserver = camera?.observe(\.isTorchActive, options: .new) { [weak self] device, _ in
+    /// Applies capture settings and viewport geometry before starting the stream.
+    func prepare(_ settings: ScannerConfiguration, geometry: CGSize, completion: @escaping (Error?) -> Void) {
+        let request = CameraPreparation(completion)
+        preparation?.finish(MlKitPluginError.cameraSessionDisposed)
+        preparation = request
+        queue.async { [weak self] in
+            guard let self = self, request.active, !self.closed else { return }
+            var failure: Error?
+            do {
+                try self.setCamera(settings.camera)
+                self.updateGeometry(geometry)
+                self.setCropArea(settings.cropRect)
+                self.resetFocus()
+                try self.apply(.zoom) { try self.setZoomRatio(settings.zoomRatio) }
+                try self.apply(.torch) { try self.setFlash(settings.torchEnabled) }
+            } catch { failure = error }
             DispatchQueue.main.async {
-                guard let self = self, self.camera === device, !self.isDisposed else { return }
+                guard request.active, !self.closed, self.preparation === request else { return }
+                self.preparation = nil
+                request.finish(failure)
+            }
+        }
+    }
+
+    /// Adds operation context while preserving the unsupported-flash error contract.
+    private func apply(_ operation: CameraControlOperation, action: () throws -> Void) throws {
+        do { try action() }
+        catch MlKitPluginError.deviceHasNotFlash { throw MlKitPluginError.deviceHasNotFlash }
+        catch { throw CameraControlError(operation: operation, underlyingError: error) }
+    }
+
+    /// Stops capture while retaining the most recent texture frame.
+    func pauseCamera(completion: @escaping () -> Void) {
+        cancelPendingStart {}
+        receiver?.close()
+        queue.async { [weak self] in
+            self?.receiver?.close()
+            if let session = self?.session, session.isRunning { session.stopRunning() }
+            DispatchQueue.main.async {
+                self?.output.pause()
+                completion()
+            }
+        }
+    }
+
+    /// Applies the requested torch state or reports unsupported hardware.
+    func setFlash(_ enabled: Bool) throws {
+        try withCamera { camera in
+            guard camera.hasTorch else {
+                if enabled {
+                    throw MlKitPluginError.deviceHasNotFlash
+                }
+                return
+            }
+            let mode: AVCaptureDevice.TorchMode = enabled ? .on : .off
+            guard camera.isTorchModeSupported(mode) else { throw MlKitPluginError.deviceHasNotFlash }
+            camera.torchMode = mode
+        }
+    }
+
+    /// Applies an absolute zoom factor to the selected camera.
+    func setZoomRatio(_ value: Double) throws {
+        try withCamera { camera in
+            let zoom = CGFloat(value)
+            guard zoom.isFinite, zoom >= camera.minAvailableVideoZoomFactor, zoom <= camera.maxAvailableVideoZoomFactor else { throw MlKitPluginError.invalidArguments }
+            camera.videoZoomFactor = zoom
+        }
+    }
+
+    /// Best-effort restoration of continuous focus before capture.
+    func resetFocus() {
+        try? focus(locked: false)
+    }
+
+    /// Applies autofocus and exposure modes at the recognition-area center.
+    func focus(locked: Bool) throws {
+        try withCamera { camera in
+            let dimensions = receiver?.latestSize ?? CGSize(width: 720, height: 1280)
+            let geometry = CameraFrameGeometry(source: dimensions, viewport: viewport)
+            var point = geometry.normalizedPoint(CGPoint(x: (1 + crop.offsetX) / 2, y: (1 + crop.offsetY) / 2))
+            if camera.position == .front { point.x = 1 - point.x }
+            switch orientation {
+            case .portrait: point = CGPoint(x: point.y, y: 1 - point.x)
+            case .portraitUpsideDown: point = CGPoint(x: 1 - point.y, y: point.x)
+            case .landscapeLeft: point = CGPoint(x: 1 - point.x, y: 1 - point.y)
+            default: break
+            }
+            if camera.isFocusPointOfInterestSupported { camera.focusPointOfInterest = point }
+            if camera.isExposurePointOfInterestSupported { camera.exposurePointOfInterest = point }
+            let focus: AVCaptureDevice.FocusMode = locked ? .autoFocus : .continuousAutoFocus
+            let exposure: AVCaptureDevice.ExposureMode = locked ? .autoExpose : .continuousAutoExposure
+            if camera.isFocusModeSupported(focus) { camera.focusMode = focus }
+            if camera.isExposureModeSupported(exposure) { camera.exposureMode = exposure }
+        }
+    }
+
+    /// Updates normalized focus geometry while refreshing the frame endpoint.
+    func setCropArea(_ cropRect: CropRect) {
+        sync {
+            crop = cropRect
+            receiver?.setRecognition(handler, viewport: viewport)
+        }
+    }
+
+    /// Updates the viewport used to map preview coordinates into camera frames.
+    func updateGeometry(_ size: CGSize) {
+        sync {
+            viewport = size
+            receiver?.setRecognition(handler, viewport: viewport)
+        }
+    }
+
+    /// Runs a camera control on the session queue with its configuration lock held.
+    private func withCamera(_ action: (AVCaptureDevice) throws -> Void) throws {
+        try sync {
+            guard !closed, let camera = camera else { throw MlKitPluginError.cameraIsNotInitialized }
+            try camera.lockForConfiguration()
+            defer { camera.unlockForConfiguration() }
+            try action(camera)
+        }
+    }
+
+    /// Reads interface orientation on main and schedules its session update.
+    private func updateOrientation() {
+        let value: UIInterfaceOrientation
+        if #available(iOS 13.0, *) {
+            value = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.interfaceOrientation }.first ?? .portrait
+        } else { value = UIApplication.shared.statusBarOrientation }
+        let next: AVCaptureVideoOrientation
+        switch value {
+        case .landscapeLeft: next = .landscapeLeft
+        case .landscapeRight: next = .landscapeRight
+        case .portraitUpsideDown: next = .portraitUpsideDown
+        default: next = .portrait
+        }
+        queue.async { [weak self] in
+            self?.orientation = next
+            self?.configureOrientation()
+        }
+    }
+
+    /// Applies orientation and front-camera mirroring to the video connection.
+    private func configureOrientation() {
+        guard let connection = videoOutput?.connection(with: .video) else { return }
+        if connection.isVideoOrientationSupported { connection.videoOrientation = orientation }
+        if connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = camera?.position == .front
+        }
+    }
+
+    /// Observes the selected device and filters stale notifications by identity.
+    private func observeTorch(_ device: AVCaptureDevice) {
+        torchObserver?.invalidate()
+        observedDevice = device
+        torchObserver = device.observe(\.isTorchActive, options: .new) { [weak self] device, _ in
+            DispatchQueue.main.async {
+                guard let self = self, !self.closed, self.observedDevice === device else { return }
                 self.cameraPreviewDelegate?.onTorchChanged(self, enabled: device.isTorchActive)
             }
         }
     }
 
-    /// Observes unexpected capture stops so a pending activation never hangs.
-    private func observeCaptureSession(_ session: AVCaptureSession) {
-        let runtimeErrorObserver = NotificationCenter.default.addObserver(
-            forName: .AVCaptureSessionRuntimeError,
-            object: session,
-            queue: nil
-        ) { [weak self] notification in
-            let error = notification.userInfo?[AVCaptureSessionErrorKey] as? Error
-                ?? MlKitPluginError.initCameraError
-            CameraPreview.sessionQueue.async {
-                self?.finishPendingStreaming(error: error)
-            }
+    /// Pauses preview delivery when the native session fails or is interrupted.
+    private func observeSession(_ session: AVCaptureSession) {
+        for name in [NSNotification.Name.AVCaptureSessionRuntimeError, .AVCaptureSessionWasInterrupted] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: session, queue: .main) { [weak self] _ in
+                guard let self = self, !self.closed else { return }
+                self.cancelPendingStart {}
+                self.output.pause()
+            })
         }
-        let interruptedObserver = NotificationCenter.default.addObserver(
-            forName: .AVCaptureSessionWasInterrupted,
-            object: session,
-            queue: nil
-        ) { [weak self] _ in
-            CameraPreview.sessionQueue.async {
-                self?.finishPendingStreaming(error: MlKitPluginError.initCameraError)
-            }
-        }
-        captureSessionObservers = [runtimeErrorObserver, interruptedObserver]
     }
 
-    /// Completes the active start request after the first frame or an error.
-    private func finishPendingStreaming(error: Error?) {
-        if error == nil {
-            guard captureSession?.isRunning == true else { return }
-            isStreaming = true
-        } else {
-            isStreaming = false
-        }
-        let completion = streamingCompletion
-        streamingCompletion = nil
-        completion?(error)
-    }
-
-    /// Returns preview-to-screen scale without propagating invalid geometry.
-    private static func previewScale(for bounds: CGRect) -> (CGFloat, CGFloat) {
-        let screenBounds = UIScreen.main.bounds
-        guard bounds.isFinite,
-              screenBounds.width > 0,
-              screenBounds.height > 0 else {
-            return (0, 0)
-        }
-        return (
-            bounds.width / screenBounds.width,
-            bounds.height / screenBounds.height
-        )
-    }
-
-    /// Executes one short state transaction on the shared capture-session queue.
-    private static func syncOnSessionQueue<T>(_ operation: () throws -> T) rethrows -> T {
-        if DispatchQueue.getSpecific(key: sessionQueueKey) != nil {
-            return try operation()
-        }
-        return try sessionQueue.sync(execute: operation)
-    }
-}
-
-extension CameraPreview: AVCaptureVideoDataOutputSampleBufferDelegate {
-    /// Forwards camera frames to the currently active recognition handler.
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        CameraPreview.sessionQueue.async { [weak self] in
-            self?.finishPendingStreaming(error: nil)
-        }
-        frameStateLock.lock()
-        let handler = currentRecognitionHandler
-        let currentScaleX = scaleX
-        let currentScaleY = scaleY
-        frameStateLock.unlock()
-        handler?.processVideoOutput(
-            sampleBuffer: sampleBuffer,
-            scaleX: currentScaleX,
-            scaleY: currentScaleY,
-            orientation: connection.videoOrientation
-        )
-    }
-}
-
-extension CameraPreview: FocusViewDelegate {
-    /// Requests continuous focus at the current overlay center.
-    func onFocus() {
-        guard cameraPreviewDelegate?.canApplyFocus() == true else { return }
-        focusOnCenter(needLock: false)
-    }
-    
-    /// Requests a one-shot focus lock at the current overlay center.
-    func onLockFocus() {
-        guard cameraPreviewDelegate?.canApplyFocus() == true else { return }
-        focusOnCenter(needLock: true)
-    }
-    
-    /// Applies continuous or locked focus and exposure at the current focus point.
-    private func focusOnCenter(needLock: Bool) {
-        guard let camera = camera else {
+    /// Releases native session resources and completes after texture disposal.
+    func dispose(completion: @escaping () -> Void) {
+        guard !closed else {
+            completion()
             return
         }
-        do {
-            try camera.lockForConfiguration()
-            defer { camera.unlockForConfiguration() }
-            if camera.isFocusPointOfInterestSupported {
-                camera.focusPointOfInterest = focusPoint
+        closed = true
+        receiver?.close()
+        cancelPendingStart {}
+        torchObserver?.invalidate()
+        torchObserver = nil
+        if let observer = orientationObserver { NotificationCenter.default.removeObserver(observer) }
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.removeAll()
+        queue.async {
+            self.receiver?.close()
+            self.receiver = nil
+            self.videoOutput?.setSampleBufferDelegate(nil, queue: nil)
+            if let session = self.session, session.isRunning { session.stopRunning() }
+            self.session = nil
+            self.camera = nil
+            self.videoOutput = nil
+            DispatchQueue.main.async {
+                self.output.dispose()
+                completion()
             }
-            if camera.isExposurePointOfInterestSupported {
-                camera.exposurePointOfInterest = focusPoint
+        }
+    }
+
+    /// Executes on the session queue without deadlocking when already on that queue.
+    private func sync<T>(_ action: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: queueKey) != nil { return try action() }
+        return try queue.sync(execute: action)
+    }
+}
+
+/// A cancellable configuration request admitted to the serial session queue.
+private final class CameraPreparation {
+    /// Protects mutable state shared across callback queues.
+    private let lock = NSLock()
+    /// Pending response, cleared before delivery to enforce one completion.
+    private var completion: ((Error?) -> Void)?
+
+    /// Stores one cancellable camera-configuration response.
+    init(_ completion: @escaping (Error?) -> Void) {
+        self.completion = completion
+    }
+    /// Whether the request still has an unfinished response.
+    var active: Bool {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return completion != nil
+    }
+
+    /// Takes the pending response under the lock, then invokes it after unlocking.
+    func finish(_ error: Error?) {
+        lock.lock()
+        let callback = completion
+        completion = nil
+        lock.unlock()
+        callback?(error)
+    }
+}
+
+/// Owns one unfinished start response; cancellation and first frame can complete it only once.
+private final class CameraStart {
+    /// Protects mutable state shared across callback queues.
+    private let lock = NSLock()
+    /// Pending response, cleared before delivery to enforce one completion.
+    private var completion: ((Error?) -> Void)?
+    /// Receiver identity associated with this start; protected by lock.
+    private var output: CameraFrameReceiver?
+    /// Lock-protected identity of the stream that can complete this start.
+    var receiver: CameraFrameReceiver? {
+        get {
+            lock.lock()
+            defer {
+                lock.unlock()
             }
-            if (needLock) {
-                if camera.isExposureModeSupported(.autoExpose) {
-                    camera.exposureMode = .autoExpose
-                }
-                if camera.isFocusModeSupported(.autoFocus) {
-                    camera.focusMode = .autoFocus
-                }
-            } else {
-                if camera.isExposureModeSupported(.continuousAutoExposure) {
-                    camera.exposureMode = .continuousAutoExposure
-                }
-                if camera.isFocusModeSupported(.continuousAutoFocus) {
-                    camera.focusMode = .continuousAutoFocus
-                }
-            }
-        } catch {}
+            return output
+        }
+        set {
+            lock.lock()
+            output = newValue
+            lock.unlock()
+        }
     }
-}
+    /// Whether the request still has an unfinished response.
+    var active: Bool {
+        lock.lock()
+        defer {
+            lock.unlock()
+        }
+        return completion != nil
+    }
 
-extension CameraPreview: UIContainerDelegate {
-    /// Recalculates preview geometry and focus coordinates during layout.
-    func viewWillLayoutSubviews() {
-        let previewScale = CameraPreview.previewScale(for: preview.bounds)
-        frameStateLock.lock()
-        (scaleX, scaleY) = previewScale
-        frameStateLock.unlock()
-        previewLayer?.frame = preview.bounds
-        updateVideoOrientation()
-        focusPoint = PreviewGeometry.normalizedFocusPoint(offsetX: offsetX, offsetY: offsetY)
-        focusView.moveFocus(
-            to: PreviewGeometry.focusPosition(
-                in: preview.bounds,
-                normalizedPoint: focusPoint
-            )
-        )
-        guard isLayoutReady, !layoutReadyCompletions.isEmpty else { return }
-        let completions = layoutReadyCompletions
-        layoutReadyCompletions.removeAll()
-        completions.forEach { $0() }
+    /// Stores one response awaiting the first frame of its stream.
+    init(_ completion: @escaping (Error?) -> Void) {
+        self.completion = completion
     }
-}
 
-fileprivate protocol UIContainerDelegate: AnyObject {
-    /// Called to notify the UIContainerDelegate that view is about to layout its subviews.
-    func viewWillLayoutSubviews()
-}
-
-/// Empty container. Depends on height and width constraints.
-fileprivate class UIContainer : UIView {
-    weak var delegate: UIContainerDelegate?
-    
-    /// Creates a preview container with the supplied frame.
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    /// Notifies the delegate before dependent overlays are repositioned.
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        delegate?.viewWillLayoutSubviews()
-    }
-    
-}
-
-private extension CGRect {
-    var isFinite: Bool {
-        origin.x.isFinite
-            && origin.y.isFinite
-            && size.width.isFinite
-            && size.height.isFinite
+    /// Takes the pending response under the lock, then invokes it after unlocking.
+    func finish(_ error: Error?) {
+        lock.lock()
+        let callback = completion
+        completion = nil
+        lock.unlock()
+        callback?(error)
     }
 }

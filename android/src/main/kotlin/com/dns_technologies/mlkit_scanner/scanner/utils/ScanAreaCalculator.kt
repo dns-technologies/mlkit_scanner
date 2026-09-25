@@ -9,10 +9,7 @@ import kotlin.math.floor
 /** Calculates a valid YUV 4:2:0 crop rectangle from scanner visor geometry. */
 internal object ScanAreaCalculator {
     /** Returns an even bounded crop, or an empty rectangle when no pixels can be analyzed. */
-    fun calculate(
-        frame: CameraFrame,
-        scanArea: RecognizeVisorCropRect?,
-    ): Rect = calculate(frame.cropRect, frame.rotationDegree, scanArea)
+    fun calculate(frame: CameraFrame, scanArea: RecognizeVisorCropRect?): Rect = calculate(frame.cropRect, frame.rotationDegree, scanArea)
 
     /** Resolves a crop inside explicit frame [bounds], primarily for cached state and tests. */
     internal fun calculate(
@@ -20,8 +17,7 @@ internal object ScanAreaCalculator {
         rotationDegree: Int,
         scanArea: RecognizeVisorCropRect?,
     ): Rect = normalizeCropBounds(
-        rect = scanArea?.let { calculateRawCropRect(bounds, rotationDegree, it) }
-            ?: bounds.toRawCropRect(),
+        rect = scanArea?.let { calculateRawCropRect(bounds, rotationDegree, it) } ?: bounds.toRawCropRect(),
         bounds = bounds,
     )
 
@@ -40,12 +36,10 @@ internal object ScanAreaCalculator {
         val previewHeight = if (rotated) boundsWidth else boundsHeight
         val previewOffsetX = previewWidth * scanArea.centerOffsetX / 2.0
         val previewOffsetY = previewHeight * scanArea.centerOffsetY / 2.0
-        val sourceHalfWidth = (
-            if (rotated) boundsWidth * scanArea.scaleHeight else boundsWidth * scanArea.scaleWidth
-        ) / 2.0
-        val sourceHalfHeight = (
-            if (rotated) boundsHeight * scanArea.scaleWidth else boundsHeight * scanArea.scaleHeight
-        ) / 2.0
+        val sourceHalfWidth = (if (rotated) boundsWidth * scanArea.scaleHeight
+        else boundsWidth * scanArea.scaleWidth) / 2.0
+        val sourceHalfHeight = (if (rotated) boundsHeight * scanArea.scaleWidth
+        else boundsHeight * scanArea.scaleHeight) / 2.0
         val sourceCenterX = centerX + when (rotationDegree) {
             90 -> previewOffsetY
             180 -> -previewOffsetX
@@ -67,10 +61,7 @@ internal object ScanAreaCalculator {
     }
 
     /** Intersects raw geometry with frame bounds and aligns it for YUV 4:2:0 sampling. */
-    private fun normalizeCropBounds(
-        rect: RawCropRect,
-        bounds: Rect,
-    ): Rect {
+    private fun normalizeCropBounds(rect: RawCropRect, bounds: Rect): Rect {
         val rawLeft = minOf(rect.left, rect.right)
         val rawTop = minOf(rect.top, rect.bottom)
         val rawRight = maxOf(rect.left, rect.right)
@@ -86,31 +77,19 @@ internal object ScanAreaCalculator {
         if (boundsRight - boundsLeft < MIN_CROP_SIZE || boundsBottom - boundsTop < MIN_CROP_SIZE) {
             return EMPTY_RECT
         }
-        if (
-            rawRight <= boundsLeft || rawBottom <= boundsTop ||
-            rawLeft >= boundsRight || rawTop >= boundsBottom
-        ) {
+        if (rawRight <= boundsLeft || rawBottom <= boundsTop || rawLeft >= boundsRight || rawTop >= boundsBottom) {
             return EMPTY_RECT
         }
 
-        val left = ceil(rawLeft.coerceIn(boundsLeft.toDouble(), boundsRight.toDouble()))
-            .toInt().roundUpToEven()
-        val top = ceil(rawTop.coerceIn(boundsTop.toDouble(), boundsBottom.toDouble()))
-            .toInt().roundUpToEven()
-        val right = floor(rawRight.coerceIn(boundsLeft.toDouble(), boundsRight.toDouble()))
-            .toInt().roundDownToEven()
-        val bottom = floor(rawBottom.coerceIn(boundsTop.toDouble(), boundsBottom.toDouble()))
-            .toInt().roundDownToEven()
+        val left = ceil(rawLeft.coerceIn(boundsLeft.toDouble(), boundsRight.toDouble())).toInt().roundUpToEven()
+        val top = ceil(rawTop.coerceIn(boundsTop.toDouble(), boundsBottom.toDouble())).toInt().roundUpToEven()
+        val right = floor(rawRight.coerceIn(boundsLeft.toDouble(), boundsRight.toDouble())).toInt().roundDownToEven()
+        val bottom = floor(rawBottom.coerceIn(boundsTop.toDouble(), boundsBottom.toDouble())).toInt().roundDownToEven()
         if (right - left < MIN_CROP_SIZE || bottom - top < MIN_CROP_SIZE) {
             return EMPTY_RECT
         }
 
-        return Rect(
-            left,
-            top,
-            right,
-            bottom,
-        )
+        return Rect(left, top, right, bottom)
     }
 
     /** Converts integer frame bounds to intermediate floating-point geometry. */
@@ -128,19 +107,29 @@ internal object ScanAreaCalculator {
     private fun Int.roundUpToEven(): Int = (this + 1) and -2
 
     private data class RawCropRect(
+        /** Unbounded source-space left coordinate before intersection and chroma alignment. */
         val left: Double,
+        /** Unbounded source-space top coordinate before intersection and chroma alignment. */
         val top: Double,
+        /** Unbounded source-space right coordinate before intersection and chroma alignment. */
         val right: Double,
+        /** Unbounded source-space bottom coordinate before intersection and chroma alignment. */
         val bottom: Double,
     )
 
+    /** Minimum axis length containing a complete YUV chroma sample. */
     private const val MIN_CROP_SIZE = 2
+
+    /** Shared result for invalid geometry or an empty frame intersection. */
     private val EMPTY_RECT = Rect(0, 0, 0, 0)
 }
 
 /** Reuses a scan crop while frame geometry and crop configuration remain unchanged. */
 internal class ScanAreaState {
+    /** Geometry and configuration that produced the cached crop. */
     private var input: Input? = null
+
+    /** Cached chroma-aligned crop for the most recently resolved input. */
     private var cropRect: Rect? = null
 
     /** Returns the cached crop unless frame geometry or crop configuration changed. */
@@ -159,8 +148,11 @@ internal class ScanAreaState {
     }
 
     private data class Input(
+        /** Visible frame bounds used as the crop calculation's source region. */
         val frameBounds: Rect,
+        /** Frame rotation used to map preview axes into source coordinates. */
         val rotationDegree: Int,
+        /** Recognition configuration included in cache identity. */
         val scanArea: RecognizeVisorCropRect?,
     )
 }

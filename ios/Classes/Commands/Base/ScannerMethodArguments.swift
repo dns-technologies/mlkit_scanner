@@ -3,9 +3,12 @@ import Foundation
 
 /// Validates untyped Flutter values once, before they reach the SDK.
 enum ScannerMethodArguments {
+
     /// Parsed recognition configuration for a scan start.
     struct ScanOptions {
+        /// Validated recognition mode requested by Flutter.
         let type: RecognitionType
+        /// Requested successful-recognition cooldown in milliseconds.
         let delay: Int
     }
 
@@ -34,14 +37,10 @@ enum ScannerMethodArguments {
         return try integer(values[PluginConstants.delayArgument])
     }
 
-    /// Parses a positive absolute zoom ratio.
+    /// Reads numeric zoom; Dart validates its application-level range.
     static func zoomRatio(_ arguments: Any?) throws -> Double {
         let values = try map(arguments)
-        let zoomRatio = try finiteDouble(values[PluginConstants.valueArgument])
-        guard zoomRatio > 0 else {
-            throw MlKitPluginError.invalidArguments
-        }
-        return zoomRatio
+        return try PlatformChannelScalar.finiteDouble(from: values[PluginConstants.valueArgument])
     }
 
     /// Parses normalized crop geometry.
@@ -52,21 +51,11 @@ enum ScannerMethodArguments {
     }
 
     /// Returns an untyped channel value as a string-keyed map.
-    private static func map(_ value: Any?) throws -> [String: Any] {
+    static func map(_ value: Any?) throws -> [String: Any] {
         guard let map = value as? [String: Any] else {
             throw MlKitPluginError.invalidArguments
         }
         return map
-    }
-
-    /// Converts a numeric channel value to a finite double.
-    private static func finiteDouble(_ value: Any?) throws -> Double {
-        let number = try PlatformChannelScalar.number(from: value)
-        let result = number.doubleValue
-        guard result.isFinite else {
-            throw MlKitPluginError.invalidArguments
-        }
-        return result
     }
 
     /// Converts a channel number to `Int` without truncation or overflow.

@@ -14,23 +14,28 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
 /**
- * Owns a queue of runtime permission requests, with at most one Android request in flight.
- * Callers requesting the same permission share its result, including while it is queued.
+ * Owns a queue of runtime permission requests, with at most one Android request in flight. Callers
+ * requesting the same permission share its result, including while it is queued.
  *
- * All entry points run on the main thread, including coroutine calls and their resumptions.
- * The plugin owns listener registration; this class retains an Activity only while attached.
+ * All entry points run on the main thread, including coroutine calls and their resumptions. The
+ * plugin owns listener registration; this class retains an Activity only while attached.
  * Configuration changes preserve requests, whereas final detach completes them as denied.
  */
 @MainThread
 internal class PermissionGateway(
+    /** Checks current Android grants, including after an Activity replacement. */
     private val permissionChecker: (Activity, String) -> Boolean = { activity, permission ->
         ContextCompat.checkSelfPermission(activity, permission) == PackageManager.PERMISSION_GRANTED
     },
-    private val permissionRequester: (Activity, String, Int) -> Unit = { activity, permission, requestCode ->
-        ActivityCompat.requestPermissions(activity, arrayOf(permission), requestCode)
-    },
+    /** Dispatches one runtime permission prompt with its correlation code. */
+    private val permissionRequester: (Activity, String, Int) -> Unit =
+        { activity, permission, requestCode ->
+            ActivityCompat.requestPermissions(activity, arrayOf(permission), requestCode)
+        },
 ) {
+    /** Activity borrowed only while the plugin remains attached. */
     private var activity: Activity? = null
+    /** Insertion-ordered requests sharing one Android prompt at a time. */
     private val pendingRequests = linkedMapOf<String, PermissionRequest>()
 
     /** Rechecks the outstanding request and resumes queued work on the new Activity. */
@@ -61,9 +66,9 @@ internal class PermissionGateway(
 
     /**
      * Checks [permission] or joins/enqueues its request. Each named helper supplies its own fixed
-     * [requestCode] and an OS-supported runtime permission declared in the manifest.
-     * Codes must differ between permissions and other request owners in the same Activity.
-     * Internal visibility allows testing future permission flows without adding feature APIs.
+     * [requestCode] and an OS-supported runtime permission declared in the manifest. Codes must
+     * differ between permissions and other request owners in the same Activity. Internal visibility
+     * allows testing future permission flows without adding feature APIs.
      *
      * Different permissions are requested sequentially. Cancelling one caller does not cancel
      * another caller's wait. A queued request with no active callers is discarded; a dispatched
@@ -77,11 +82,15 @@ internal class PermissionGateway(
         require(permission.isNotBlank()) { "Permission name must not be blank" }
         val currentActivity = activity
         if (currentActivity != null && permissionChecker(currentActivity, permission)) return true
-        val request = pendingRequests[permission] ?: run {
-            if (currentActivity == null) return false
-            // No suspension between looking up a request and publishing its owner.
-            PermissionRequest(permission, requestCode).also { pendingRequests[permission] = it }
-        }
+        val request =
+            pendingRequests[permission]
+                ?: run {
+                    if (currentActivity == null) return false
+                    // No suspension between looking up a request and publishing its owner.
+                    PermissionRequest(permission, requestCode).also {
+                        pendingRequests[permission] = it
+                    }
+                }
         val caller = callerContext[Job]
         request.callers += caller
         return try {
@@ -96,7 +105,9 @@ internal class PermissionGateway(
         }
     }
 
-    /** Consumes only the dispatched request's callback; malformed or interrupted results deny it. */
+    /**
+     * Consumes only the dispatched request's callback; malformed or interrupted results deny it.
+     */
     fun onPermissionResult(
         requestCode: Int,
         permissions: Array<String>,
@@ -104,27 +115,31 @@ internal class PermissionGateway(
     ): Boolean {
         val request = pendingRequests.values.firstOrNull() ?: return false
         if (!request.isDispatched || requestCode != request.requestCode) return false
-        val isGranted = if (permissions.isEmpty() && grantResults.isEmpty()) {
-            false
-        } else {
-            if (permissions.singleOrNull() != request.permission) return false
-            // During configuration detach, this complete single-permission result is sufficient.
-            // With an Activity, recheck the requested permission rather than trusting stale data.
-            when (val result = grantResults.singleOrNull()) {
-                PackageManager.PERMISSION_GRANTED, PackageManager.PERMISSION_DENIED ->
-                    activity?.let { permissionChecker(it, request.permission) }
-                        ?: (result == PackageManager.PERMISSION_GRANTED)
-                else -> false
+        val isGranted =
+            if (permissions.isEmpty() && grantResults.isEmpty()) {
+                false
+            } else {
+                if (permissions.singleOrNull() != request.permission) return false
+                // During configuration detach, this complete single-permission result is
+                // sufficient.
+                // With an Activity, recheck the requested permission rather than trusting stale
+                // data.
+                when (val result = grantResults.singleOrNull()) {
+                    PackageManager.PERMISSION_GRANTED,
+                    PackageManager.PERMISSION_DENIED ->
+                        activity?.let { permissionChecker(it, request.permission) }
+                            ?: (result == PackageManager.PERMISSION_GRANTED)
+                    else -> false
+                }
             }
-        }
         complete(request, isGranted)
         dispatchNext()
         return true
     }
 
     /**
-     * Each pass removes the head or returns with a dispatched request or no Activity.
-     * Read the live head: completing a request can resume callers that change the queue.
+     * Each pass removes the head or returns with a dispatched request or no Activity. Read the live
+     * head: completing a request can resume callers that change the queue.
      */
     private fun dispatchNext() {
         while (pendingRequests.isNotEmpty()) {
@@ -150,11 +165,13 @@ internal class PermissionGateway(
         }
     }
 
+    /** Removes the owned request before resuming its waiting callers. */
     private fun complete(request: PermissionRequest, isGranted: Boolean) {
         if (!remove(request)) return
         request.result.complete(isGranted)
     }
 
+    /** Removes a request only if its identity still owns the permission key. */
     private fun remove(request: PermissionRequest): Boolean {
         // An old caller's cleanup must not remove a replacement under the same permission key.
         if (pendingRequests[request.permission] !== request) return false
@@ -162,15 +179,28 @@ internal class PermissionGateway(
         return true
     }
 
+    /**
+     * Shared callers and Android prompt ownership for one permission.
+     *
+     * @property permission Android permission name used as the pending-request key.
+     * @property requestCode Correlation code supplied by the permission-specific entry point.
+     */
     private class PermissionRequest(val permission: String, val requestCode: Int) {
         // No parent Job: caller cancellation must not cancel the shared Android request.
+        /** Shared completion independent of every caller's cancellation job. */
         val result = CompletableDeferred<Boolean>()
+        /** Jobs currently awaiting this request; null represents a caller without a job. */
         val callers = mutableListOf<Job?>()
         // Check jobs directly: cancellation can precede execution of a caller's finally block.
-        val hasActiveCallers: Boolean get() = callers.any { it?.isActive != false }
+        /** Checks live jobs directly, even before cancelled callers execute cleanup. */
+        val hasActiveCallers: Boolean
+            get() = callers.any { it?.isActive != false }
+
+        /** Whether Android already owns this prompt and must eventually return its result. */
         var isDispatched = false
             private set
 
+        /** Publishes correlation state before Android can invoke a synchronous callback. */
         fun dispatch(activity: Activity, requester: (Activity, String, Int) -> Unit) {
             // Publish correlation before Android can invoke a synchronous callback.
             isDispatched = true

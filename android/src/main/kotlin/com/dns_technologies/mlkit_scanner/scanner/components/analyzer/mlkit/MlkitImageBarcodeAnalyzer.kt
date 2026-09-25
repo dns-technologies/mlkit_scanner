@@ -9,36 +9,45 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.BarcodeScanner
+import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode as MlkitBarcode
 import com.google.mlkit.vision.common.InputImage
 
 /**
- * Recognizes the first barcode with a raw value using ML Kit and a borrowed NV21 buffer.
- * The worker stays inside the frame's buffer scope until the asynchronous task has finished.
+ * Recognizes the first barcode with a raw value using ML Kit and a borrowed NV21 buffer. The worker
+ * stays inside the frame's buffer scope until the asynchronous task has finished.
  */
-class MlkitImageBarcodeAnalyzer internal constructor(
+class MlkitImageBarcodeAnalyzer
+internal constructor(
+    /** Owned ML Kit recognizer closed after all borrowed-byte work finishes. */
     private val barcodeScanner: BarcodeScanner,
     currentTimeMs: () -> Long,
+    /** Reports recognition failures without exposing backend exceptions to callers. */
     private val logError: (String) -> Unit,
+    /** Constructs an ML Kit image from the currently borrowed NV21 bytes. */
     private val fromByteArray: (ByteArray, Int, Int, Int, Int) -> InputImage =
         InputImage::fromByteArray,
 ) : ImageBarcodeAnalyzer(currentTimeMs) {
     /** Creates the production analyzer and logs recognition failures under the plugin tag. */
-    constructor() : this(
-        barcodeScanner = BarcodeScanning.getClient(),
-        currentTimeMs = android.os.SystemClock::elapsedRealtime,
-        logError = { message -> Log.e(PluginConstants.LOG_TAG, message) },
-    )
+    constructor() :
+        this(
+            barcodeScanner = BarcodeScanning.getClient(),
+            currentTimeMs = android.os.SystemClock::elapsedRealtime,
+            logError = { message -> Log.e(PluginConstants.LOG_TAG, message) },
+        )
 
     /** Lazily creates one cropped recognition image for an accepted frame. */
     @WorkerThread
     override fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode? {
-        check(Looper.myLooper() != Looper.getMainLooper()) { "ML Kit analysis requires a worker thread" }
+        check(Looper.myLooper() != Looper.getMainLooper()) {
+            "ML Kit analysis requires a worker thread"
+        }
         if (Thread.currentThread().isInterrupted) return null
         return frame.useNv21(cropRect) { bytes, width, height, rotation ->
-            analyzeImage(fromByteArray(bytes, width, height, rotation, InputImage.IMAGE_FORMAT_NV21))
+            analyzeImage(
+                fromByteArray(bytes, width, height, rotation, InputImage.IMAGE_FORMAT_NV21)
+            )
         }
     }
 
@@ -84,6 +93,7 @@ class MlkitImageBarcodeAnalyzer internal constructor(
 
     private companion object {
         // Normalize the backend's unknown-format marker to the cross-platform contract value.
+        /** Cross-platform code used when ML Kit cannot identify a barcode format. */
         const val UNKNOWN_FORMAT_CODE = 0
     }
 }

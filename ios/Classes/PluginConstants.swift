@@ -11,9 +11,7 @@ import Foundation
 class PluginConstants {
     /// Shared method channel name.
     static let channelName = "mlkit_channel"
-    /// Native platform view type.
-    static let cameraPlatformViewName = "mlkit/camera_preview"
-    /// Argument key identifying a Flutter platform view.
+    /// Argument key identifying a logical Flutter widget.
     static let viewIdArgument = "viewId"
     /// Event key containing a recognized barcode.
     static let barcodeArgument = "barcode"
@@ -25,11 +23,17 @@ class PluginConstants {
     static let cropRectArgument = "cropRect"
     /// Argument key containing a recognition type.
     static let typeArgument = "type"
+    /// Method name for absolute zoom changes.
     static let setZoomRatioMethod = "setZoomRatio"
+    /// Method name for desired torch state changes.
     static let toggleFlashMethod = "toggleFlash"
+    /// Method name for starting barcode recognition.
     static let startScanMethod = "startScan"
+    /// Method name for cancelling barcode recognition.
     static let cancelScanMethod = "cancelScan"
+    /// Method name for changing the recognition cooldown.
     static let setScanDelayMethod = "setScanDelay"
+    /// Method name for updating the normalized recognition area.
     static let setCropAreaMethod = "setCropAreaMethod"
     /// Stops native work; Dart decides whether to retain or release controller ownership.
     static let pauseCameraMethod = "pauseCameraMethod"

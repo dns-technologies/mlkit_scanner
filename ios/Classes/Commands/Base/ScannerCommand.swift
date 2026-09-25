@@ -2,6 +2,7 @@ import Flutter
 
 /// Base command abstraction with shared synchronous error handling.
 class ScannerCommand: BaseScannerCommand {
+
     /// Executes a command and reports any thrown validation or scanner error.
     final func execute(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         do {

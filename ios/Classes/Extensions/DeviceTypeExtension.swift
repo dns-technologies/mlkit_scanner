@@ -11,18 +11,19 @@ import AVFoundation
 extension AVCaptureDevice.DeviceType {
     /// Code used for unsupported camera device types.
     static let unsupportedCode = -1
-    
+
     /// Code of type for transmission over the platform channel.
     var code: Int {
         AVCaptureDevice.DeviceType.typeToCode[self] ?? AVCaptureDevice.DeviceType.unsupportedCode
     }
-    
+
     /// Returns the type corresponding to the `code`.
     static func fromCode(_ code: Int) -> AVCaptureDevice.DeviceType? {
         AVCaptureDevice.DeviceType.codeToType[code]
     }
-    
-    static private let typeToCode: [AVCaptureDevice.DeviceType: Int] = {
+
+    /// Stable platform-channel codes indexed by native camera type.
+    private static let typeToCode: [AVCaptureDevice.DeviceType: Int] = {
         var map: [AVCaptureDevice.DeviceType: Int] = [
              .builtInWideAngleCamera: 0,
              .builtInTelephotoCamera: 1,
@@ -35,8 +36,9 @@ extension AVCaptureDevice.DeviceType {
         }
         return map
     }()
-    
-    static private let codeToType: [Int: AVCaptureDevice.DeviceType] = {
+
+    /// Native camera types indexed by their platform-channel codes.
+    private static let codeToType: [Int: AVCaptureDevice.DeviceType] = {
         var map: [Int: AVCaptureDevice.DeviceType] = [:]
         for (type, code) in typeToCode {
             map[code] = type

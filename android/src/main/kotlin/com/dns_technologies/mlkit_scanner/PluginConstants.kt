@@ -5,7 +5,7 @@ internal object PluginConstants {
     /** Shared tag used by Android scanner components. */
     const val LOG_TAG = "MLKIT_SCANNER_PLUGIN"
 
-    /** Argument key identifying the platform view that owns a command or event. */
+    /** Argument key identifying the logical widget that owns a command or event. */
     const val viewIdArgument = "viewId"
 
     /** Event key containing the recognized barcode payload. */
@@ -23,17 +23,27 @@ internal object PluginConstants {
     /** Method channel name used for scanner commands and events. */
     const val channelName = "mlkit_channel"
 
-    /** Platform view type name registered for the native camera preview. */
-    const val cameraPlatformViewName = "mlkit/camera_preview"
-
+    /** Command applying an absolute camera zoom ratio. */
     const val setZoomRatioMethod = "setZoomRatio"
+
+    /** Command applying the desired torch state. */
     const val toggleFlashMethod = "toggleFlash"
+
+    /** Command enabling recognition for the prepared result endpoint. */
     const val startScanMethod = "startScan"
+
+    /** Command stopping recognition and closing its result endpoint. */
     const val cancelScanMethod = "cancelScan"
+
+    /** Command updating the cooldown after successful recognition. */
     const val setScanDelayMethod = "setScanDelay"
+
+    /** Command updating recognition geometry within the preview. */
     const val setCropAreaMethod = "setCropAreaMethod"
+
     /** Stops native work; Dart decides whether to retain or release controller ownership. */
     const val pauseCameraMethod = "pauseCameraMethod"
+
     /** Selects a preview and applies Dart settings on startup, resume or ownership transfer. */
     const val resumeCameraMethod = "resumeCameraMethod"
 

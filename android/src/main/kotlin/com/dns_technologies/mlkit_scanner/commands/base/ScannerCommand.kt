@@ -5,9 +5,8 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 
 /** Base command abstraction for handling a single Dart->native scanner command. */
-internal abstract class ScannerCommand(
-    scannerProvider: () -> Scanner?,
-) : BaseScannerCommand(scannerProvider) {
+internal abstract class ScannerCommand(scannerProvider: () -> Scanner?) :
+    BaseScannerCommand(scannerProvider) {
     /** Executes command body with shared error handling. */
     fun execute(call: MethodCall, result: Result) {
         try {
@@ -18,8 +17,5 @@ internal abstract class ScannerCommand(
     }
 
     /** Command-specific implementation. */
-    protected abstract fun executeCommand(
-        call: MethodCall,
-        result: Result,
-    )
+    protected abstract fun executeCommand(call: MethodCall, result: Result)
 }

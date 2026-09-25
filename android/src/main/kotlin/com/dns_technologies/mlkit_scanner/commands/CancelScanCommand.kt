@@ -6,9 +6,9 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 
 /** Applies a point control to the scanner selected by Dart. */
-internal class CancelScanCommand(
-    scannerProvider: () -> Scanner?,
-) : ScannerCommand(scannerProvider) {
+internal class CancelScanCommand(scannerProvider: () -> Scanner?) :
+    ScannerCommand(scannerProvider) {
+    /** Pauses recognition and acknowledges the selected capture command. */
     override fun executeCommand(call: MethodCall, result: Result) {
         scanner()?.pauseScan()
         success(result)
