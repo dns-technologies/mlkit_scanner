@@ -144,7 +144,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     );
     _applyConfiguration();
     _consumer = _runtime.register(_controller);
-    _controller.previewVisible.addListener(_updateFocusAvailability);
+    _controller.previewVisible.addListener(_updateCaptureReadiness);
     unawaited(_initialize());
   }
 
@@ -167,8 +167,8 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     unawaited(_capture());
   }
 
-  /// Rebuilds focus controls safely when another route changes capture ownership.
-  void _updateFocusAvailability() {
+  /// Rebuilds preview readiness and focus controls when capture ownership changes.
+  void _updateCaptureReadiness() {
     // A different scanner can take ownership while its route is being built.
     // Update this route's feedback after that build, without delaying capture.
     if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
@@ -210,6 +210,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
             builder:
                 (context, preview, _) => CameraPreview(
                   description: preview,
+                  captureReady: _controller.previewVisible.value,
                   frameKey: _previewKey,
                   canRetainFrame: () => _runtime.isCurrent(_controller),
                   paused: configuration.cameraPaused,
@@ -336,7 +337,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller.previewVisible.removeListener(_updateFocusAvailability);
+    _controller.previewVisible.removeListener(_updateCaptureReadiness);
     _controller.dispose();
     super.dispose();
   }

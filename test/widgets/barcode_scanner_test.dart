@@ -15,7 +15,7 @@ void main() {
     setUp(() => h = RuntimeHarness());
     tearDown(() => h.dispose());
     Widget app(Widget child) => MaterialApp(home: Scaffold(body: child));
-    Widget scanner({ValueChanged<Object>? error}) => BarcodeScanner(onScan: (_) {}, onError: error);
+    Widget scanner({Key? key, ValueChanged<Object>? error}) => BarcodeScanner(key: key, onScan: (_) {}, onError: error);
 
     testWidgets('widget registers once while camera startup is pending', (tester) async {
       final start = Completer<void>();
@@ -26,7 +26,7 @@ void main() {
       await tester.pumpWidget(app(scanner()));
       await tester.pump();
       expect(h.methods, contains('resumeCameraMethod'));
-      expect(blackPlaceholder, findsNothing);
+      expect(blackPlaceholder, findsOneWidget);
       expect(h.methods.where((m) => m == 'registerScanner'), hasLength(1));
       start.complete();
       await tester.pump();
@@ -35,8 +35,9 @@ void main() {
       await h.dispose();
     });
 
-    testWidgets('warm next route immediately renders the existing texture', (tester) async {
+    testWidgets('next route hides the existing texture until its capture completes', (tester) async {
       final navigator = GlobalKey<NavigatorState>();
+      const nextKey = ValueKey('next-scanner');
       await tester.pumpWidget(MaterialApp(navigatorKey: navigator, home: Scaffold(body: scanner())));
       await tester.pump();
       await h.send(
@@ -47,16 +48,61 @@ void main() {
       );
       await tester.pump();
       h.calls.clear();
-      unawaited(navigator.currentState!.push(MaterialPageRoute<void>(builder: (_) => Scaffold(body: scanner()))));
+      final started = Completer<void>();
+      h.handler = (call) async {
+        if (call.method == 'resumeCameraMethod') await started.future;
+        return null;
+      };
+      unawaited(navigator.currentState!.push(MaterialPageRoute<void>(builder: (_) => Scaffold(body: scanner(key: nextKey)))));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
-      expect(blackPlaceholder, findsNothing);
-      expect(tester.widgetList<Texture>(find.byType(Texture)).map((texture) => texture.textureId), everyElement(77));
+      final nextCover = find.descendant(of: find.byKey(nextKey), matching: blackPlaceholder);
+      final nextTexture = find.descendant(of: find.byKey(nextKey), matching: find.byType(Texture));
+      expect(nextCover, findsOneWidget);
+      expect(nextTexture, findsNothing);
+      expect(h.methods, contains('resumeCameraMethod'));
+      started.complete();
+      await tester.pump();
+      await tester.pump();
+      expect(nextCover, findsNothing);
+      expect(tester.widget<Texture>(nextTexture).textureId, 77);
       expect(h.methods, isNot(contains('pauseCameraMethod')));
       navigator.currentState!.pop();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       expect(tester.widgetList<Texture>(find.byType(Texture)).map((texture) => texture.textureId), everyElement(77));
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 300));
+      await h.dispose();
+    });
+
+    testWidgets('failed capture on a new route never reveals the previous texture', (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      const nextKey = ValueKey('failed-scanner');
+      final errors = <Object>[];
+      await tester.pumpWidget(MaterialApp(navigatorKey: navigator, home: Scaffold(body: scanner())));
+      await tester.pump();
+      await h.send(
+        const MethodCall('onPreviewState', {
+          'subscriptionId': 'preview',
+          'description': {'textureId': 77, 'width': 1280, 'height': 720, 'rotationDegrees': 0, 'mirrored': false, 'state': 'streaming'},
+        }),
+      );
+      await tester.pump();
+      h.handler = (call) async {
+        if (call.method == 'resumeCameraMethod') throw PlatformException(code: 'start-failed');
+        return null;
+      };
+      unawaited(
+        navigator.currentState!.push(MaterialPageRoute<void>(builder: (_) => Scaffold(body: scanner(key: nextKey, error: errors.add)))),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(errors, hasLength(1));
+      expect(find.descendant(of: find.byKey(nextKey), matching: blackPlaceholder), findsOneWidget);
+      expect(find.descendant(of: find.byKey(nextKey), matching: find.byType(Texture)), findsNothing);
+
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(milliseconds: 300));
       await h.dispose();

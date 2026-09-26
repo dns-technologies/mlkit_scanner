@@ -11,7 +11,7 @@ class FrozenPreview extends StatefulWidget {
   /// Whether to retain a single image until this widget resumes.
   final bool paused;
 
-  /// Whether the native preview has a frame available for retention.
+  /// Whether the current capture and native frame are ready for display and retention.
   final bool ready;
 
   /// Checks ownership at capture time, including deferred post-frame callbacks.
@@ -98,8 +98,8 @@ class FrozenPreviewState extends State<FrozenPreview> {
         if (mounted && widget.paused) retainFrame();
       });
     }
-    if (widget.paused && _image == null && !(widget.canRetainFrame?.call() ?? true)) {
-      return const SizedBox.expand();
+    if (_image == null && (!widget.ready || (widget.paused && !(widget.canRetainFrame?.call() ?? true)))) {
+      return const SizedBox.expand(child: ColoredBox(color: Color(0xFF000000)));
     }
     return Stack(
       fit: StackFit.expand,

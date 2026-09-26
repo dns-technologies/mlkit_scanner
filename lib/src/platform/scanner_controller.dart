@@ -35,7 +35,7 @@ class BarcodeScannerController {
   /// Delivers native torch changes to the owning widget.
   final ValueChanged<bool>? onTorchChanged;
 
-  /// Capture acknowledgment used by focus UI, independent of shared texture state.
+  /// Capture acknowledgment used to reveal this widget's preview and enable focus.
   final _previewVisible = ValueNotifier(false);
 
   /// Synchronous guard against commands or events after dispose is requested.
@@ -48,7 +48,7 @@ class BarcodeScannerController {
   ScannerConfiguration get configuration => _foreground ? _configuration : _configuration.copyWith(scanEnabled: false);
 
   /// Whether this controller completed capture, retained through manual pause.
-  /// The shared texture has its own readiness and may be visible before this.
+  /// The shared texture must also have a frame before the live preview is revealed.
   ValueListenable<bool> get previewVisible => _previewVisible;
 
   /// Creates local configuration; the scanner widget registers camera demand.
@@ -98,7 +98,7 @@ class BarcodeScannerController {
     onTorchChanged?.call(enabled);
   }
 
-  /// Updates this controller's capture acknowledgment without hiding shared pixels.
+  /// Updates readiness for this widget without changing the shared texture lifetime.
   void setPreviewVisible(bool visible) {
     if (_disposed) return;
     _previewVisible.value = visible;

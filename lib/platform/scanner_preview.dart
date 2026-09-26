@@ -26,7 +26,7 @@ class ScannerPreviewDescription {
   /// Whether Flutter must reflect the oriented preview horizontally.
   final bool mirrored;
 
-  /// Controls paused-frame rendering and whether a frame can be retained.
+  /// Controls live preview availability, paused rendering and frame retention.
   final ScannerPreviewStatus status;
 
   /// Source-pixel crop not already applied by the native texture backend.
