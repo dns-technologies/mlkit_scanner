@@ -11,7 +11,10 @@ import androidx.camera.core.FocusMeteringResult
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageInfo
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
 import androidx.camera.core.ZoomState
+import androidx.camera.core.impl.StreamSpec
+import androidx.camera.core.internal.ViewPorts
 import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
@@ -77,6 +80,27 @@ internal class XCameraTest {
         f.start(); f.layout(400, 800); f.layout(800, 400)
         assertEquals(1, f.groups.size); assertEquals(1, f.initialized)
         verify(f.provider, never()).unbindAll()
+    }
+    @Test fun `shared viewport preserves full preview and analysis frames at every rotation`() = withCameraFixture { f ->
+        f.start()
+        val group = f.groups.single()
+        val viewport = requireNotNull(group.viewPort)
+        val preview = group.useCases.filterIsInstance<Preview>().single()
+        val analysis = group.useCases.filterIsInstance<ImageAnalysis>().single()
+        val streams = mapOf(
+            preview to StreamSpec.builder(Size(1920, 1080)).build(),
+            analysis to StreamSpec.builder(Size(1280, 720)).build(),
+        )
+
+        for (rotation in listOf(0, 90, 180, 270)) {
+            val crops = ViewPorts.calculateViewPortRects(
+                AndroidRect(0, 0, 4080, 3060), false, viewport.aspectRatio,
+                rotation, viewport.scaleType, viewport.layoutDirection, streams,
+            )
+
+            assertEquals("Preview crop at $rotation degrees", AndroidRect(0, 0, 1920, 1080), crops[preview])
+            assertEquals("Analysis crop at $rotation degrees", AndroidRect(0, 0, 1280, 720), crops[analysis])
+        }
     }
     @Test fun `surface restore after explicit pause cannot resurrect capture`() = withCameraFixture { f ->
         f.start(); f.surfaceCallback.onSurfaceCleanup(); f.camera.unbind()

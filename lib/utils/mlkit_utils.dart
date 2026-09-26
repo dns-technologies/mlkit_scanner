@@ -9,10 +9,11 @@ abstract class MLKitUtils {
   static Duration _cameraShutdownDelay = const Duration(milliseconds: 300);
 
   /// App-wide delay before releasing resources after the active capture is
-  /// released. Defaults to 300 milliseconds.
+  /// released or manually paused. Defaults to 300 milliseconds.
   ///
   /// The camera keeps streaming without recognition during this grace period.
-  /// Only a new capture cancels shutdown; hidden registrations do not.
+  /// Resuming or acquiring an unpaused capture cancels shutdown. Hidden
+  /// registrations and changes to paused controls do not extend the deadline.
   static Duration get cameraShutdownDelay => _cameraShutdownDelay;
 
   /// Sets the delay used by the next scheduled shutdown. Pending timers keep

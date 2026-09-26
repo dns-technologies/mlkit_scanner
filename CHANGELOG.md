@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Apply `MLKitUtils.cameraShutdownDelay` to manual camera pause, releasing resources after expiry while preserving the widget's snapshot and settings for resume.
+- Preserve the full shared CameraX frame before Flutter's cover crop, avoiding excessive magnification in portrait preview.
 - Reveal live shared preview during capture handoff and settings updates; cover missing, starting or stopped output to hide stale textures. Keep existing paused snapshots visible without configurable placeholders.
 - Preserve the pending hardware-stop barrier when a waiting capture is cancelled, so a replacement cannot start before the previous camera stops.
 - Keep zoom/crop range validation in Dart and native argument decoding in shared typed readers, including checked Float conversion on Android.

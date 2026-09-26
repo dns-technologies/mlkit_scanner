@@ -1051,6 +1051,9 @@ void main() {
     }
 
     testWidgets('paused page takes the warm camera back before resuming after navigation', (tester) async {
+      final original = MLKitUtils.cameraShutdownDelay;
+      addTearDown(() => MLKitUtils.cameraShutdownDelay = original);
+      MLKitUtils.cameraShutdownDelay = const Duration(seconds: 1);
       final navigator = GlobalKey<NavigatorState>();
       late StateSetter updatePage;
       var paused = false;
@@ -1134,6 +1137,54 @@ void main() {
       expect(identical(tester.element(find.byType(Texture)), textureElement), isTrue);
       expect(harness.methods, ['cancelScan', 'subscribeScan', 'startScan']);
       expect(blackPlaceholder, findsNothing);
+      await close(tester);
+    });
+
+    testWidgets('expired manual pause keeps its image while resume waits for disposal and fresh frames', (tester) async {
+      await tester.pumpWidget(page());
+      await tester.pump();
+      await showPreview(tester);
+      await tester.pumpWidget(page(paused: true));
+      await tester.pump();
+      final image = tester.widget<RawImage>(find.byType(RawImage)).image;
+      expect(image, isNotNull);
+      final disposal = Completer<void>();
+      final activation = Completer<void>();
+      harness.handler = (call) async {
+        if (call.method == 'disposeScanner') await disposal.future;
+        if (call.method == 'resumeCameraMethod') await activation.future;
+        return null;
+      };
+      harness.calls.clear();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+      expect(harness.methods, contains('disposeScanner'));
+      expect(tester.widget<RawImage>(find.byType(RawImage)).image, same(image));
+      await tester.pumpWidget(page(paused: true, zoom: 4, flash: false));
+      expect(harness.methods, isNot(contains('openCapture')));
+      await tester.pumpWidget(page(zoom: 4, flash: false));
+      await tester.pump();
+      expect(harness.methods, isNot(contains('openCapture')));
+      expect(tester.widget<RawImage>(find.byType(RawImage)).image, same(image));
+
+      disposal.complete();
+      await tester.pump();
+      final resume = harness.calls.singleWhere((call) => call.method == 'resumeCameraMethod');
+      expect((resume.arguments as Map)['configuration'], allOf(containsPair('zoomRatio', 4.0), containsPair('torchEnabled', false)));
+      expect(tester.widget<RawImage>(find.byType(RawImage)).image, same(image));
+      expect(blackPlaceholder, findsNothing);
+      await harness.send(
+        const MethodCall('onPreviewState', {
+          'subscriptionId': 'preview',
+          'description': {'textureId': 88, 'width': 1280, 'height': 720, 'rotationDegrees': 90, 'mirrored': false, 'state': 'streaming'},
+        }),
+      );
+      await tester.pump();
+      expect(find.byType(RawImage), findsNothing);
+      expect(tester.widget<Texture>(find.byType(Texture)).textureId, 88);
+      activation.complete();
+      await tester.pump();
+      expect(harness.methods, contains('startScan'));
       await close(tester);
     });
 
@@ -1367,7 +1418,10 @@ void main() {
       await close(tester);
     });
 
-    testWidgets('pause retains focus feedback and permits focus on the captured camera', (tester) async {
+    testWidgets('short pause retains focus feedback and permits focus on the captured camera', (tester) async {
+      final original = MLKitUtils.cameraShutdownDelay;
+      addTearDown(() => MLKitUtils.cameraShutdownDelay = original);
+      MLKitUtils.cameraShutdownDelay = const Duration(seconds: 1);
       await mount(tester);
       await tester.longPress(overlay);
       await tester.pump();

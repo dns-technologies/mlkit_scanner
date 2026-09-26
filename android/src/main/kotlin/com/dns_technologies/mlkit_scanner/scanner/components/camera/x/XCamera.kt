@@ -165,7 +165,7 @@ internal class XCamera(
                     val analysis =
                         ImageAnalysis.Builder()
                             .setTargetRotation(rotation)
-                            .setResolutionSelector(RESOLUTION)
+                            .setResolutionSelector(RESOULTION)
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
                     attemptedAnalysis = analysis
@@ -185,7 +185,10 @@ internal class XCamera(
                     val group =
                         UseCaseGroup.Builder()
                             .setViewPort(
-                                ViewPort.Builder(Rational(16, 9), Surface.ROTATION_0).build()
+                                // Keep the shared sensor area; Flutter applies the widget's cover crop.
+                                ViewPort.Builder(Rational(16, 9), Surface.ROTATION_0)
+                                    .setScaleType(ViewPort.FIT)
+                                    .build()
                             )
                             .addUseCase(preview)
                             .addUseCase(analysis)
@@ -224,7 +227,7 @@ internal class XCamera(
     /** Builds the preview and correlates real capture completions with their surface requests. */
     private fun createPreview(start: Start): Preview {
         val builder =
-            Preview.Builder().setTargetRotation(rotation).setResolutionSelector(RESOLUTION)
+            Preview.Builder().setTargetRotation(rotation).setResolutionSelector(RESOULTION)
         Camera2Interop.Extender(builder)
             .setSessionCaptureCallback(
                 object : CameraCaptureSession.CaptureCallback() {
@@ -436,7 +439,7 @@ internal class XCamera(
         }
 
         /** Shared 16:9 resolution preference with a 1280 by 720 target and device fallback. */
-        private val RESOLUTION =
+        private val RESOULTION =
             ResolutionSelector.Builder()
                 .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
                 .setResolutionStrategy(

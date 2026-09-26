@@ -732,6 +732,139 @@ void main() {
       await runtime.dispose();
     });
 
+    testWidgets('manual pause expires on its original deadline despite control updates', (tester) async {
+      final original = MLKitUtils.cameraShutdownDelay;
+      addTearDown(() => MLKitUtils.cameraShutdownDelay = original);
+      MLKitUtils.cameraShutdownDelay = const Duration(milliseconds: 500);
+      final controller = BarcodeScannerController(viewId: 1);
+      runtime.register(controller);
+      final capture = runtime.capture(controller);
+      await tester.pump();
+      await capture;
+      await controller.configure(cameraPaused: true);
+      await tester.pump(const Duration(milliseconds: 400));
+      await controller.configure(zoomRatio: 3);
+      await tester.pump(const Duration(milliseconds: 99));
+      expect(calls.where((c) => c.method == 'disposeScanner'), isEmpty);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      expect(calls.where((c) => c.method == 'disposeScanner'), hasLength(1));
+      expect(runtime.isCurrent(controller), isFalse);
+      await controller.configure(zoomRatio: 4);
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls.where((c) => c.method == 'openCapture'), hasLength(1));
+      controller.dispose();
+      await runtime.dispose();
+    });
+
+    testWidgets('resuming before pause expiry keeps the same capture', (tester) async {
+      final controller = BarcodeScannerController(viewId: 1);
+      runtime.register(controller);
+      final capture = runtime.capture(controller);
+      await tester.pump();
+      await capture;
+      await controller.configure(cameraPaused: true);
+      await tester.pump(const Duration(milliseconds: 299));
+      await controller.configure(cameraPaused: false);
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls.where((c) => c.method == 'disposeScanner'), isEmpty);
+      expect(calls.where((c) => c.method == 'openCapture'), hasLength(1));
+      await controller.configure(cameraPaused: true);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+      expect(calls.where((c) => c.method == 'disposeScanner'), hasLength(1));
+      controller.dispose();
+      await runtime.dispose();
+    });
+
+    testWidgets('a new unpaused owner cancels the previous owners pause timeout', (tester) async {
+      final a = BarcodeScannerController(viewId: 1);
+      final b = BarcodeScannerController(viewId: 2);
+      runtime.register(a);
+      runtime.register(b);
+      final first = runtime.capture(a);
+      await tester.pump();
+      await first;
+      await a.configure(cameraPaused: true);
+      await tester.pump(const Duration(milliseconds: 299));
+      final second = runtime.capture(b);
+      await tester.pump();
+      await second;
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls.where((c) => c.method == 'disposeScanner'), isEmpty);
+      expect(runtime.isCurrent(b), isTrue);
+      a.dispose();
+      b.dispose();
+      await runtime.dispose();
+    });
+
+    testWidgets('manual pause expires even while initial activation is pending', (tester) async {
+      final activation = Completer<void>();
+      handler = (call) async {
+        switch (call.method) {
+          case 'subscribePreview':
+            return {'subscriptionId': 'preview', 'description': null};
+          case 'openCapture':
+            return 'pending-lease';
+          case 'resumeCameraMethod':
+            await activation.future;
+        }
+        return null;
+      };
+      final controller = BarcodeScannerController(viewId: 1);
+      runtime.register(controller);
+      final capture = runtime.capture(controller);
+      await tester.pump();
+      await controller.configure(cameraPaused: true);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+      await capture;
+      expect(calls.where((c) => c.method == 'disposeScanner'), hasLength(1));
+      expect(runtime.isCurrent(controller), isFalse);
+      activation.complete();
+      await tester.pump();
+      expect(controller.captureState.value, ScannerCaptureState.released);
+      expect(calls.where((c) => c.method == 'startScan'), isEmpty);
+      controller.dispose();
+      await runtime.dispose();
+    });
+
+    testWidgets('resuming then pausing during disposal does not restart a cold camera', (tester) async {
+      final controller = BarcodeScannerController(viewId: 1);
+      runtime.register(controller);
+      final first = runtime.capture(controller);
+      await tester.pump();
+      await first;
+      final disposal = Completer<void>();
+      handler = (call) async {
+        if (call.method == 'disposeScanner') await disposal.future;
+        if (call.method == 'subscribePreview') return {'subscriptionId': 'next-preview', 'description': null};
+        if (call.method == 'openCapture') return 'next-lease';
+        return null;
+      };
+      await controller.configure(cameraPaused: true);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+      await controller.configure(cameraPaused: false);
+      final resumed = runtime.capture(controller);
+      await tester.pump();
+      await controller.configure(cameraPaused: true);
+      disposal.complete();
+      await tester.pump();
+      await resumed;
+      await tester.pump(const Duration(seconds: 1));
+      expect(calls.where((c) => c.method == 'openCapture'), hasLength(1));
+      expect(controller.captureState.value, ScannerCaptureState.released);
+      await controller.configure(cameraPaused: false);
+      final next = runtime.capture(controller);
+      await tester.pump();
+      await next;
+      expect(calls.where((c) => c.method == 'openCapture'), hasLength(2));
+      expect(runtime.isCurrent(controller), isTrue);
+      controller.dispose();
+      await runtime.dispose();
+    });
+
     testWidgets('removing the active widget starts the disposal timer', (tester) async {
       final controller = BarcodeScannerController(viewId: 1);
       final consumer = runtime.register(controller);
