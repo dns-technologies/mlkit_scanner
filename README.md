@@ -174,8 +174,8 @@ torch, recognition delay and per-scanner retry.
 
 `onChangeFlashState` reports actual torch changes on iOS. Keep observed torch state
 separate from `flashEnabled` when the UI needs to distinguish desired and actual
-state. Before preview output is available, the scanner fills its entire area
-with solid black.
+state. The preview area remains empty until a texture is registered, then renders
+that texture immediately without a readiness cover.
 
 ### Error handling
 
@@ -255,7 +255,7 @@ Each paused widget keeps its own image from the pause, including after another
 scanner uses the shared camera or native output is temporarily lost. Camera
 handoff waits for a pending image copy before applying the next owner's settings.
 The image is released on resume or widget disposal. Only live previews share
-the current output and may show the placeholder after surface loss.
+the current output and leave the preview area empty after surface loss.
 
 Cold startup, camera switching, permission dialogs and renderer behavior still
 take time. Capture completion does not measure Flutter's first rendered frame.

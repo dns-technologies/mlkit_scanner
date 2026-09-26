@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Remove the black startup placeholder and render registered preview textures immediately, including while the first frame is pending.
 - Preserve the pending hardware-stop barrier when a waiting capture is cancelled, so a replacement cannot start before the previous camera stops.
 - Keep zoom/crop range validation in Dart and native argument decoding in shared typed readers, including checked Float conversion on Android.
 - Batch changed zoom, flash and crop settings into one `updateCameraSettings` platform call, preserving capture ownership and paused preview retention.
@@ -18,7 +19,7 @@
 - Keep widget configuration independent and scope commands/results to native capture leases and subscriptions.
 - Reconcile the latest desired settings instead of accumulating command closures.
 - Release scanner resources from Flutter after 300 ms with no registered widgets; remove native grace timers.
-- Render crop/focus overlays in Flutter and show solid black across the widget before camera preview is available.
+- Render crop/focus overlays in Flutter.
 - Require Flutter 3.29, Dart 3.7 and iOS 12.0 or newer.
 
 ## 0.6.0

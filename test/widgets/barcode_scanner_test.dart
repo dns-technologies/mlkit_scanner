@@ -26,7 +26,7 @@ void main() {
       await tester.pumpWidget(app(scanner()));
       await tester.pump();
       expect(h.methods, contains('resumeCameraMethod'));
-      expect(blackPlaceholder, findsOneWidget);
+      expect(blackPlaceholder, findsNothing);
       expect(h.methods.where((m) => m == 'registerScanner'), hasLength(1));
       start.complete();
       await tester.pump();

@@ -4,26 +4,21 @@ import 'package:mlkit_scanner/platform/scanner_preview.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 void main() {
-  testWidgets('cold and starting outputs fill the preview area with solid black', (tester) async {
-    for (final description in [
-      null,
-      const ScannerPreviewDescription(textureId: 9, size: Size(1280, 720), status: ScannerPreviewStatus.starting),
-    ]) {
-      await tester.pumpWidget(
-        MaterialApp(home: Center(child: SizedBox(width: 240, height: 180, child: CameraPreview(description: description)))),
-      );
-      final placeholder = find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.black);
-      expect(placeholder, findsOneWidget);
-      expect(tester.getSize(placeholder), const Size(240, 180));
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.byType(Texture), findsNothing);
-    }
+  testWidgets('unregistered output leaves the preview area empty', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: Center(child: SizedBox(width: 240, height: 180, child: CameraPreview(description: null)))),
+    );
+    expect(find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.black), findsNothing);
+    expect(tester.getSize(find.byType(CameraPreview)), const Size(240, 180));
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byType(Texture), findsNothing);
   });
-  testWidgets('streaming and paused outputs share the same texture handle', (tester) async {
-    for (final status in [ScannerPreviewStatus.streaming, ScannerPreviewStatus.paused]) {
+  testWidgets('registered output renders its texture during startup, streaming and pause', (tester) async {
+    for (final status in ScannerPreviewStatus.values) {
       await tester.pumpWidget(
         MaterialApp(home: CameraPreview(description: ScannerPreviewDescription(textureId: 9, size: const Size(1280, 720), status: status))),
       );
+      expect(find.byType(Texture), findsOneWidget);
       final texture = tester.widget<Texture>(find.byType(Texture));
       expect(texture.textureId, 9);
       expect(texture.freeze, status == ScannerPreviewStatus.paused);

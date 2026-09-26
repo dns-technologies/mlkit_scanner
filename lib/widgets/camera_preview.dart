@@ -23,20 +23,15 @@ class CameraPreview extends StatelessWidget {
   /// Creates a passive texture renderer without claiming camera ownership.
   const CameraPreview({super.key, required this.description, this.paused = false, this.onError, this.frameKey, this.canRetainFrame});
 
-  /// Applies remaining source crop, rotation and mirroring before cover scaling.
   @override
-  Widget build(BuildContext context) {
-    const placeholder = SizedBox.expand(child: ColoredBox(color: Colors.black));
-    return FrozenPreview(
-      key: frameKey,
-      paused: paused,
-      ready: description != null && description!.status != ScannerPreviewStatus.starting,
-      onError: onError ?? _reportError,
-      canRetainFrame: canRetainFrame,
-      placeholder: placeholder,
-      child: _buildTexture(placeholder),
-    );
-  }
+  Widget build(BuildContext context) => FrozenPreview(
+    key: frameKey,
+    paused: paused,
+    ready: description != null && description!.status != ScannerPreviewStatus.starting,
+    onError: onError ?? _reportError,
+    canRetainFrame: canRetainFrame,
+    child: _buildTexture(),
+  );
 
   /// Reports errors when this internal renderer is used without a scanner owner.
   void _reportError(Object error, StackTrace stack) {
@@ -44,10 +39,10 @@ class CameraPreview extends StatelessWidget {
   }
 
   /// Applies native geometry to the live texture before snapshotting its pixels.
-  Widget _buildTexture(Widget placeholder) {
+  Widget _buildTexture() {
     final preview = description;
-    if (preview == null || preview.status == ScannerPreviewStatus.starting) {
-      return placeholder;
+    if (preview == null) {
+      return const SizedBox.expand();
     }
     Widget image = SizedBox(
       width: preview.size.width,
