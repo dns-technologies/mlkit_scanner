@@ -11,14 +11,11 @@ class FrozenPreview extends StatefulWidget {
   /// Whether to retain a single image until this widget resumes.
   final bool paused;
 
-  /// Whether the child has camera output rather than a loading placeholder.
+  /// Whether the native preview has a frame available for retention.
   final bool ready;
 
   /// Checks ownership at capture time, including deferred post-frame callbacks.
   final bool Function()? canRetainFrame;
-
-  /// Shown when a paused widget has no own frame and cannot read the shared one.
-  final Widget placeholder;
 
   /// Reports image capture failures to the owning scanner.
   final void Function(Object, StackTrace) onError;
@@ -31,7 +28,6 @@ class FrozenPreview extends StatefulWidget {
     required this.ready,
     required this.onError,
     this.canRetainFrame,
-    this.placeholder = const SizedBox(),
   });
 
   /// Creates the owner of the retained GPU image.
@@ -103,7 +99,7 @@ class FrozenPreviewState extends State<FrozenPreview> {
       });
     }
     if (widget.paused && _image == null && !(widget.canRetainFrame?.call() ?? true)) {
-      return widget.placeholder;
+      return const SizedBox.expand();
     }
     return Stack(
       fit: StackFit.expand,
@@ -124,7 +120,7 @@ class FrozenPreviewState extends State<FrozenPreview> {
 
 /// Makes the last painted camera layer available independently of layout dirtiness.
 class _PreviewBoundaryWidget extends SingleChildRenderObjectWidget {
-  /// Whether the next paint contains camera output instead of a placeholder.
+  /// Whether the next paint contains a camera frame eligible for retention.
   final bool ready;
 
   /// Wraps only camera content, never scanner overlays.
