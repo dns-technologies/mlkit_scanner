@@ -146,16 +146,16 @@ place the scanner in a Flutter `Stack` with an `IgnorePointer` overlay.
 | `flashEnabled` | `false` | Desired torch state. |
 | `cropRect` | `null` | Full visible preview; passing `null` again resets the crop. |
 | `camera` | `null` | Default camera. iOS only; passing `null` again restores the default. |
-| `cameraPaused` | `false` | Freezes preview and stops recognition while keeping the camera running. |
+| `cameraPaused` | `false` | Freezes preview and stops recognition; camera resources expire after the shutdown grace period. |
 | `scanning` | `false` | Enables barcode recognition when the scanner can capture. |
 | `scanDelay` | `0` | Milliseconds of cooldown after a successful recognition. |
 
 A scanner displays its preview without recognizing barcodes until `scanning` is
 `true`. Set `scanning: false` to stop recognition while keeping the preview active.
-A manual pause retains the capture and settings; resuming uses the retained
-`scanning` value without reinitializing the camera. Camera controls, including
-flash, zoom and focus, apply immediately while paused; the frozen image stays
-unchanged until resume. Recognition requires both `scanning: true` and
+A manual pause retains the image and settings. Resuming before the shutdown
+deadline reuses the camera; resuming later initializes it again. Camera controls
+apply immediately while the paused capture remains warm. After expiry, settings
+are retained for resume and focus is unavailable. Recognition requires both `scanning: true` and
 `cameraPaused: false`. Changes to `scanDelay` are retained until recognition resumes.
 `scanDelay: 0` removes the successful-result cooldown; failed attempts still
 follow native frame sampling and throttling.
@@ -237,9 +237,9 @@ are applied after it completes. Native capture leases and scan subscriptions
 prevent late results from a previous capture reaching a new owner.
 
 The Flutter runtime releases camera, analyzer and texture resources after **300 ms
-without an active capture** by default. During this grace period, recognition is
+without an unpaused capture** by default. During this grace period, recognition is
 disabled but the camera continues streaming into the shared texture. A new capture
-cancels shutdown; registering a hidden widget does not. Captures arriving during
+cancels shutdown if it is unpaused; registering a hidden widget does not. Captures arriving during
 disposal wait for it to finish and acquire fresh resources. There is no native idle timer.
 
 Configure the app-wide grace period before creating scanner widgets:
@@ -251,10 +251,11 @@ MLKitUtils.cameraShutdownDelay = const Duration(milliseconds: 500);
 `Duration.zero` disables the grace period; negative values throw `ArgumentError`.
 Changes apply to the next scheduled shutdown and do not reschedule a pending timer.
 
-Manual pause retains a separate preview image while keeping the camera enabled,
-including its current zoom and torch state. Native recognition stops, and late results are
-rejected. Resume uses a new recognition subscription within the same capture.
-Pausing during startup lets that startup finish without recognition. A paused
+Manual pause retains a separate preview image and starts the same shutdown timer.
+Native recognition stops, and late results are rejected. Resume before expiry uses
+a new recognition subscription within the same capture. After expiry, the saved
+image remains visible until a fresh stream is ready. Pausing during startup also
+starts the timer, so a pending activation cannot keep the camera alive indefinitely. A paused
 widget can take over another scanner's existing capture demand, including on
 return from a second scanner screen, without physically stopping the camera.
 It remains frozen and does not recognize barcodes until resumed. Without an
@@ -268,8 +269,9 @@ waiting for cold startup. It never uses a stopped shared texture as its snapshot
 Camera handoff and resource disposal wait for pending image copies. Saved images
 are released when live preview resumes or their widget is disposed.
 
-Manual pause keeps its capture active and therefore does not start the idle timer.
-Capture and release remain internal operations, separate from `cameraPaused`.
+Changing controls while paused does not extend the shutdown deadline. Resuming
+before expiry cancels it; pausing again starts a new grace period. Capture and
+release remain internal operations, separate from `cameraPaused`.
 
 Cold startup, camera switching, permission dialogs and renderer behavior still
 take time. Capture completion does not measure Flutter's first rendered frame.

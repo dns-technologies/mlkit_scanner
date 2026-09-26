@@ -45,10 +45,10 @@ class BarcodeScanner extends StatefulWidget {
   /// A non-null value on other platforms is reported through [onError].
   final IosCamera? camera;
 
-  /// Freezes preview and stops recognition, keeping the camera and settings warm.
-  /// Camera controls still apply immediately while the paused image is retained.
-  /// Resuming reuses the capture. Hidden routes release it with a grace period;
-  /// backgrounding the app stops hardware immediately.
+  /// Freezes preview and stops recognition. The camera stays warm only for the
+  /// configured shutdown grace period, then releases resources while keeping the image.
+  /// Resuming after expiry starts the camera with the latest retained settings.
+  /// Backgrounding the app stops hardware immediately.
   final bool cameraPaused;
 
   /// Enables recognition while the camera is active and its route is current.

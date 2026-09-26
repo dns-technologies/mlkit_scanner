@@ -62,11 +62,17 @@ class _ScannerPageState extends State<_ScannerPage> {
   /// Actual torch state reported by iOS, independently of desired settings.
   bool _actualFlashEnabled = false;
 
-  /// Whether the preview uses the smaller demo recognition area.
-  bool _cropEnabled = true;
+  /// Current recognition area; null enables recognition across the full frame.
+  CropRect? _cropRect = const CropRect(scaleHeight: .7, scaleWidth: .7);
+
+  /// Recognition area restored when leaving fullscreen, including a full frame.
+  CropRect? _cropBeforeFullscreen;
 
   /// Cooldown after successful barcode recognition, in milliseconds.
   int _scanDelay = 0;
+
+  /// Whether the existing preview fills the window and hides the settings panel.
+  bool _isFullscreen = false;
 
   /// Cameras returned by native iOS device discovery.
   List<IosCamera> _iosCameras = [];
@@ -129,18 +135,40 @@ class _ScannerPageState extends State<_ScannerPage> {
     });
   }
 
+  /// Switches preview size while preserving the compact mode's recognition area.
+  void _toggleFullscreen() {
+    setState(() {
+      if (_isFullscreen) {
+        _cropRect = _cropBeforeFullscreen;
+        _cropBeforeFullscreen = null;
+      } else {
+        _cropBeforeFullscreen = _cropRect;
+        _cropRect = const CropRect(scaleHeight: .3, scaleWidth: .8);
+      }
+      _isFullscreen = !_isFullscreen;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('MLKit Scanner example')),
-      body: ListView(children: [
-        SizedBox(height: 240, child: _buildPreview()),
-        _buildControls(),
-      ]),
+      appBar: _isFullscreen ? null : AppBar(title: const Text('MLKit Scanner example')),
+      body: LayoutBuilder(
+        builder: (context, constraints) => Column(
+          children: [
+            // Keep the scanner at the same tree location when resizing it.
+            SizedBox(
+              height: _isFullscreen ? constraints.maxHeight : constraints.maxHeight.clamp(0.0, 240.0),
+              child: _buildPreview(),
+            ),
+            if (!_isFullscreen) Expanded(child: SingleChildScrollView(child: _buildControls())),
+          ],
+        ),
+      ),
     );
   }
 
-  /// Renders the scanner preview with a focus gesture hint.
+  /// Renders the scanner preview with a focus hint and fullscreen toggle.
   Widget _buildPreview() {
     final camera = _cameraIndex < 0 ? null : _iosCameras[_cameraIndex];
     return Stack(
@@ -150,7 +178,7 @@ class _ScannerPageState extends State<_ScannerPage> {
           key: _scannerKey,
           zoomRatio: _zoomRatios[_zoomIndex],
           flashEnabled: _flashEnabled,
-          cropRect: _cropEnabled ? const CropRect(scaleHeight: .7, scaleWidth: .7) : null,
+          cropRect: _cropRect,
           camera: camera,
           cameraPaused: _cameraPaused,
           scanning: _scanning,
@@ -160,14 +188,28 @@ class _ScannerPageState extends State<_ScannerPage> {
           onChangeFlashState: (enabled) => setState(() => _actualFlashEnabled = enabled),
         ),
         const IgnorePointer(
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: Padding(
-              padding: EdgeInsets.all(8),
-              child: Text(
-                'Tap to focus / Long press to lock focus',
-                style: TextStyle(color: Colors.white),
+          child: SafeArea(
+            bottom: false,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: EdgeInsets.all(8),
+                child: Text(
+                  'Tap to focus / Long press to lock focus',
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
+            ),
+          ),
+        ),
+        SafeArea(
+          minimum: const EdgeInsets.all(12),
+          child: Align(
+            alignment: Alignment.bottomRight,
+            child: IconButton.filled(
+              tooltip: _isFullscreen ? 'Exit fullscreen' : 'Fullscreen preview',
+              onPressed: _toggleFullscreen,
+              icon: Icon(_isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
             ),
           ),
         ),
@@ -230,8 +272,8 @@ class _ScannerPageState extends State<_ScannerPage> {
               child: Text('Zoom: ${_zoomRatios[_zoomIndex]}x'),
             ),
             TextButton(
-              onPressed: () => setState(() => _cropEnabled = !_cropEnabled),
-              child: Text(_cropEnabled ? 'Use full frame' : 'Use crop'),
+              onPressed: () => setState(() => _cropRect = _cropRect == null ? const CropRect(scaleHeight: .7, scaleWidth: .7) : null),
+              child: Text(_cropRect == null ? 'Use crop' : 'Use full frame'),
             ),
             PopupMenuButton<int>(
               tooltip: 'Set scan delay',

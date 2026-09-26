@@ -43,7 +43,7 @@ class ScannerRuntime {
   /// Preview subscription for the current shared native resource lifetime.
   ScannerResources? _resources;
 
-  /// Cancellable grace period while there is no selected capture.
+  /// Cancellable grace period while capture is absent or manually paused.
   Timer? _idle;
 
   /// Native resource cleanup that new registrations and captures must await.
@@ -141,7 +141,6 @@ class ScannerRuntime {
     if (controller.configuration.cameraPaused && previous?.active != true) {
       return;
     }
-    _cancelIdleDisposal();
     final retention = _retainPreview(previous?.controller);
     late final ScannerCaptureSession session;
     session = ScannerCaptureSession(
@@ -153,6 +152,7 @@ class ScannerRuntime {
     );
     _session = session;
     _lastOwner = controller;
+    _updateIdleDisposal();
     if (previous != null) {
       unawaited(previous.close().catchError(previous.controller.reportError));
       previous.controller.setCaptureState(ScannerCaptureState.released);
@@ -164,7 +164,7 @@ class ScannerRuntime {
       if (identical(_session, session)) {
         _session = null;
         controller.setCaptureState(ScannerCaptureState.released);
-        _scheduleIdleDisposal();
+        _updateIdleDisposal();
         await session.close().catchError(controller.reportError);
         Error.throwWithStackTrace(error, stack);
       }
@@ -182,6 +182,10 @@ class ScannerRuntime {
     await Future.wait([consumer.ready, retention, if (_pause case final pause?) pause.catchError((Object _) {})]);
     await _disposal?.future;
     if (!session.active) return;
+    if (_resources == null && session.controller.configuration.cameraPaused) {
+      await release(session.controller);
+      return;
+    }
     final resources = _resources ??= ScannerResources(_channel, preview);
     try {
       await resources.ready;
@@ -213,9 +217,15 @@ class ScannerRuntime {
     _idle = null;
   }
 
-  /// Only a new capture cancels this deadline; registered hidden widgets do not.
-  void _scheduleIdleDisposal() {
-    if (_disposed || _session != null || _idle != null) return;
+  /// Unpaused capture keeps the camera alive; idle settings never extend its deadline.
+  void _updateIdleDisposal() {
+    final session = _session;
+    if (session != null && !session.controller.configuration.cameraPaused) {
+      _cancelIdleDisposal();
+      return;
+    }
+    if (_disposed || _disposal != null || _idle != null) return;
+    if (_session == null && _resources == null) return;
     _idle = Timer(MLKitUtils.cameraShutdownDelay, () {
       _idle = null;
       unawaited(_disposeResources().catchError(_reportError));
@@ -242,7 +252,7 @@ class ScannerRuntime {
       _pausingSession = session;
     }
     controller.setCaptureState(ScannerCaptureState.released);
-    _scheduleIdleDisposal();
+    _updateIdleDisposal();
     try {
       await closing;
     } finally {
@@ -271,6 +281,7 @@ class ScannerRuntime {
   void configurationChanged(BarcodeScannerController controller) {
     if (!isCurrent(controller)) return;
     _session!.update(controller.configuration, _consumers[controller]!.geometry);
+    _updateIdleDisposal();
   }
 
   /// Publishes the disposal barrier before withdrawing preview and native output.
@@ -278,11 +289,14 @@ class ScannerRuntime {
     if (_disposal case final current?) return current.future;
     final operation = Completer<void>();
     _disposal = operation;
+    final session = _session;
+    final release = session == null ? null : _closeSession(session.controller, pause: false);
     final resources = _resources;
     _resources = null;
     // Stop metadata delivery before notifying widgets that the old output is gone.
     // Native texture disposal still waits for the outgoing image copy.
     final preparation = Future.wait<void>([
+      if (release != null) release,
       if (resources != null) resources.close(),
       if (_previewRetention case final retention?) retention,
       if (_pause case final pause?) pause.catchError((Object _) {}),
