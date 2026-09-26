@@ -1,6 +1,6 @@
 ## Unreleased
 
-- Remove the black startup placeholder and render registered preview textures immediately, including while the first frame is pending.
+- Cover live preview until the current widget's capture and native texture are ready, preventing a new screen from showing a retained texture during startup or after failure. Keep existing paused snapshots visible without configurable placeholders.
 - Preserve the pending hardware-stop barrier when a waiting capture is cancelled, so a replacement cannot start before the previous camera stops.
 - Keep zoom/crop range validation in Dart and native argument decoding in shared typed readers, including checked Float conversion on Android.
 - Batch changed zoom, flash and crop settings into one `updateCameraSettings` platform call, preserving capture ownership and paused preview retention.

@@ -174,8 +174,9 @@ torch, recognition delay and per-scanner retry.
 
 `onChangeFlashState` reports actual torch changes on iOS. Keep observed torch state
 separate from `flashEnabled` when the UI needs to distinguish desired and actual
-state. The preview area remains empty until a texture is registered, then renders
-that texture immediately without a readiness cover.
+state. A black cover remains until this widget's capture has completed activation
+and settings, and the native texture has a frame. A texture retained from another
+screen is not shown while the new capture is starting or after it fails.
 
 ### Error handling
 
@@ -217,8 +218,8 @@ A repeated build with unchanged settings does not require an initialization hook
 
 Each widget retains its own zoom, torch, crop, camera and recognition settings.
 Visible scanners share a camera stream and texture; the selected scanner supplies
-current settings and receives results. Switching routes reuses that output.
-During a transition both widgets can display the same camera image.
+current settings and receives results. Switching routes reuses that output,
+but each screen reveals its live preview only after its own capture is ready.
 
 Opening a dropdown, dialog or modal bottom sheet above the scanner suspends
 recognition while keeping its camera session and live preview. Closing the modal
@@ -255,7 +256,7 @@ Each paused widget keeps its own image from the pause, including after another
 scanner uses the shared camera or native output is temporarily lost. Camera
 handoff waits for a pending image copy before applying the next owner's settings.
 The image is released on resume or widget disposal. Only live previews share
-the current output and leave the preview area empty after surface loss.
+the current output and show the black cover while output is unavailable.
 
 Cold startup, camera switching, permission dialogs and renderer behavior still
 take time. Capture completion does not measure Flutter's first rendered frame.

@@ -4,17 +4,22 @@ import 'package:mlkit_scanner/platform/scanner_preview.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 void main() {
-  testWidgets('unregistered output leaves the preview area empty', (tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(home: Center(child: SizedBox(width: 240, height: 180, child: CameraPreview(description: null)))),
-    );
-    expect(find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.black), findsNothing);
-    expect(tester.getSize(find.byType(CameraPreview)), const Size(240, 180));
-    expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(find.byType(Texture), findsNothing);
+  testWidgets('unregistered and starting outputs cover the preview until a frame is available', (tester) async {
+    for (final description in [
+      null,
+      const ScannerPreviewDescription(textureId: 9, size: Size(1280, 720), status: ScannerPreviewStatus.starting),
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(home: Center(child: SizedBox(width: 240, height: 180, child: CameraPreview(description: description)))),
+      );
+      final cover = find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.black);
+      expect(cover, findsOneWidget);
+      expect(tester.getSize(cover), const Size(240, 180));
+      expect(find.byType(Texture), findsNothing);
+    }
   });
-  testWidgets('registered output renders its texture during startup, streaming and pause', (tester) async {
-    for (final status in ScannerPreviewStatus.values) {
+  testWidgets('streaming and paused outputs render the registered texture', (tester) async {
+    for (final status in [ScannerPreviewStatus.streaming, ScannerPreviewStatus.paused]) {
       await tester.pumpWidget(
         MaterialApp(home: CameraPreview(description: ScannerPreviewDescription(textureId: 9, size: const Size(1280, 720), status: status))),
       );

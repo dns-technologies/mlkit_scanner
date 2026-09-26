@@ -8,6 +8,9 @@ class CameraPreview extends StatelessWidget {
   /// Shared output metadata, or null before native output is registered.
   final ScannerPreviewDescription? description;
 
+  /// Whether this widget's capture has completed activation and settings.
+  final bool captureReady;
+
   /// Retains this widget's own image while the native camera stays warm.
   final bool paused;
 
@@ -21,13 +24,21 @@ class CameraPreview extends StatelessWidget {
   final bool Function()? canRetainFrame;
 
   /// Creates a passive texture renderer without claiming camera ownership.
-  const CameraPreview({super.key, required this.description, this.paused = false, this.onError, this.frameKey, this.canRetainFrame});
+  const CameraPreview({
+    super.key,
+    required this.description,
+    this.captureReady = true,
+    this.paused = false,
+    this.onError,
+    this.frameKey,
+    this.canRetainFrame,
+  });
 
   @override
   Widget build(BuildContext context) => FrozenPreview(
     key: frameKey,
     paused: paused,
-    ready: description != null && description!.status != ScannerPreviewStatus.starting,
+    ready: captureReady && description != null && description!.status != ScannerPreviewStatus.starting,
     onError: onError ?? _reportError,
     canRetainFrame: canRetainFrame,
     child: _buildTexture(),
