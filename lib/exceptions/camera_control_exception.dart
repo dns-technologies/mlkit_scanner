@@ -17,7 +17,6 @@ enum CameraControlOperation {
   /// An operation value not recognized by this plugin version.
   unknown('unknown');
 
-  /// Associates an operation with its stable native transport value.
   const CameraControlOperation(this.wireValue);
 
   /// Value transported through the platform channel.
@@ -34,7 +33,6 @@ enum CameraControlOperation {
 
 /// Original native failure that caused a camera control operation to fail.
 class CameraControlExceptionCause {
-  /// Creates structured native failure information.
   const CameraControlExceptionCause({required this.type, this.message, this.stackTrace});
 
   /// Fully qualified native exception type.
@@ -60,7 +58,6 @@ class CameraControlExceptionCause {
     );
   }
 
-  /// Formats the native exception type and optional message for diagnostics.
   @override
   String toString() => message == null ? type : '$type: $message';
 }
@@ -70,7 +67,6 @@ class CameraControlExceptionCause {
 /// This remains a [PlatformException], so existing callers that catch
 /// [PlatformException] continue to work.
 class CameraControlException extends PlatformException {
-  /// Creates a typed camera control exception.
   CameraControlException({
     required this.operation,
     required this.viewId,
@@ -81,7 +77,6 @@ class CameraControlException extends PlatformException {
     super.stacktrace,
   }) : super(code: errorCode);
 
-  /// Converts a code `9` platform exception into its typed representation.
   factory CameraControlException.fromPlatformException(PlatformException exception) {
     final rawDetails = exception.details as Object?;
     final details = rawDetails is Map ? rawDetails : const <Object?, Object?>{};
@@ -113,7 +108,6 @@ class CameraControlException extends PlatformException {
   /// Native camera-state error code for [CameraControlOperation.awaitOpen].
   final int? cameraStateErrorCode;
 
-  /// Summarizes the operation and native failure context for diagnostics.
   @override
   String toString() {
     final context = <String>[

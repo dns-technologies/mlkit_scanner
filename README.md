@@ -174,9 +174,9 @@ torch, recognition delay and per-scanner retry.
 
 `onChangeFlashState` reports actual torch changes on iOS. Keep observed torch state
 separate from `flashEnabled` when the UI needs to distinguish desired and actual
-state. A black cover remains until this widget's capture has completed activation
-and settings, and the native texture has a frame. A texture retained from another
-screen is not shown while the new capture is starting or after it fails.
+state. A black cover hides missing, starting or stopped camera output until the
+native stream is live. A live shared texture appears immediately during capture
+handoff, without waiting for settings or recognition; zoom changes may be visible.
 
 ### Error handling
 
@@ -219,13 +219,14 @@ A repeated build with unchanged settings does not require an initialization hook
 Each widget retains its own zoom, torch, crop, camera and recognition settings.
 Visible scanners share a camera stream and texture; the selected scanner supplies
 current settings and receives results. Switching routes reuses that output,
-but each screen reveals its live preview only after its own capture is ready.
+and each screen can show the live stream while its own capture is still being configured.
 
 Opening a dropdown, dialog or modal bottom sheet above the scanner suspends
 recognition while keeping its camera session and live preview. Closing the modal
 resumes recognition with the latest settings. If the modal contains a scanner,
 that scanner takes ownership; closing it returns ownership to the page scanner.
-An opaque page hiding the scanner or a background app still pauses camera work.
+An opaque page hiding the scanner releases its capture and starts the grace period.
+Backgrounding the app stops camera work immediately.
 
 Automatic modal tracking follows the scanner's nearest `Navigator`. With nested
 navigators, open the modal on that navigator (`useRootNavigator: false`), or
@@ -236,9 +237,19 @@ are applied after it completes. Native capture leases and scan subscriptions
 prevent late results from a previous capture reaching a new owner.
 
 The Flutter runtime releases camera, analyzer and texture resources after **300 ms
-with zero registered scanner widgets**. Hidden and manually paused widgets still
-count as consumers. A widget arriving during disposal waits for it to finish.
-There is no native idle timer.
+without an active capture** by default. During this grace period, recognition is
+disabled but the camera continues streaming into the shared texture. A new capture
+cancels shutdown; registering a hidden widget does not. Captures arriving during
+disposal wait for it to finish and acquire fresh resources. There is no native idle timer.
+
+Configure the app-wide grace period before creating scanner widgets:
+
+```dart
+MLKitUtils.cameraShutdownDelay = const Duration(milliseconds: 500);
+```
+
+`Duration.zero` disables the grace period; negative values throw `ArgumentError`.
+Changes apply to the next scheduled shutdown and do not reschedule a pending timer.
 
 Manual pause retains a separate preview image while keeping the camera enabled,
 including its current zoom and torch state. Native recognition stops, and late results are
@@ -249,14 +260,16 @@ return from a second scanner screen, without physically stopping the camera.
 It remains frozen and does not recognize barcodes until resumed. Without an
 existing capture, a widget created paused waits for resume before starting one.
 
-Hiding the widget or backgrounding the app still stops hardware. After those
-events or a physical camera switch, activation may be needed again. Capture and
-release remain internal controller operations, separate from `cameraPaused`.
-Each paused widget keeps its own image from the pause, including after another
-scanner uses the shared camera or native output is temporarily lost. Camera
-handoff waits for a pending image copy before applying the next owner's settings.
-The image is released on resume or widget disposal. Only live previews share
-the current output and show the black cover while output is unavailable.
+Each widget saves its own image before releasing capture, including when hidden
+behind a page without a scanner. Returning to that widget keeps its image visible
+through a cold startup, until a live stream is available. A newly created widget
+has no saved image: it immediately shows a warm live stream, or a black cover while
+waiting for cold startup. It never uses a stopped shared texture as its snapshot.
+Camera handoff and resource disposal wait for pending image copies. Saved images
+are released when live preview resumes or their widget is disposed.
+
+Manual pause keeps its capture active and therefore does not start the idle timer.
+Capture and release remain internal operations, separate from `cameraPaused`.
 
 Cold startup, camera switching, permission dialogs and renderer behavior still
 take time. Capture completion does not measure Flutter's first rendered frame.

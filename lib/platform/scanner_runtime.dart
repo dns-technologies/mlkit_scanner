@@ -3,13 +3,14 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:mlkit_scanner/src/platform/scanner_controller.dart';
+import 'package:mlkit_scanner/utils/mlkit_utils.dart';
 
 import 'ml_kit_channel.dart';
 import 'scanner_capture.dart';
 import 'scanner_preview.dart';
 import 'scanner_resources.dart';
 
-/// Widget demand and exclusive camera ownership, independent of the shared texture.
+/// Exclusive capture ownership with a grace period between active clients.
 class ScannerRuntime {
   /// Shared runtime; the channel factory supplies the instance stored in [_channel].
   static ScannerRuntime _instance = ScannerRuntime(MlKitChannel());
@@ -42,10 +43,10 @@ class ScannerRuntime {
   /// Preview subscription for the current shared native resource lifetime.
   ScannerResources? _resources;
 
-  /// Cancellable grace period while there are no registered widgets.
+  /// Cancellable grace period while there is no selected capture.
   Timer? _idle;
 
-  /// Native resource cleanup that new registrations must await.
+  /// Native resource cleanup that new registrations and captures must await.
   Completer<void>? _disposal;
 
   /// Hardware pause that must finish before a replacement capture starts.
@@ -63,7 +64,6 @@ class ScannerRuntime {
   /// Rejects new registrations and idle scheduling after shutdown begins.
   bool _disposed = false;
 
-  /// Stores the supplied channel and subscribes to its events without opening the camera.
   ScannerRuntime(this._channel) {
     _events.add(
       _channel.scanResults.listen((event) {
@@ -83,13 +83,11 @@ class ScannerRuntime {
     );
   }
 
-  /// Only widgets register demand. A controller alone does not keep the camera alive.
+  /// Registers a logical widget without extending the camera lifetime.
   ScannerConsumerRegistration register(BarcodeScannerController controller) {
     if (_disposed || controller.isDisposed) {
       throw StateError('Scanner is disposed');
     }
-    _idle?.cancel();
-    _idle = null;
     return _consumers.putIfAbsent(controller, () {
       final consumer = ScannerConsumerRegistration(this, controller);
       consumer.ready = _register(consumer);
@@ -97,18 +95,9 @@ class ScannerRuntime {
     });
   }
 
-  /// Waits for cleanup, subscribes to preview, then registers a logical widget.
+  /// Registers logical identity; camera resources are acquired by capture only.
   Future<void> _register(ScannerConsumerRegistration consumer) async {
     await _disposal?.future;
-    if (consumer.closed || _disposed) return;
-    final resources = _resources ??= ScannerResources(_channel, preview);
-    try {
-      await resources.ready;
-    } catch (_) {
-      if (identical(_resources, resources)) _resources = null;
-      await resources.close();
-      rethrow;
-    }
     if (consumer.closed || _disposed) return;
     await _channel.registerScanner(consumer.controller.viewId);
     consumer.nativeRegistered = true;
@@ -117,20 +106,13 @@ class ScannerRuntime {
     }
   }
 
-  /// Removes widget demand and schedules cleanup only after the last widget leaves.
+  /// Removes a logical widget, releasing capture only if it still owns one.
   Future<void> unregister(BarcodeScannerController controller) async {
     final consumer = _consumers.remove(controller);
     if (consumer == null) return;
     if (identical(_lastOwner, controller)) _lastOwner = null;
     consumer.closed = true;
-    final release = _closeSession(controller, pause: _consumers.isNotEmpty);
-    if (_consumers.isEmpty && !_disposed) {
-      _idle?.cancel();
-      _idle = Timer(const Duration(milliseconds: 300), () {
-        _idle = null;
-        unawaited(_disposeResources().catchError(_reportError));
-      });
-    }
+    final release = _closeSession(controller, pause: false);
     try {
       await release;
     } finally {
@@ -154,21 +136,13 @@ class ScannerRuntime {
     }
     if (isCurrent(controller)) return;
     final previous = _session;
-    // Pause suppresses preview/recognition, not handoff of existing camera demand.
+    // Manual pause suppresses preview/recognition, not handoff of an active capture.
     // A paused widget alone still waits for resume before starting the camera.
     if (controller.configuration.cameraPaused && previous?.active != true) {
       return;
     }
-    final retention = Future.wait<void>([
-      if (_previewRetention case final pending?) pending,
-      if (previous?.controller.retainPreview case final retain?) retain().catchError(previous!.controller.reportError),
-    ]).then<void>((_) {});
-    _previewRetention = retention;
-    unawaited(
-      retention.then((_) {
-        if (identical(_previewRetention, retention)) _previewRetention = null;
-      }),
-    );
+    _cancelIdleDisposal();
+    final retention = _retainPreview(previous?.controller);
     late final ScannerCaptureSession session;
     session = ScannerCaptureSession(
       channel: _channel,
@@ -181,29 +155,72 @@ class ScannerRuntime {
     _lastOwner = controller;
     if (previous != null) {
       unawaited(previous.close().catchError(previous.controller.reportError));
-      previous.controller.setPreviewVisible(false);
+      previous.controller.setCaptureState(ScannerCaptureState.released);
     }
+    controller.setCaptureState(ScannerCaptureState.starting);
     try {
-      await session.start(
-        Future.wait([
-          consumer.ready,
-          retention,
-          // The releasing owner reports pause failures. A new owner only needs
-          // to wait until that operation ends, without inheriting its error.
-          if (_pause case final pause?) pause.catchError((Object _) {}),
-        ]),
-      );
+      await session.start(_prepareCapture(session, consumer, retention));
     } catch (error, stack) {
       if (identical(_session, session)) {
         _session = null;
+        controller.setCaptureState(ScannerCaptureState.released);
+        _scheduleIdleDisposal();
         await session.close().catchError(controller.reportError);
         Error.throwWithStackTrace(error, stack);
       }
     }
   }
 
-  /// Relinquishes ownership and stops hardware when this widget becomes hidden.
-  Future<void> release(BarcodeScannerController controller) => _closeSession(controller, pause: true);
+  /// Revokes ownership while leaving the stream warm for the next capture.
+  Future<void> release(BarcodeScannerController controller) => _closeSession(controller, pause: false);
+
+  /// Stops hardware immediately when the app leaves the foreground.
+  Future<void> suspend(BarcodeScannerController controller) => _closeSession(controller, pause: true);
+
+  /// Acquires fresh resources after disposal, including for already registered widgets.
+  Future<void> _prepareCapture(ScannerCaptureSession session, ScannerConsumerRegistration consumer, Future<void> retention) async {
+    await Future.wait([consumer.ready, retention, if (_pause case final pause?) pause.catchError((Object _) {})]);
+    await _disposal?.future;
+    if (!session.active) return;
+    final resources = _resources ??= ScannerResources(_channel, preview);
+    try {
+      await resources.ready;
+    } catch (_) {
+      if (identical(_resources, resources)) _resources = null;
+      await resources.close();
+      rethrow;
+    }
+  }
+
+  /// Copies the outgoing owner's pixels before native settings or cleanup change them.
+  Future<void> _retainPreview(BarcodeScannerController? controller) {
+    final retention = Future.wait<void>([
+      if (_previewRetention case final pending?) pending,
+      if (controller != null && !controller.isDisposed)
+        if (controller.retainPreview case final retain?) Future<void>.sync(retain).catchError(controller.reportError),
+    ]).then<void>((_) {});
+    _previewRetention = retention;
+    unawaited(
+      retention.then((_) {
+        if (identical(_previewRetention, retention)) _previewRetention = null;
+      }),
+    );
+    return retention;
+  }
+
+  void _cancelIdleDisposal() {
+    _idle?.cancel();
+    _idle = null;
+  }
+
+  /// Only a new capture cancels this deadline; registered hidden widgets do not.
+  void _scheduleIdleDisposal() {
+    if (_disposed || _session != null || _idle != null) return;
+    _idle = Timer(MLKitUtils.cameraShutdownDelay, () {
+      _idle = null;
+      unawaited(_disposeResources().catchError(_reportError));
+    });
+  }
 
   /// Revokes ownership and keeps an actual pause barrier for subsequent captures.
   Future<void> _closeSession(BarcodeScannerController controller, {required bool pause}) async {
@@ -212,6 +229,7 @@ class ScannerRuntime {
       if (_pausingSession?.controller == controller) await _pause;
       return;
     }
+    _retainPreview(controller);
     _session = null;
     var closing = session.close(pause: pause);
     if (pause) {
@@ -223,7 +241,8 @@ class ScannerRuntime {
       _pause = closing;
       _pausingSession = session;
     }
-    controller.setPreviewVisible(false);
+    controller.setCaptureState(ScannerCaptureState.released);
+    _scheduleIdleDisposal();
     try {
       await closing;
     } finally {
@@ -261,12 +280,19 @@ class ScannerRuntime {
     _disposal = operation;
     final resources = _resources;
     _resources = null;
+    // Stop metadata delivery before notifying widgets that the old output is gone.
+    // Native texture disposal still waits for the outgoing image copy.
+    final preparation = Future.wait<void>([
+      if (resources != null) resources.close(),
+      if (_previewRetention case final retention?) retention,
+      if (_pause case final pause?) pause.catchError((Object _) {}),
+    ]);
     preview.value = null;
     unawaited(
       Future<void>.sync(() async {
         try {
           try {
-            await resources?.close();
+            await preparation;
           } finally {
             await _channel.disposeScanner();
           }
@@ -287,8 +313,7 @@ class ScannerRuntime {
   /// Attempts every cleanup step and then reports the first failure.
   Future<void> _dispose() async {
     _disposed = true;
-    _idle?.cancel();
-    _idle = null;
+    _cancelIdleDisposal();
     Object? failure;
     StackTrace? failureStack;
     for (final controller in _consumers.keys.toList()) {
@@ -324,9 +349,9 @@ class ScannerRuntime {
   );
 }
 
-/// One widget's demand, including while its route is hidden or paused.
+/// One logical widget, independent of the shared native resource lifetime.
 class ScannerConsumerRegistration {
-  /// Runtime that counts and releases this widget's demand.
+  /// Runtime that registers this widget and selects its captures.
   final ScannerRuntime runtime;
 
   /// Controller retaining this widget's configuration and callbacks.
@@ -344,9 +369,8 @@ class ScannerConsumerRegistration {
   /// Records whether native registration needs a matching unregister call.
   bool nativeRegistered = false;
 
-  /// Records one widget's demand and its owning runtime.
   ScannerConsumerRegistration(this.runtime, this.controller);
 
-  /// Releases this widget's demand without disposing other consumers.
+  /// Removes this registration without unregistering other widgets.
   Future<void> close() => runtime.unregister(controller);
 }

@@ -84,6 +84,18 @@ void main() {
     await expectRed(tester, await frozenImage(tester));
   });
 
+  testWidgets('returning owner keeps its snapshot until a new live frame is available', (tester) async {
+    await tester.pumpWidget(preview(color: Colors.red));
+    await tester.pumpWidget(preview(color: Colors.red, paused: true));
+    final image = await frozenImage(tester);
+    await tester.pumpWidget(preview(color: Colors.grey, ready: false));
+    expect(tester.widget<RawImage>(find.byType(RawImage)).image, same(image));
+    await expectRed(tester, image);
+    await tester.pumpWidget(preview(color: Colors.blue));
+    expect(find.byType(RawImage), findsNothing);
+    expect(image.debugDisposed, isTrue);
+  });
+
   testWidgets('handoff before the first camera paint never snapshots loading', (tester) async {
     await tester.pumpWidget(preview(color: Colors.grey, ready: false));
     late Future<void> retention;

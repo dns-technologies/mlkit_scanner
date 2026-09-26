@@ -32,7 +32,6 @@ class ScannerPreviewDescription {
   /// Source-pixel crop not already applied by the native texture backend.
   final Rect? cropRect;
 
-  /// Describes an allocated output without transferring its pixel storage.
   const ScannerPreviewDescription({
     required this.textureId,
     required this.size,
@@ -42,7 +41,6 @@ class ScannerPreviewDescription {
     required this.status,
   });
 
-  /// Validates native metadata before allowing it to reach Flutter layout.
   factory ScannerPreviewDescription.fromJson(Map values) {
     final id = values['textureId'];
     final width = values['width'];

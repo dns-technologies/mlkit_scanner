@@ -20,7 +20,6 @@ class ScannerOverlay extends StatefulWidget {
   /// Requests locked autofocus at the crop center.
   final VoidCallback onLockFocus;
 
-  /// Creates crop decoration and gesture feedback over the shared texture.
   const ScannerOverlay({
     super.key,
     required this.crop,
@@ -30,7 +29,6 @@ class ScannerOverlay extends StatefulWidget {
     required this.onLockFocus,
   });
 
-  /// Creates independent animation state for this widget's focus gestures.
   @override
   State<ScannerOverlay> createState() => _ScannerOverlayState();
 }
@@ -58,7 +56,6 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
   /// Requests static feedback when the user disables animations.
   bool get _disableAnimations => MediaQuery.disableAnimationsOf(context);
 
-  /// Updates platform timing and settles feedback when reduced motion is enabled.
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -70,7 +67,6 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
     }
   }
 
-  /// Clears feedback as soon as this widget stops accepting focus gestures.
   @override
   void didUpdateWidget(ScannerOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -119,7 +115,6 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
     }
   }
 
-  /// Combines gesture admission with independently animated focus painting.
   @override
   Widget build(BuildContext context) => GestureDetector(
     behavior: HitTestBehavior.opaque,
@@ -149,7 +144,6 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
     );
   }
 
-  /// Stops all feedback tickers when the scanner widget leaves the tree.
   @override
   void dispose() {
     _circleAnimation.dispose();
@@ -161,10 +155,8 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
 
 /// Matches Android's AccelerateDecelerateInterpolator used by the old view.
 class _AndroidFocusCurve extends Curve {
-  /// Creates the exact cosine easing used by Android's previous focus view.
   const _AndroidFocusCurve();
 
-  /// Preserves the exact midpoint instead of approximating it with a cubic curve.
   @override
   double transformInternal(double t) => t == .5 ? .5 : (1 - math.cos(math.pi * t)) / 2;
 }
@@ -177,10 +169,8 @@ class _OverlayPainter extends CustomPainter {
   /// Chooses active or idle crop-corner color.
   final bool scanning;
 
-  /// Captures one frame's crop decoration without owning animation state.
   _OverlayPainter(this.crop, this.scanning);
 
-  /// Clips the mask and crop corners to the preview bounds.
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width * (1 + crop.offsetX) / 2, size.height * (1 + crop.offsetY) / 2);
@@ -214,7 +204,6 @@ class _OverlayPainter extends CustomPainter {
     canvas.restore();
   }
 
-  /// Repaints only when crop geometry or recognition state changes.
   @override
   bool shouldRepaint(_OverlayPainter old) => old.crop != crop || old.scanning != scanning;
 }
@@ -242,7 +231,6 @@ class _FocusPainter extends CustomPainter {
   /// Progress from the focus point to the upper-left preview corner.
   final double lockTravel;
 
-  /// Captures visual values evaluated from this widget's animation timelines.
   _FocusPainter({
     required this.crop,
     required this.radius,
@@ -253,7 +241,6 @@ class _FocusPainter extends CustomPainter {
     required this.lockTravel,
   });
 
-  /// Draws the fading circle and moving lock clipped to the preview.
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width * (1 + crop.offsetX) / 2, size.height * (1 + crop.offsetY) / 2);
@@ -277,7 +264,6 @@ class _FocusPainter extends CustomPainter {
     canvas.restore();
   }
 
-  /// Repaints only when geometry or evaluated animation values change.
   @override
   bool shouldRepaint(_FocusPainter old) =>
       old.crop != crop ||

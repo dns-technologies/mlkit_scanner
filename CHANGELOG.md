@@ -1,6 +1,6 @@
 ## Unreleased
 
-- Cover live preview until the current widget's capture and native texture are ready, preventing a new screen from showing a retained texture during startup or after failure. Keep existing paused snapshots visible without configurable placeholders.
+- Reveal live shared preview during capture handoff and settings updates; cover missing, starting or stopped output to hide stale textures. Keep existing paused snapshots visible without configurable placeholders.
 - Preserve the pending hardware-stop barrier when a waiting capture is cancelled, so a replacement cannot start before the previous camera stops.
 - Keep zoom/crop range validation in Dart and native argument decoding in shared typed readers, including checked Float conversion on Android.
 - Batch changed zoom, flash and crop settings into one `updateCameraSettings` platform call, preserving capture ownership and paused preview retention.
@@ -18,7 +18,8 @@
 - Replace per-widget native Platform Views with a shared Flutter camera texture.
 - Keep widget configuration independent and scope commands/results to native capture leases and subscriptions.
 - Reconcile the latest desired settings instead of accumulating command closures.
-- Release scanner resources from Flutter after 300 ms with no registered widgets; remove native grace timers.
+- Release scanner resources after a configurable grace period without an active capture (`MLKitUtils.cameraShutdownDelay`, 300 ms by default). Keep streaming without recognition until a new capture arrives or the deadline expires; hidden registrations do not extend it.
+- Save each outgoing widget's own preview for cold return, while new widgets show only live output or a black startup cover.
 - Render crop/focus overlays in Flutter.
 - Require Flutter 3.29, Dart 3.7 and iOS 12.0 or newer.
 

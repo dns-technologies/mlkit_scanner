@@ -15,10 +15,8 @@ class Barcode {
   /// Format type of the barcode value.
   final BarcodeValueType valueType;
 
-  /// Creates a decoded barcode returned by the native recognizer.
   const Barcode({required this.rawValue, required this.valueType, required this.format, this.displayValue});
 
-  /// Creates a barcode from its platform-channel representation.
   factory Barcode.fromJson(Map<String, dynamic> json) {
     return Barcode(
       rawValue: json['raw_value'],

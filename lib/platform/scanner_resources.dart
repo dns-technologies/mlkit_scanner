@@ -23,7 +23,6 @@ class ScannerResources {
   /// Immediately rejects events once resource cleanup begins.
   bool _closed = false;
 
-  /// Creates a lazily subscribed preview resource owned by the runtime.
   ScannerResources(this.channel, this.preview);
 
   /// Buffers early events so an older subscription reply cannot replace them.

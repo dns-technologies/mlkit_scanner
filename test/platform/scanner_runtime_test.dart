@@ -7,6 +7,7 @@ import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 import 'package:mlkit_scanner/platform/scanner_preview.dart';
 import 'package:mlkit_scanner/platform/scanner_runtime.dart';
 import 'package:mlkit_scanner/src/platform/scanner_controller.dart';
+import 'package:mlkit_scanner/utils/mlkit_utils.dart';
 import '../support/runtime_harness.dart';
 
 void main() {
@@ -464,7 +465,7 @@ void main() {
         if (call.method == 'pauseCameraMethod') await pause.future;
         return null;
       };
-      final release = h.runtime.release(a);
+      final release = h.runtime.suspend(a);
       h.calls.clear();
       final capture = h.runtime.capture(b);
       await RuntimeHarness.flush();
@@ -475,7 +476,7 @@ void main() {
     });
 
     for (final fails in [false, true]) {
-      test('physical release cancels startup and ignores its late reply (failure=$fails)', () async {
+      test('release cancels startup and ignores its late reply (failure=$fails)', () async {
         final start = Completer<void>();
         h.handler = (call) async {
           if (call.method == 'resumeCameraMethod') await start.future;
@@ -668,7 +669,7 @@ void main() {
         }
         return null;
       };
-      await expectLater(h.runtime.release(a), throwsA(isA<PlatformException>()));
+      await expectLater(h.runtime.suspend(a), throwsA(isA<PlatformException>()));
       expect(h.runtime.isCurrent(a), isFalse);
       h.handler = null;
       await h.runtime.capture(a);
@@ -709,11 +710,36 @@ void main() {
       messenger.setMockMethodCallHandler(channel, null);
     });
 
-    testWidgets('only widget consumers own the 300 ms disposal timer', (tester) async {
+    testWidgets('released capture expires even with registered hidden widgets', (tester) async {
+      final controller = BarcodeScannerController(viewId: 1);
+      runtime.register(controller);
+      final capture = runtime.capture(controller);
+      await tester.pump();
+      await capture;
+      await runtime.release(controller);
+      expect(calls.where((c) => c.method == 'pauseCameraMethod'), isEmpty);
+      await tester.pump(const Duration(milliseconds: 299));
+      expect(calls.where((c) => c.method == 'disposeScanner'), isEmpty);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      expect(calls.where((c) => c.method == 'disposeScanner'), hasLength(1));
+      final resumed = runtime.capture(controller);
+      await tester.pump();
+      await resumed;
+      expect(calls.where((c) => c.method == 'subscribePreview'), hasLength(2));
+      expect(runtime.isCurrent(controller), isTrue);
+      controller.dispose();
+      await runtime.dispose();
+    });
+
+    testWidgets('removing the active widget starts the disposal timer', (tester) async {
       final controller = BarcodeScannerController(viewId: 1);
       final consumer = runtime.register(controller);
       await tester.pump();
       await consumer.ready;
+      final capture = runtime.capture(controller);
+      await tester.pump();
+      await capture;
       await consumer.close();
       await tester.pump(const Duration(milliseconds: 299));
       expect(calls.where((c) => c.method == 'disposeScanner'), isEmpty);
@@ -724,16 +750,125 @@ void main() {
       await runtime.dispose();
     });
 
-    testWidgets('new widget cancels expiry even when it is not capturing', (tester) async {
+    testWidgets('shutdown uses the configured delay when the timer is scheduled', (tester) async {
+      final original = MLKitUtils.cameraShutdownDelay;
+      addTearDown(() => MLKitUtils.cameraShutdownDelay = original);
+      MLKitUtils.cameraShutdownDelay = const Duration(seconds: 1);
+      final controller = BarcodeScannerController(viewId: 1);
+      final consumer = runtime.register(controller);
+      await tester.pump();
+      await consumer.ready;
+      final capture = runtime.capture(controller);
+      await tester.pump();
+      await capture;
+      await consumer.close();
+
+      MLKitUtils.cameraShutdownDelay = Duration.zero;
+      await tester.pump(const Duration(milliseconds: 999));
+      expect(calls.where((c) => c.method == 'disposeScanner'), isEmpty);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      expect(calls.where((c) => c.method == 'disposeScanner'), hasLength(1));
+      controller.dispose();
+      await runtime.dispose();
+    });
+
+    testWidgets('zero shutdown delay disposes resources without a grace period', (tester) async {
+      final original = MLKitUtils.cameraShutdownDelay;
+      addTearDown(() => MLKitUtils.cameraShutdownDelay = original);
+      MLKitUtils.cameraShutdownDelay = Duration.zero;
+      final controller = BarcodeScannerController(viewId: 1);
+      final consumer = runtime.register(controller);
+      await tester.pump();
+      await consumer.ready;
+      final capture = runtime.capture(controller);
+      await tester.pump();
+      await capture;
+      await consumer.close();
+
+      await tester.pump(Duration.zero);
+      expect(calls.where((c) => c.method == 'disposeScanner'), hasLength(1));
+      controller.dispose();
+      await runtime.dispose();
+    });
+
+    testWidgets('registration without capture does not extend the grace period', (tester) async {
       final a = BarcodeScannerController(viewId: 1);
       final b = BarcodeScannerController(viewId: 2);
       final first = runtime.register(a);
+      final capture = runtime.capture(a);
       await tester.pump();
+      await capture;
       await first.close();
       await tester.pump(const Duration(milliseconds: 299));
       runtime.register(b);
       await tester.pump(const Duration(seconds: 1));
+      expect(calls.where((c) => c.method == 'disposeScanner'), hasLength(1));
+      a.dispose();
+      b.dispose();
+      await runtime.dispose();
+    });
+
+    testWidgets('new active capture cancels expiry and its release starts a fresh deadline', (tester) async {
+      final a = BarcodeScannerController(viewId: 1);
+      final b = BarcodeScannerController(viewId: 2);
+      runtime.register(a);
+      runtime.register(b);
+      final first = runtime.capture(a);
+      await tester.pump();
+      await first;
+      await runtime.release(a);
+      await tester.pump(const Duration(milliseconds: 299));
+      final second = runtime.capture(b);
+      await tester.pump();
+      await second;
+      await tester.pump(const Duration(seconds: 1));
       expect(calls.where((c) => c.method == 'disposeScanner'), isEmpty);
+      expect(calls.where((c) => c.method == 'subscribePreview'), hasLength(1));
+      await runtime.release(b);
+      await tester.pump(const Duration(milliseconds: 299));
+      expect(calls.where((c) => c.method == 'disposeScanner'), isEmpty);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      expect(calls.where((c) => c.method == 'disposeScanner'), hasLength(1));
+      a.dispose();
+      b.dispose();
+      await runtime.dispose();
+    });
+
+    testWidgets('capture during snapshot disposal waits and cannot revive the old preview', (tester) async {
+      final retention = Completer<void>();
+      final a = BarcodeScannerController(viewId: 1, retainPreview: () => retention.future);
+      final b = BarcodeScannerController(viewId: 2);
+      runtime.register(a);
+      runtime.register(b);
+      final first = runtime.capture(a);
+      await tester.pump();
+      await first;
+      await runtime.release(a);
+      await tester.pump(const Duration(milliseconds: 300));
+      final second = runtime.capture(b);
+      await tester.pump();
+      await messenger.handlePlatformMessage(
+        'mlkit_channel',
+        const StandardMethodCodec().encodeMethodCall(
+          const MethodCall('onPreviewState', {
+            'subscriptionId': 'preview',
+            'description': {'textureId': 42, 'width': 100, 'height': 100, 'rotationDegrees': 0, 'mirrored': false, 'state': 'streaming'},
+          }),
+        ),
+        (_) {},
+      );
+      await tester.pump();
+      expect(runtime.preview.value, isNull);
+      expect(calls.where((c) => c.method == 'disposeScanner'), isEmpty);
+      expect(calls.where((c) => c.method == 'resumeCameraMethod'), hasLength(1));
+      retention.complete();
+      await tester.pump();
+      await second;
+      expect(calls.where((c) => c.method == 'disposeScanner'), hasLength(1));
+      expect(calls.where((c) => c.method == 'subscribePreview'), hasLength(2));
+      expect(runtime.isCurrent(b), isTrue);
       a.dispose();
       b.dispose();
       await runtime.dispose();
@@ -762,7 +897,9 @@ void main() {
     testWidgets('registration during disposal waits for the actual operation', (tester) async {
       final a = BarcodeScannerController(viewId: 1);
       final first = runtime.register(a);
+      final capture = runtime.capture(a);
       await tester.pump();
+      await capture;
       await first.close();
       final disposal = Completer<void>();
       handler = (call) async {
@@ -790,17 +927,23 @@ void main() {
       final a = BarcodeScannerController(viewId: 1);
       final b = BarcodeScannerController(viewId: 2);
       final first = runtime.register(a);
+      final capture = runtime.capture(a);
       await tester.pump();
+      await capture;
       runtime.preview.value = const ScannerPreviewDescription(textureId: 42, size: Size(100, 100), status: ScannerPreviewStatus.streaming);
       await first.close();
       final disposal = Completer<void>();
       handler = (call) async {
         if (call.method == 'disposeScanner') await disposal.future;
         if (call.method == 'subscribePreview') return {'subscriptionId': 'next-preview', 'description': null};
+        if (call.method == 'openCapture') return 'next-lease';
         return null;
       };
       void registerReplacement() {
-        if (runtime.preview.value == null) runtime.register(b);
+        if (runtime.preview.value == null) {
+          runtime.register(b);
+          unawaited(runtime.capture(b));
+        }
       }
 
       runtime.preview.addListener(registerReplacement);
@@ -851,7 +994,8 @@ void main() {
     });
 
     test('events from an obsolete preview subscription cannot replace current output', () async {
-      h.controller(1);
+      final controller = h.controller(1);
+      unawaited(h.runtime.capture(controller));
       await RuntimeHarness.flush();
       await h.send(MethodCall('onPreviewState', {'subscriptionId': 'preview', 'description': description(42)}));
       await h.send(const MethodCall('onPreviewState', {'subscriptionId': 'obsolete', 'description': null}));
@@ -864,7 +1008,8 @@ void main() {
         if (call.method == 'subscribePreview') return reply.future;
         return null;
       };
-      h.controller(1);
+      final controller = h.controller(1);
+      unawaited(h.runtime.capture(controller));
       await RuntimeHarness.flush();
       await h.send(MethodCall('onPreviewState', {'subscriptionId': 'early', 'description': description(7)}));
       reply.complete({'subscriptionId': 'early', 'description': null});
