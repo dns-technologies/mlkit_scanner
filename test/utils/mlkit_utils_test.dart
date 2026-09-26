@@ -13,6 +13,15 @@ void main() {
   group('$MLKitUtils', () {
     tearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
+    test('negative camera shutdown delay is rejected without changing the setting', () {
+      final original = MLKitUtils.cameraShutdownDelay;
+      addTearDown(() => MLKitUtils.cameraShutdownDelay = original);
+      MLKitUtils.cameraShutdownDelay = const Duration(seconds: 1);
+
+      expect(() => MLKitUtils.cameraShutdownDelay = const Duration(microseconds: -1), throwsArgumentError);
+      expect(MLKitUtils.cameraShutdownDelay, const Duration(seconds: 1));
+    });
+
     test('getIosAvailableCameras delegates to the channel and decodes values', () async {
       final calls = <MethodCall>[];
       messenger.setMockMethodCallHandler(channel, (call) async {

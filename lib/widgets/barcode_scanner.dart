@@ -47,7 +47,8 @@ class BarcodeScanner extends StatefulWidget {
 
   /// Freezes preview and stops recognition, keeping the camera and settings warm.
   /// Camera controls still apply immediately while the paused image is retained.
-  /// Resuming reuses the capture; hiding the widget or app still stops hardware.
+  /// Resuming reuses the capture. Hidden routes release it with a grace period;
+  /// backgrounding the app stops hardware immediately.
   final bool cameraPaused;
 
   /// Enables recognition while the camera is active and its route is current.
@@ -57,7 +58,6 @@ class BarcodeScanner extends StatefulWidget {
   /// Successful-recognition cooldown in milliseconds, from 0 to 2147483647.
   final int scanDelay;
 
-  /// Creates a scanner controlled by widget parameters, including later rebuilds.
   const BarcodeScanner({
     required this.onScan,
     this.zoomRatio = 1,
@@ -83,7 +83,6 @@ class BarcodeScanner extends StatefulWidget {
     scanDelay: scanDelay,
   );
 
-  /// Creates the widget registration and lifecycle owner for this scanner.
   @override
   State<BarcodeScanner> createState() => _BarcodeScannerState();
 }
@@ -93,7 +92,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   /// Allocates real widget identifiers, independently of camera lifetimes.
   static int _nextViewId = 0;
 
-  /// Shared owner of camera resources and registered widget demand.
+  /// Shared owner of camera resources and logical widget registrations.
   final _runtime = ScannerRuntime.instance;
 
   /// Retained settings and guarded native callbacks for this widget.
@@ -102,7 +101,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   /// Retained preview whose rasterization must finish before camera handoff.
   final _previewKey = GlobalKey<FrozenPreviewState>();
 
-  /// Widget demand kept alive even while its route is hidden or paused.
+  /// Logical registration retained while the route is hidden or paused.
   late final ScannerConsumerRegistration _consumer;
 
   /// Whether ticker and application visibility permit retaining camera work.
@@ -130,7 +129,6 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
       _validConfiguration &&
       !_runtime.isCurrent(_controller);
 
-  /// Registers widget demand and routes events to the latest widget callbacks.
   @override
   void initState() {
     super.initState();
@@ -140,11 +138,11 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
       onScan: (value) => widget.onScan(value),
       onTorchChanged: (value) => widget.onChangeFlashState?.call(value),
       onError: _report,
-      retainPreview: _retainPausedPreview,
+      retainPreview: _retainPreview,
     );
     _applyConfiguration();
     _consumer = _runtime.register(_controller);
-    _controller.previewVisible.addListener(_updateCaptureReadiness);
+    _controller.captureState.addListener(_updateCaptureState);
     unawaited(_initialize());
   }
 
@@ -158,7 +156,6 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     }
   }
 
-  /// Publishes updated parameters without replacing this widget's registration.
   @override
   void didUpdateWidget(covariant BarcodeScanner oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -167,8 +164,8 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     unawaited(_capture());
   }
 
-  /// Rebuilds preview readiness and focus controls when capture ownership changes.
-  void _updateCaptureReadiness() {
+  /// Rebuilds retained preview and focus controls when capture ownership changes.
+  void _updateCaptureState() {
     // A different scanner can take ownership while its route is being built.
     // Update this route's feedback after that build, without delaying capture.
     if (WidgetsBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
@@ -192,7 +189,6 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     }
   }
 
-  /// Combines the shared texture with this widget's crop and focus controls.
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
@@ -210,17 +206,16 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
             builder:
                 (context, preview, _) => CameraPreview(
                   description: preview,
-                  captureReady: _controller.previewVisible.value,
                   frameKey: _previewKey,
                   canRetainFrame: () => _runtime.isCurrent(_controller),
-                  paused: configuration.cameraPaused,
+                  paused: configuration.cameraPaused || _controller.captureState.value == ScannerCaptureState.released,
                   onError: _report,
                 ),
           ),
           ScannerOverlay(
             crop: configuration.cropRect ?? const CropRect(),
             scanning: cameraActive && configuration.scanEnabled,
-            focusEnabled: _controller.previewVisible.value && _canFocus,
+            focusEnabled: _controller.captureState.value == ScannerCaptureState.ready && _canFocus,
             onFocus: () => _focus(false),
             onLockFocus: () => _focus(true),
           ),
@@ -229,12 +224,8 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     },
   );
 
-  /// Preserves paused pixels before camera controls or ownership changes.
-  Future<void> _retainPausedPreview() async {
-    if (_controller.configuration.cameraPaused) {
-      await _previewKey.currentState?.retainFrame();
-    }
-  }
+  /// Saves this widget's painted pixels before another capture changes the stream.
+  Future<void> _retainPreview() async => _previewKey.currentState?.retainFrame();
 
   /// Forwards a gesture only if this visible widget still owns the camera.
   void _focus(bool locked) {
@@ -274,28 +265,24 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     }
   }
 
-  /// Reevaluates ownership after route or TickerMode changes.
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _syncVisibility();
   }
 
-  /// Restores visibility tracking when this state is reinserted into the tree.
   @override
   void activate() {
     super.activate();
     _syncVisibility();
   }
 
-  /// Stops admitting visible-widget work while this state is outside the tree.
   @override
   void deactivate() {
     _active = false;
     super.deactivate();
   }
 
-  /// Updates camera ownership and clears feedback when the app leaves foreground.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _syncVisibility(deferRelease: false);
@@ -303,7 +290,7 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   }
 
   /// Keeps preview beneath popups, suspending only recognition until uncovered.
-  /// Hidden pages and background apps release hardware after possible handoff.
+  /// Hidden pages enter the grace period; background apps stop hardware immediately.
   void _syncVisibility({bool deferRelease = true}) {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     final route = ModalRoute.of(context);
@@ -323,21 +310,22 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
       WidgetsBinding.instance.addPostFrameCallback((_) => _releaseIfHidden());
     } else {
       // A background app may render no further frame to run a deferred release.
-      _releaseIfHidden();
+      if (_runtime.isCurrent(_controller)) {
+        unawaited(_runtime.suspend(_controller).catchError(_report));
+      }
     }
   }
 
-  /// Stops hardware only if this hidden widget still owns the shared camera.
+  /// Releases hidden ownership without stopping the stream during the grace period.
   void _releaseIfHidden() {
     if (!mounted || _active || !_runtime.isCurrent(_controller)) return;
     unawaited(_controller.release().catchError(_report));
   }
 
-  /// Removes lifecycle listeners and releases widget demand.
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller.previewVisible.removeListener(_updateCaptureReadiness);
+    _controller.captureState.removeListener(_updateCaptureState);
     _controller.dispose();
     super.dispose();
   }

@@ -26,9 +26,6 @@ class CropRect {
   /// `-1` moves its center to the top edge.
   final double offsetY;
 
-  /// Creates a normalized recognition rectangle.
-  ///
-  /// Width and height scales must be positive when sent to the native plugin.
   const CropRect({this.scaleWidth = 1, this.scaleHeight = 1, this.offsetX = 0, this.offsetY = 0});
 
   /// Whether scales are positive and all coordinates are finite.

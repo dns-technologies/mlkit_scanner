@@ -55,10 +55,8 @@ class MlKitChannel {
   /// Preview metadata changes for all live native output subscriptions.
   Stream<PreviewEvent> get previewEvents => _previews.stream;
 
-  /// Returns the shared channel instance used by all scanner widgets.
   factory MlKitChannel() => _instance ??= MlKitChannel._();
 
-  /// Creates the shared channel and registers callbacks from native platforms.
   MlKitChannel._() {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onPreviewState') {

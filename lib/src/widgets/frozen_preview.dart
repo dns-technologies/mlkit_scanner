@@ -8,10 +8,10 @@ class FrozenPreview extends StatefulWidget {
   /// Camera pixels after crop, rotation and fitting, without scanner controls.
   final Widget child;
 
-  /// Whether to retain a single image until this widget resumes.
+  /// Whether to hold this widget's image while paused or without capture ownership.
   final bool paused;
 
-  /// Whether the current capture and native frame are ready for display and retention.
+  /// Whether native pixels are ready for display and retention.
   final bool ready;
 
   /// Checks ownership at capture time, including deferred post-frame callbacks.
@@ -20,7 +20,6 @@ class FrozenPreview extends StatefulWidget {
   /// Reports image capture failures to the owning scanner.
   final void Function(Object, StackTrace) onError;
 
-  /// Creates a per-widget frame owner without changing the camera lifetime.
   const FrozenPreview({
     super.key,
     required this.child,
@@ -30,7 +29,6 @@ class FrozenPreview extends StatefulWidget {
     this.canRetainFrame,
   });
 
-  /// Creates the owner of the retained GPU image.
   @override
   State<FrozenPreview> createState() => FrozenPreviewState();
 }
@@ -49,16 +47,15 @@ class FrozenPreviewState extends State<FrozenPreview> {
   /// Acknowledgment that the current capture succeeded or reported its error.
   Future<void>? _ready;
 
-  /// Captures the previous paint before a pause rebuild can replace its layers.
   @override
   void didUpdateWidget(covariant FrozenPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!widget.paused) {
+    if (!widget.paused && widget.ready) {
       _image?.dispose();
       _image = null;
       _capture = null;
       _ready = null;
-    } else if (oldWidget.ready) {
+    } else if (widget.paused && oldWidget.ready) {
       retainFrame();
     }
   }
@@ -90,7 +87,6 @@ class FrozenPreviewState extends State<FrozenPreview> {
     );
   }
 
-  /// Keeps the live child mounted while only the retained image is painted.
   @override
   Widget build(BuildContext context) {
     if (widget.paused && widget.ready && _capture == null) {
@@ -110,7 +106,6 @@ class FrozenPreviewState extends State<FrozenPreview> {
     );
   }
 
-  /// Releases retained pixels even when a paused route is removed directly.
   @override
   void dispose() {
     _image?.dispose();
@@ -123,14 +118,11 @@ class _PreviewBoundaryWidget extends SingleChildRenderObjectWidget {
   /// Whether the next paint contains a camera frame eligible for retention.
   final bool ready;
 
-  /// Wraps only camera content, never scanner overlays.
   const _PreviewBoundaryWidget({super.key, required super.child, required this.ready});
 
-  /// Creates a boundary that remembers the dimensions of its last paint.
   @override
   RenderObject createRenderObject(BuildContext context) => _PreviewBoundary(ready);
 
-  /// Associates readiness with the next actual paint, not the previous layers.
   @override
   void updateRenderObject(BuildContext context, _PreviewBoundary renderObject) {
     renderObject.ready = ready;
@@ -155,10 +147,8 @@ class _PreviewBoundary extends RenderRepaintBoundary {
   /// Dimensions belonging to the retained layer, before any pending relayout.
   Size? _paintedSize;
 
-  /// Creates a camera-only snapshot boundary.
   _PreviewBoundary(this._ready);
 
-  /// Records geometry only after the camera content has been painted.
   @override
   void paint(PaintingContext context, Offset offset) {
     super.paint(context, offset);

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mlkit_scanner/src/platform/scanner_controller.dart';
 
 import '../support/runtime_harness.dart';
 
@@ -34,11 +35,11 @@ void main() {
     final update = h.calls.singleWhere((call) => call.method == 'updateCameraSettings');
     expect(update.arguments, {'captureId': h.leases[1], 'zoomRatio': 4.0});
     expect(completed, isFalse);
-    expect(controller.previewVisible.value, isFalse);
+    expect(controller.captureState.value == ScannerCaptureState.ready, isFalse);
 
     settings.complete();
     await capture;
-    expect(controller.previewVisible.value, isTrue);
+    expect(controller.captureState.value == ScannerCaptureState.ready, isTrue);
   });
 
   for (final replace in [false, true]) {
@@ -70,10 +71,10 @@ void main() {
       settings.completeError(PlatformException(code: 'obsolete-settings'));
       await RuntimeHarness.flush();
 
-      expect(first.previewVisible.value, isFalse);
+      expect(first.captureState.value == ScannerCaptureState.ready, isFalse);
       expect(h.runtime.isCurrent(first), isFalse);
       expect(h.runtime.isCurrent(second), replace);
-      expect(second.previewVisible.value, replace);
+      expect(second.captureState.value == ScannerCaptureState.ready, replace);
       expect(h.errors, isEmpty);
     });
   }
@@ -90,11 +91,11 @@ void main() {
           if (call.method == 'pauseCameraMethod') await stopped.future;
           return null;
         };
-        final release = h.runtime.release(first);
+        final release = h.runtime.suspend(first);
         final releaseResult = expectLater(release, stopFails ? throwsA(isA<PlatformException>()) : completes);
         final skipped = h.runtime.capture(waiting);
         await RuntimeHarness.flush();
-        final canceled = cancelWaiting ? h.runtime.release(waiting) : Future<void>.value();
+        final canceled = cancelWaiting ? h.runtime.suspend(waiting) : Future<void>.value();
         final capture = h.runtime.capture(latest);
         await latest.configure(zoomRatio: 4);
         await RuntimeHarness.flush();
@@ -115,8 +116,8 @@ void main() {
         expect(activations, hasLength(2));
         expect(activations.last.arguments, containsPair('captureId', h.leases[3]));
         expect((activations.last.arguments as Map)['configuration'], containsPair('zoomRatio', 4.0));
-        expect(waiting.previewVisible.value, isFalse);
-        expect(latest.previewVisible.value, isTrue);
+        expect(waiting.captureState.value == ScannerCaptureState.ready, isFalse);
+        expect(latest.captureState.value == ScannerCaptureState.ready, isTrue);
         expect(h.errors, isEmpty);
       });
     }

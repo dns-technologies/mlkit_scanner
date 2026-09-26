@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
+import 'package:mlkit_scanner/src/widgets/frozen_preview.dart';
 import 'package:mlkit_scanner/widgets/scanner_overlay.dart';
 import '../support/runtime_harness.dart';
 
@@ -35,10 +36,48 @@ void main() {
       await h.dispose();
     });
 
-    testWidgets('next route hides the existing texture until its capture completes', (tester) async {
+    testWidgets('first live frame reveals preview before startup and settings complete', (tester) async {
+      final activation = Completer<void>();
+      final settings = Completer<void>();
+      h.handler = (call) async {
+        if (call.method == 'resumeCameraMethod') await activation.future;
+        if (call.method == 'updateCameraSettings') await settings.future;
+        return null;
+      };
+      Widget page(double zoom) => app(BarcodeScanner(onScan: (_) {}, zoomRatio: zoom));
+      await tester.pumpWidget(page(1));
+      await tester.pump();
+      expect(h.methods, contains('resumeCameraMethod'));
+      for (final state in ['paused', 'starting', 'streaming']) {
+        await h.send(
+          MethodCall('onPreviewState', {
+            'subscriptionId': 'preview',
+            'description': {'textureId': 77, 'width': 1280, 'height': 720, 'rotationDegrees': 0, 'mirrored': false, 'state': state},
+          }),
+        );
+        await tester.pump();
+        expect(blackPlaceholder, state == 'streaming' ? findsNothing : findsOneWidget);
+        expect(find.byType(Texture), state == 'streaming' ? findsOneWidget : findsNothing);
+      }
+
+      await tester.pumpWidget(page(2));
+      activation.complete();
+      await tester.pump();
+      expect(h.methods, contains('updateCameraSettings'));
+      expect(blackPlaceholder, findsNothing);
+      expect(tester.widget<Texture>(find.byType(Texture)).textureId, 77);
+      settings.complete();
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 300));
+      await h.dispose();
+    });
+
+    testWidgets('warm navigation in both directions shows the stream while capture is pending', (tester) async {
       final navigator = GlobalKey<NavigatorState>();
+      const firstKey = ValueKey('first-scanner');
       const nextKey = ValueKey('next-scanner');
-      await tester.pumpWidget(MaterialApp(navigatorKey: navigator, home: Scaffold(body: scanner())));
+      await tester.pumpWidget(MaterialApp(navigatorKey: navigator, home: Scaffold(body: scanner(key: firstKey))));
       await tester.pump();
       await h.send(
         const MethodCall('onPreviewState', {
@@ -58,8 +97,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       final nextCover = find.descendant(of: find.byKey(nextKey), matching: blackPlaceholder);
       final nextTexture = find.descendant(of: find.byKey(nextKey), matching: find.byType(Texture));
-      expect(nextCover, findsOneWidget);
-      expect(nextTexture, findsNothing);
+      expect(nextCover, findsNothing);
+      expect(tester.widget<Texture>(nextTexture).textureId, 77);
       expect(h.methods, contains('resumeCameraMethod'));
       started.complete();
       await tester.pump();
@@ -67,16 +106,31 @@ void main() {
       expect(nextCover, findsNothing);
       expect(tester.widget<Texture>(nextTexture).textureId, 77);
       expect(h.methods, isNot(contains('pauseCameraMethod')));
+      final returned = Completer<void>();
+      h.handler = (call) async {
+        if (call.method == 'resumeCameraMethod') await returned.future;
+        return null;
+      };
+      h.calls.clear();
       navigator.currentState!.pop();
       await tester.pump();
+      final firstCover = find.descendant(of: find.byKey(firstKey), matching: blackPlaceholder);
+      final firstTexture = find.descendant(of: find.byKey(firstKey), matching: find.byType(Texture));
+      expect(firstCover, findsNothing);
+      expect(tester.widget<Texture>(firstTexture).textureId, 77);
       await tester.pump(const Duration(milliseconds: 350));
-      expect(tester.widgetList<Texture>(find.byType(Texture)).map((texture) => texture.textureId), everyElement(77));
+      expect(h.methods, contains('resumeCameraMethod'));
+      expect(h.methods, isNot(contains('pauseCameraMethod')));
+      expect(firstCover, findsNothing);
+      expect(tester.widget<Texture>(firstTexture).textureId, 77);
+      returned.complete();
+      await tester.pump();
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(milliseconds: 300));
       await h.dispose();
     });
 
-    testWidgets('failed capture on a new route never reveals the previous texture', (tester) async {
+    testWidgets('failed capture on a new route never reveals a stopped texture', (tester) async {
       final navigator = GlobalKey<NavigatorState>();
       const nextKey = ValueKey('failed-scanner');
       final errors = <Object>[];
@@ -85,7 +139,7 @@ void main() {
       await h.send(
         const MethodCall('onPreviewState', {
           'subscriptionId': 'preview',
-          'description': {'textureId': 77, 'width': 1280, 'height': 720, 'rotationDegrees': 0, 'mirrored': false, 'state': 'streaming'},
+          'description': {'textureId': 77, 'width': 1280, 'height': 720, 'rotationDegrees': 0, 'mirrored': false, 'state': 'paused'},
         }),
       );
       await tester.pump();
@@ -108,15 +162,124 @@ void main() {
       await h.dispose();
     });
 
-    testWidgets('hidden registered widget prevents the zero-consumer disposal timer', (tester) async {
+    testWidgets('hidden registered widget allows resources to expire', (tester) async {
       final key = GlobalKey();
       Widget page(bool enabled) => app(TickerMode(enabled: enabled, child: BarcodeScanner(key: key, onScan: (_) {})));
       await tester.pumpWidget(page(true));
       await tester.pump();
       await tester.pumpWidget(page(false));
       await tester.pump(const Duration(seconds: 1));
-      expect(h.methods, contains('pauseCameraMethod'));
-      expect(h.methods, isNot(contains('disposeScanner')));
+      expect(h.methods, isNot(contains('pauseCameraMethod')));
+      expect(h.methods, contains('disposeScanner'));
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 300));
+      await h.dispose();
+    });
+
+    for (final cold in [false, true]) {
+      testWidgets('new scanner after an intervening plain page uses only live output (cold=$cold)', (tester) async {
+        final navigator = GlobalKey<NavigatorState>();
+        const nextKey = ValueKey('new-scanner');
+        Route<void> route(Widget child) => PageRouteBuilder<void>(
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (_, _, _) => Scaffold(body: child),
+        );
+        await tester.pumpWidget(MaterialApp(navigatorKey: navigator, home: Scaffold(body: scanner())));
+        await tester.pump();
+        await h.send(
+          const MethodCall('onPreviewState', {
+            'subscriptionId': 'preview',
+            'description': {'textureId': 77, 'width': 1280, 'height': 720, 'rotationDegrees': 0, 'mirrored': false, 'state': 'streaming'},
+          }),
+        );
+        await tester.pump();
+        final oldPreview = tester.state<FrozenPreviewState>(find.byType(FrozenPreview));
+        unawaited(navigator.currentState!.push(route(const Text('No scanner'))));
+        await tester.pump();
+        await tester.pump();
+        await tester.runAsync(oldPreview.retainFrame);
+        await tester.pump(Duration(milliseconds: cold ? 301 : 100));
+        expect(h.methods.where((method) => method == 'disposeScanner'), hasLength(cold ? 1 : 0));
+        expect(h.methods, isNot(contains('pauseCameraMethod')));
+
+        final activation = Completer<void>();
+        h.handler = (call) async {
+          if (call.method == 'resumeCameraMethod') await activation.future;
+          return null;
+        };
+        unawaited(navigator.currentState!.push(route(scanner(key: nextKey))));
+        await tester.pump();
+        await tester.pump();
+        final next = find.byKey(nextKey);
+        expect(find.descendant(of: next, matching: blackPlaceholder), cold ? findsOneWidget : findsNothing);
+        expect(find.descendant(of: next, matching: find.byType(RawImage)), findsNothing);
+        expect(find.descendant(of: next, matching: find.byType(Texture)), cold ? findsNothing : findsOneWidget);
+        await tester.pump(const Duration(seconds: 1));
+        expect(h.methods.where((method) => method == 'disposeScanner'), hasLength(cold ? 1 : 0));
+        activation.complete();
+        await tester.pump();
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump(const Duration(milliseconds: 300));
+        await h.dispose();
+      });
+    }
+
+    testWidgets('returning to an existing scanner retains its own image through cold startup', (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(navigatorKey: navigator, home: Scaffold(body: scanner())));
+      await tester.pump();
+      Future<void> showFrame(int textureId) => h.send(
+        MethodCall('onPreviewState', {
+          'subscriptionId': 'preview',
+          'description': {
+            'textureId': textureId,
+            'width': 1280,
+            'height': 720,
+            'rotationDegrees': 0,
+            'mirrored': false,
+            'state': 'streaming',
+          },
+        }),
+      );
+      await showFrame(77);
+      await tester.pump();
+      final preview = tester.state<FrozenPreviewState>(find.byType(FrozenPreview));
+      unawaited(
+        navigator.currentState!.push(
+          PageRouteBuilder<void>(
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: Duration.zero,
+            pageBuilder: (_, _, _) => const Scaffold(body: Text('No scanner')),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.runAsync(preview.retainFrame);
+      await tester.pump();
+      final snapshot = tester.widget<RawImage>(find.byType(RawImage, skipOffstage: false)).image;
+      expect(snapshot, isNotNull);
+      await tester.pump(const Duration(milliseconds: 301));
+      await tester.pump();
+      expect(h.methods, contains('disposeScanner'));
+
+      final activation = Completer<void>();
+      h.handler = (call) async {
+        if (call.method == 'resumeCameraMethod') await activation.future;
+        return null;
+      };
+      navigator.currentState!.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(tester.widget<RawImage>(find.byType(RawImage)).image, same(snapshot));
+      expect(blackPlaceholder, findsNothing);
+      await showFrame(88);
+      await tester.pump();
+      expect(find.byType(RawImage), findsNothing);
+      expect(tester.widget<Texture>(find.byType(Texture)).textureId, 88);
+      activation.complete();
+      await tester.pump();
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(milliseconds: 300));
       await h.dispose();
@@ -539,10 +702,15 @@ void main() {
         ),
       );
       await tester.pump();
-      update(() => visibleA = false);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await tester.pump();
       expect(harness.methods.where((method) => method == 'pauseCameraMethod'), hasLength(1));
-      update(() => visibleB = true);
+      update(() {
+        visibleA = false;
+        visibleB = true;
+      });
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();
       expect(harness.methods.where((method) => method == 'openCapture'), hasLength(1));
 
@@ -744,7 +912,7 @@ void main() {
       await close(tester);
     });
 
-    testWidgets('opaque page without a scanner still stops camera work', (tester) async {
+    testWidgets('opaque page without a scanner releases capture then expires resources', (tester) async {
       final navigator = GlobalKey<NavigatorState>();
       await tester.pumpWidget(MaterialApp(navigatorKey: navigator, home: Scaffold(body: BarcodeScanner(onScan: (_) {}, scanning: true))));
       await tester.pump();
@@ -753,9 +921,11 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
-      expect(harness.methods, contains('pauseCameraMethod'));
+      expect(harness.methods, isNot(contains('pauseCameraMethod')));
       expect(harness.methods, contains('closeCapture'));
       expect(harness.methods, isNot(contains('disposeScanner')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(harness.methods, contains('disposeScanner'));
       navigator.currentState!.pop();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));

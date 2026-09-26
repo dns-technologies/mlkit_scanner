@@ -26,7 +26,6 @@ class ScannerConfiguration {
   /// Physical iOS camera selection; null uses the platform default.
   final IosCamera? iosCamera;
 
-  /// Creates retained settings without allocating native camera resources.
   const ScannerConfiguration({
     this.cameraPaused = false,
     this.zoomRatio = 1,

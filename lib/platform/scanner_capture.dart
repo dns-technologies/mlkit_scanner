@@ -58,7 +58,6 @@ class ScannerCaptureSession {
   /// Latest unapplied focus gesture; newer gestures replace pending ones.
   _FocusRequest? _focus;
 
-  /// Creates an unallocated lease using the controller's current settings.
   ScannerCaptureSession({
     required this.channel,
     required this.controller,
@@ -103,7 +102,7 @@ class ScannerCaptureSession {
       } while (active && _reconcileRequested);
       if (active) {
         _initialized = true;
-        controller.setPreviewVisible(true);
+        controller.setCaptureState(ScannerCaptureState.ready);
       }
     } catch (error, stack) {
       if (active) Error.throwWithStackTrace(error, stack);
@@ -254,6 +253,5 @@ class _FocusRequest {
   /// Whether the native focus point should remain locked.
   final bool locked;
 
-  /// Captures the requested focus mode until reconciliation reaches it.
   _FocusRequest(this.locked);
 }

@@ -17,20 +17,16 @@ String _describeError(Object error) {
 
 /// Demonstrates recognition and declarative camera controls.
 class MyApp extends StatelessWidget {
-  /// Creates the scanner example application.
   const MyApp({super.key});
 
-  /// Provides the application theme and scanner screen.
   @override
   Widget build(BuildContext context) => const MaterialApp(home: _ScannerPage());
 }
 
 /// Displays the scanner preview and its controls.
 class _ScannerPage extends StatefulWidget {
-  /// Creates one scanner screen with its own settings and retry identity.
   const _ScannerPage();
 
-  /// Owns controls for the scanner screen.
   @override
   State<_ScannerPage> createState() => _ScannerPageState();
 }
@@ -87,7 +83,6 @@ class _ScannerPageState extends State<_ScannerPage> {
   /// Identity replaced only when retrying this scanner after an error.
   Key _scannerKey = UniqueKey();
 
-  /// Discovers optional iOS cameras without waiting for scanner initialization.
   @override
   void initState() {
     super.initState();
@@ -134,7 +129,6 @@ class _ScannerPageState extends State<_ScannerPage> {
     });
   }
 
-  /// Builds the preview, latest result and declarative control buttons.
   @override
   Widget build(BuildContext context) {
     return Scaffold(

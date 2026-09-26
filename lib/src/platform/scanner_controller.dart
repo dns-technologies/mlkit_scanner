@@ -5,6 +5,18 @@ import 'package:mlkit_scanner/models/barcode.dart';
 import 'package:mlkit_scanner/platform/scanner_configuration.dart';
 import 'package:mlkit_scanner/platform/scanner_runtime.dart';
 
+/// Ownership and control readiness, independent of native frame availability.
+enum ScannerCaptureState {
+  /// No ownership; display this widget's retained image when available.
+  released,
+
+  /// Ownership is selected, but native controls are still being initialized.
+  starting,
+
+  /// Capture settings are acknowledged and focus controls are available.
+  ready,
+}
+
 /// Owns desired configuration for one scanner widget.
 ///
 /// Accepts complete widget settings. Runtime serializes native application and
@@ -20,7 +32,7 @@ class BarcodeScannerController {
   /// Receives failures belonging to this widget while its controller is alive.
   final void Function(Object, StackTrace)? onError;
 
-  /// Completes paused preview copying before controls or another owner change it.
+  /// Copies this widget's preview before releasing ownership or changing paused controls.
   final Future<void> Function()? retainPreview;
 
   /// Desired settings retained independently of current native ownership.
@@ -35,8 +47,7 @@ class BarcodeScannerController {
   /// Delivers native torch changes to the owning widget.
   final ValueChanged<bool>? onTorchChanged;
 
-  /// Capture acknowledgment used to reveal this widget's preview and enable focus.
-  final _previewVisible = ValueNotifier(false);
+  final _captureState = ValueNotifier(ScannerCaptureState.released);
 
   /// Synchronous guard against commands or events after dispose is requested.
   bool _disposed = false;
@@ -47,11 +58,9 @@ class BarcodeScannerController {
   /// Desired settings with recognition suppressed while a modal covers the route.
   ScannerConfiguration get configuration => _foreground ? _configuration : _configuration.copyWith(scanEnabled: false);
 
-  /// Whether this controller completed capture, retained through manual pause.
-  /// The shared texture must also have a frame before the live preview is revealed.
-  ValueListenable<bool> get previewVisible => _previewVisible;
+  /// Drives snapshot retention and focus without delaying a live shared preview.
+  ValueListenable<ScannerCaptureState> get captureState => _captureState;
 
-  /// Creates local configuration; the scanner widget registers camera demand.
   BarcodeScannerController({
     required this.viewId,
     this.onError,
@@ -61,7 +70,7 @@ class BarcodeScannerController {
     ScannerConfiguration configuration = const ScannerConfiguration(),
   }) : _configuration = configuration;
 
-  /// Unregisters this controller and releases its camera demand.
+  /// Unregisters this controller and releases its capture if selected.
   /// Later configuration and event calls have no effect.
   void dispose() {
     if (_disposed) return;
@@ -81,8 +90,8 @@ class BarcodeScannerController {
     );
     // An event or preview listener may dispose its own controller during delivery.
     scheduleMicrotask(() {
-      _previewVisible.value = false;
-      _previewVisible.dispose();
+      _captureState.value = ScannerCaptureState.released;
+      _captureState.dispose();
     });
   }
 
@@ -99,9 +108,9 @@ class BarcodeScannerController {
   }
 
   /// Updates readiness for this widget without changing the shared texture lifetime.
-  void setPreviewVisible(bool visible) {
+  void setCaptureState(ScannerCaptureState state) {
     if (_disposed) return;
-    _previewVisible.value = visible;
+    _captureState.value = state;
   }
 
   /// Suspends recognition without releasing capture or altering retained intent.
@@ -144,6 +153,6 @@ class BarcodeScannerController {
   /// Internally acquires shared camera ownership when this widget becomes visible.
   Future<void> capture() => _runtime.capture(this);
 
-  /// Internally releases ownership and stops hardware when this widget is hidden.
+  /// Releases ownership while the runtime keeps the stream warm for a successor.
   Future<void> release() => _runtime.release(this);
 }
