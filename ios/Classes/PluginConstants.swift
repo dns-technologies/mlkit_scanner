@@ -9,34 +9,40 @@ import Foundation
 
 /// Constants of the Plugin.
 class PluginConstants {
-    /// Method name for camera initialization.
-    static let initCameraMethod = "initCameraPreview"
-    /// Method name for cleaning camera resources.
-    static let disposeMethod = "dispose"
-    /// Method name for toggling flash of the device.
+    /// Shared method channel name.
+    static let channelName = "mlkit_channel"
+    /// Argument key identifying a logical Flutter widget.
+    static let viewIdArgument = "viewId"
+    /// Event key containing a recognized barcode.
+    static let barcodeArgument = "barcode"
+    /// Event key containing a scalar event value.
+    static let valueArgument = "value"
+    /// Argument key containing the scan cooldown.
+    static let delayArgument = "delay"
+    /// Argument key containing a recognition area.
+    static let cropRectArgument = "cropRect"
+    /// Argument key containing a recognition type.
+    static let typeArgument = "type"
+    /// Method name for absolute zoom changes.
+    static let setZoomRatioMethod = "setZoomRatio"
+    /// Method name for desired torch state changes.
     static let toggleFlashMethod = "toggleFlash"
-    /// Method name for starting use recognizers.
+    /// Method name for starting barcode recognition.
     static let startScanMethod = "startScan"
-    /// Method name for cancelling recognition.
+    /// Method name for cancelling barcode recognition.
     static let cancelScanMethod = "cancelScan"
-    /// Method name for setting delay between detections.
+    /// Method name for changing the recognition cooldown.
     static let setScanDelayMethod = "setScanDelay"
+    /// Method name for updating the normalized recognition area.
+    static let setCropAreaMethod = "setCropAreaMethod"
+    /// Stops native work; Dart decides whether to retain or release controller ownership.
+    static let pauseCameraMethod = "pauseCameraMethod"
+    /// Selects a preview and applies Dart settings on startup, resume or ownership transfer.
+    static let resumeCameraMethod = "resumeCameraMethod"
     /// Method name for invoking Flutter Side method with success recognitions.
     static let scanResultMethod = "onScanResult"
-    /// Method name for updating native view constraints.
-    static let changeConstraintsMethod = "updateConstraints"
-    /// Method name for pausing camera preview.
-    static let pauseCameraMethod = "pauseCameraMethod"
-    /// Method name for resuming camera preview.
-    static let resumeCameraMethod = "resumeCameraMethod"
     /// Method name for inform flutter side when torch change state
     static let changeTorchStateMethod = "changeTorchStateMethod"
-    /// Method name for setting zoom scale of the camera
-    static let setZoomMethod = "setZoom"
-    /// Method name for setting crop area and adding overlay to the camera preview
-    static let setCropAreaMethod = "setCropAreaMethod"
     /// Method name for getting available iOS cameras.
     static let getIosAvailableCamerasMethod = "getIosAvailableCameras"
-    /// Method name for setting iOS camera.
-    static let setIosCameraMethod = "setIosCamera"
 }

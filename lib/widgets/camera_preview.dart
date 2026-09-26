@@ -1,108 +1,68 @@
-import 'dart:async';
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
-import 'package:mlkit_scanner/models/scanner_parameters.dart';
-import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
 
-/// Signature for the CameraPreview error function.
-typedef CameraInitilizeError = void Function(PlatformException);
+import '../platform/scanner_preview.dart';
+import '../src/widgets/frozen_preview.dart';
 
-/// Camera Preview of the device camera.
-///
-/// Widget automatically will dispose camera when called [dispose] in state.
-class CameraPreview extends StatefulWidget {
-  /// Callback when device camera initialize.
-  final VoidCallback onCameraInitialized;
+/// Renders native camera pixels without creating or moving a Platform View.
+class CameraPreview extends StatelessWidget {
+  /// Shared output metadata, or null before native output is registered.
+  final ScannerPreviewDescription? description;
 
-  /// Callback if camera cannot be initialized.
-  final CameraInitilizeError? onCameraInitializeError;
+  /// Retains this widget's own image while the native camera stays warm.
+  final bool paused;
 
-  /// Parameters for initializing the scanner.
-  final ScannerParameters? initialArguments;
+  /// Receives failures to retain this widget's paused preview image.
+  final void Function(Object, StackTrace)? onError;
 
-  const CameraPreview({
-    Key? key,
-    required this.onCameraInitialized,
-    this.initialArguments,
-    this.onCameraInitializeError,
-  }) : super(key: key);
+  /// Allows internal camera handoff to await this preview's retained pixels.
+  final GlobalKey<FrozenPreviewState>? frameKey;
+
+  /// Prevents copying another owner's first frame after this widget loses capture.
+  final bool Function()? canRetainFrame;
+
+  const CameraPreview({super.key, required this.description, this.paused = false, this.onError, this.frameKey, this.canRetainFrame});
 
   @override
-  _CameraPreviewState createState() => _CameraPreviewState();
-}
+  Widget build(BuildContext context) => FrozenPreview(
+    key: frameKey,
+    paused: paused,
+    // A live shared stream remains usable during capture handoff and settings.
+    // FrozenPreview keeps this widget's own paused snapshot independently.
+    ready: description?.status == ScannerPreviewStatus.streaming,
+    onError: onError ?? _reportError,
+    canRetainFrame: canRetainFrame,
+    child: _buildTexture(),
+  );
 
-class _CameraPreviewState extends State<CameraPreview> {
-  late MlKitChannel _channel;
-
-  @override
-  void initState() {
-    super.initState();
-    _channel = MlKitChannel();
+  /// Reports errors when this internal renderer is used without a scanner owner.
+  void _reportError(Object error, StackTrace stack) {
+    FlutterError.reportError(FlutterErrorDetails(exception: error, stack: stack, library: 'mlkit_scanner'));
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        _channel.updateConstraints(constraints.maxWidth, constraints.maxHeight);
-        if (defaultTargetPlatform == TargetPlatform.iOS) {
-          return UiKitView(
-            viewType: 'mlkit/camera_preview',
-            onPlatformViewCreated: _onViewCreated,
-            creationParamsCodec: const StandardMessageCodec(),
-            creationParams: {
-              'width': constraints.maxWidth,
-              'height': constraints.maxHeight,
-            },
-          );
-        }
-        return PlatformViewLink(
-          viewType: 'mlkit/camera_preview',
-          surfaceFactory: (context, controller) {
-            return AndroidViewSurface(
-              controller: controller as AndroidViewController,
-              gestureRecognizers: const {},
-              hitTestBehavior: PlatformViewHitTestBehavior.opaque,
-            );
-          },
-          onCreatePlatformView: (params) {
-            return PlatformViewsService.initSurfaceAndroidView(
-              id: params.id,
-              viewType: 'mlkit/camera_preview',
-              layoutDirection: TextDirection.ltr,
-              creationParams: {
-                'width': constraints.maxWidth,
-                'height': constraints.maxHeight,
-              },
-              creationParamsCodec: const StandardMessageCodec(),
-            )
-              ..addOnPlatformViewCreatedListener((id) {
-                params.onPlatformViewCreated(id);
-                _onViewCreated(id);
-              })
-              ..create();
-          },
-        );
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _channel.dispose();
-    super.dispose();
-  }
-
-  Future<void> _onViewCreated(int id) async {
-    try {
-      await _channel.initCameraPreview(
-          initialArguments: widget.initialArguments);
-      widget.onCameraInitialized();
-    } on PlatformException catch (e) {
-      widget.onCameraInitializeError?.call(e);
+  /// Applies native geometry to the live texture before snapshotting its pixels.
+  Widget _buildTexture() {
+    final preview = description;
+    if (preview == null) {
+      return const SizedBox.expand();
     }
+    Widget image = SizedBox(
+      width: preview.size.width,
+      height: preview.size.height,
+      child: Texture(textureId: preview.textureId, freeze: paused || preview.status == ScannerPreviewStatus.paused),
+    );
+    if (preview.cropRect case final crop?) {
+      image = SizedBox(
+        width: crop.width,
+        height: crop.height,
+        child: ClipRect(
+          child: Stack(
+            children: [Positioned(left: -crop.left, top: -crop.top, width: preview.size.width, height: preview.size.height, child: image)],
+          ),
+        ),
+      );
+    }
+    image = RotatedBox(quarterTurns: preview.rotationDegrees ~/ 90, child: image);
+    if (preview.mirrored) image = Transform.flip(flipX: true, child: image);
+    return ClipRect(child: SizedBox.expand(child: FittedBox(fit: BoxFit.cover, child: image)));
   }
 }

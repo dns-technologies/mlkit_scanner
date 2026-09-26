@@ -43,14 +43,15 @@ enum BarcodeFormat {
   aztec,
 }
 
+/// Converts between [BarcodeFormat] values and native platform codes.
 extension BarcodeFormatCode on BarcodeFormat {
   /// Code of format for transmission over the platform channel.
   int get code => _formatToCode[this]!;
 
   /// Returns the format corresponding to the [code].
-  static BarcodeFormat fromCode(int code) =>
-      _codeToFormat[code] ?? BarcodeFormat.unknown;
+  static BarcodeFormat fromCode(int code) => _codeToFormat[code] ?? BarcodeFormat.unknown;
 
+  /// Stable ML Kit format codes, independent of Dart enum ordering.
   static final _formatToCode = {
     BarcodeFormat.unknown: 0,
     BarcodeFormat.code128: 1,
@@ -68,7 +69,6 @@ extension BarcodeFormatCode on BarcodeFormat {
     BarcodeFormat.aztec: 4096,
   };
 
-  static final _codeToFormat = {
-    for (final entry in _formatToCode.entries) entry.value: entry.key,
-  };
+  /// Reverse lookup built from the same transport mapping.
+  static final _codeToFormat = {for (final entry in _formatToCode.entries) entry.value: entry.key};
 }

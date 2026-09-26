@@ -1,15 +1,16 @@
-/// Ios camera position.
+/// Physical position of an iOS camera.
 enum IosCameraPosition {
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/position/unspecified.
+  /// Camera position is not specified.
   unspecified,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/position/back.
+  /// Camera faces away from the user.
   back,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/position/front.
+  /// Camera faces the user.
   front,
 }
 
+/// Converts between [IosCameraPosition] values and native platform codes.
 extension IosCameraPositionCode on IosCameraPosition {
   /// Code of position for transmission over the platform channel.
   int get code => _positionToCode[this]!;
@@ -17,13 +18,9 @@ extension IosCameraPositionCode on IosCameraPosition {
   /// Returns the position corresponding to the [code].
   static IosCameraPosition fromCode(int code) => _codeToPosition[code]!;
 
-  static final _positionToCode = {
-    IosCameraPosition.unspecified: 0,
-    IosCameraPosition.back: 1,
-    IosCameraPosition.front: 2,
-  };
+  /// AVFoundation position codes sent over the platform channel.
+  static final _positionToCode = {IosCameraPosition.unspecified: 0, IosCameraPosition.back: 1, IosCameraPosition.front: 2};
 
-  static final _codeToPosition = {
-    for (final entry in _positionToCode.entries) entry.value: entry.key,
-  };
+  /// Reverse lookup for native camera discovery results.
+  static final _codeToPosition = {for (final entry in _positionToCode.entries) entry.value: entry.key};
 }

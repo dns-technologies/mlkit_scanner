@@ -1,6 +1,7 @@
-import 'package:mlkit_scanner/mlkit_scanner.dart';
+import 'ios_camera_position.dart';
+import 'ios_camera_type.dart';
 
-/// Ios camera info.
+/// Describes an iOS capture device supported by the plugin.
 class IosCamera {
   /// Camera type.
   final IosCameraType type;
@@ -8,15 +9,9 @@ class IosCamera {
   /// Camera position.
   final IosCameraPosition position;
 
-  const IosCamera({
-    required this.type,
-    required this.position,
-  });
+  const IosCamera({required this.type, required this.position});
 
   factory IosCamera.fromJson(Map<String, dynamic> json) {
-    return IosCamera(
-      type: IosCameraTypeCode.fromCode(json['type']),
-      position: IosCameraPositionCode.fromCode(json['position']),
-    );
+    return IosCamera(type: IosCameraTypeCode.fromCode(json['type']), position: IosCameraPositionCode.fromCode(json['position']));
   }
 }

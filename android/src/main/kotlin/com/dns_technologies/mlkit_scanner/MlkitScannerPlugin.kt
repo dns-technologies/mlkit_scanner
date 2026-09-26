@@ -1,404 +1,382 @@
 package com.dns_technologies.mlkit_scanner
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import android.graphics.Point
-import android.util.Log
-import android.view.WindowManager
-import androidx.annotation.NonNull
-import com.otaliastudios.cameraview.CameraView
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
+import android.os.Handler
+import android.os.Looper
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleObserver
-import androidx.lifecycle.OnLifecycleEvent
-import com.dns_technologies.mlkit_scanner.analyzer.AnalyzerCreator
-import com.dns_technologies.mlkit_scanner.analyzer.CameraImageAnalyzer
-import com.dns_technologies.mlkit_scanner.analyzer.TAG
-import com.dns_technologies.mlkit_scanner.extensions.toJson
-import com.dns_technologies.mlkit_scanner.models.*
-import com.google.mlkit.vision.barcode.common.Barcode
-
+import com.dns_technologies.mlkit_scanner.commands.*
+import com.dns_technologies.mlkit_scanner.commands.base.reportScannerError
+import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
+import com.dns_technologies.mlkit_scanner.scanner.*
+import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.mlkit.MlkitImageBarcodeAnalyzer
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.x.XCamera
+import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
+import com.dns_technologies.mlkit_scanner.utils.*
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
-import io.flutter.embedding.engine.plugins.lifecycle.HiddenLifecycleReference
+import io.flutter.embedding.engine.plugins.lifecycle.FlutterLifecycleAdapter
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
-import kotlin.Exception
+import io.flutter.plugin.common.PluginRegistry
+import io.flutter.view.TextureRegistry
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 
-class PermissionsConstants {
-    companion object {
-        const val REQUEST_CODE_PERMISSIONS = 10
-        val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
-    }
-}
+/** Transport and native lifecycle. Flutter owns widget demand and the idle timer. */
+class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
+    /** Channel used for command replies and preview/recognition events while attached. */
+    private var channel: MethodChannel? = null
+    /** Application context borrowed from the current engine attachment. */
+    private var context: Context? = null
+    /** Engine registry used to allocate the shared preview texture. */
+    private var textures: TextureRegistry? = null
+    /** Current camera and recognition coordinator, created on the first capture. */
+    private var scanner: Scanner? = null
+    /** Scanner retained until its owned resources finish asynchronous disposal. */
+    private var disposingScanner: Scanner? = null
+    /** Registered Flutter widgets keyed by their logical view identifiers. */
+    private val consumers = mutableMapOf<Int, ScannerConsumer>()
+    /** Live preview event endpoints independent of capture ownership. */
+    private val previewSubscriptions = mutableMapOf<String, ResultEndpoint>()
+    /** Latest texture description returned to newly registered widgets. */
+    private var preview: Map<String, Any>? = null
+    /** Exclusive capture lease whose identity rejects stale commands and results. */
+    private var selected: CaptureLease? = null
+    /** Permission requests that survive Activity configuration changes. */
+    private val permissions = PermissionGateway()
+    /** Current Activity attachment that owns the permission listener. */
+    private var activityBinding: ActivityPluginBinding? = null
+    /** Routes Android permission callbacks to the shared permission gateway. */
+    private val permissionListener =
+        PluginRegistry.RequestPermissionsResultListener(permissions::onPermissionResult)
+    /** Actual Activity lifecycle supplied by Flutter's lifecycle adapter. */
+    private val ActivityPluginBinding.activityLifecycle: Lifecycle
+        get() = FlutterLifecycleAdapter.getActivityLifecycle(this)
 
-/**
- * Android plugin for working with ML Kit scanner
- *
- * The [CameraView] library is used for simplification of Camera1
- * [CameraLifecycle] is used for [ScannerCamera] lifecycle managing
- * Plugin inherits [ActivityAware] for checking camera user permissions
- */
-class MlkitScannerPlugin : FlutterPlugin, MethodCallHandler, ActivityAware, LifecycleObserver {
-    private lateinit var channel: MethodChannel
-    private lateinit var binding: ActivityPluginBinding
-    private lateinit var cameraView: CameraView
-    private var camera: ScannerCamera? = null
-    private var cameraLifecycle: CameraLifecycle? = null
+    /** Main-thread dispatcher for result delivery and deferred disposal replies. */
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    // The field contains the Result passed during initialization. It is necessary for throwing errors
-    // into flutter that can occur asynchronously during initialization. For example,
-    // camera permission error that can be handled in listenPermissionResult method
-    private var initialMethodResult: Result? = null
-    private var cameraImagePreparer = MlKitAnalysingImagePreparer()
-    private var analyzer: CameraImageAnalyzer? = null
-    private var scannerOverlay: ScannerOverlay? = null
-
-    // Parameters configuring the scanner at the time of its initialization.
-    private var initialScannerParameters: ScannerParameters? = null
-    private var isLockedAutoResumeCamera: Boolean = false
-
-    private var isAlreadyInitialized: Boolean = false
-
-    override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-        channel = MethodChannel(flutterPluginBinding.binaryMessenger, PluginConstants.channelName)
-        channel.setMethodCallHandler(this)
-        flutterPluginBinding
-            .platformViewRegistry
-            .registerViewFactory(PluginConstants.cameraPlatformViewName,
-                CameraViewFactory {
-                    cameraView = it
-                })
-    }
-
-    override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
-        when (call.method) {
-            PluginConstants.initCameraMethod -> invokeInit(call, result)
-            PluginConstants.resumeCameraMethod -> resumeCamera(result)
-            PluginConstants.pauseCameraMethod -> pauseCamera(result)
-            PluginConstants.disposeCameraMethod -> invokeDispose(result)
-            PluginConstants.toggleFlashMethod -> invokeToggleFlash(result)
-            PluginConstants.startScanMethod -> invokeStartScan(call, result)
-            PluginConstants.cancelScanMethod -> invokeCancelScan(result)
-            PluginConstants.setScanDelayMethod -> invokeSetScanDelay(call, result)
-            PluginConstants.updateConstraintsMethod -> result.success(true) // на Android нет необходимости обрабатывать
-            PluginConstants.setZoomMethod -> invokeSetZoom(call, result)
-            PluginConstants.setCropAreaMethod -> invokeSetCropArea(call, result)
-            else -> result.notImplemented()
-        }
-    }
-
-    override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
-        channel.setMethodCallHandler(null)
-    }
-
-    override fun onDetachedFromActivity() {
-        val activityLifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
-        activityLifecycle.removeObserver(this)
-        binding.removeRequestPermissionsResultListener(this::listenPermissionResult)
-    }
-
-    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-        this.binding = binding
-        binding.addRequestPermissionsResultListener(this::listenPermissionResult)
-    }
-
-    override fun onDetachedFromActivityForConfigChanges() {
-        binding.removeRequestPermissionsResultListener(this::listenPermissionResult)
-    }
-
-    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
-        this.binding = binding
-        val activityLifecycle = (binding.lifecycle as HiddenLifecycleReference).lifecycle
-        activityLifecycle.addObserver(this)
-        binding.addRequestPermissionsResultListener(this::listenPermissionResult)
-    }
-
-    @Suppress("UNUSED_PARAMETER")
-    private fun listenPermissionResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ): Boolean {
-        if (requestCode == PermissionsConstants.REQUEST_CODE_PERMISSIONS) {
-            if (allPermissionsGranted()) {
-                initCamera()
-            } else {
-                initialMethodResult?.error(
-                    PluginError.AuthorizationCameraError.errorCode,
-                    "The app does not have camera permission",
-                    null
-                )
-                initialMethodResult = null
+    /** Registers the command channel and borrows engine resources. */
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        context = binding.applicationContext
+        textures = binding.textureRegistry
+        channel =
+            MethodChannel(binding.binaryMessenger, PluginConstants.channelName).also {
+                it.setMethodCallHandler(this)
             }
-        }
-        return true
     }
 
-    private fun invokeInit(call: MethodCall, result: Result) {
-        // When rebuilding a widget, dispose() is not called,
-        // which causes situations where initCamera() can be called multiple times.
-        if (isAlreadyInitialized) {
+    /** Releases native resources and clears references to the detached engine. */
+    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        try {
+            disposeResources()
+            detach(true)
+        } finally {
+            consumers.clear()
+            previewSubscriptions.clear()
+            channel?.setMethodCallHandler(null)
+            channel = null
+            context = null
+            textures = null
+        }
+    }
+
+    /** Attaches permissions and any retained scanner to the current Activity. */
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) = attach(binding)
+
+    /** Restores Activity-dependent resources after a configuration change. */
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) =
+        attach(binding)
+
+    /** Releases the old Activity while preserving pending permission requests. */
+    override fun onDetachedFromActivityForConfigChanges() = detach(false)
+
+    /** Ends Activity ownership and releases scanner resources. */
+    override fun onDetachedFromActivity() = detach(true)
+
+    /** Connects permission callbacks and the camera to the attached Activity. */
+    private fun attach(binding: ActivityPluginBinding) {
+        activityBinding = binding
+        binding.addRequestPermissionsResultListener(permissionListener)
+        permissions.attach(binding.activity)
+        scanner?.attachActivity(binding.activityLifecycle)
+    }
+
+    /** Revokes capture ownership and applies temporary or terminal Activity cleanup. */
+    private fun detach(final: Boolean) {
+        val binding = activityBinding
+        activityBinding = null
+        closeSelected()
+        scanner?.detachActivity()
+        binding?.removeRequestPermissionsResultListener(permissionListener)
+        if (final) {
+            permissions.detachFinal()
+            disposeResources()
+        } else permissions.detachForConfigChange()
+    }
+
+    /** Handles registrations and routes capture commands through their owning lease. */
+    override fun onMethodCall(call: MethodCall, result: Result) {
+        if (channel == null) {
+            reportScannerError(result, PluginError.CameraSessionDisposed)
             return
         }
-        initialMethodResult = result
-        val args = call.arguments as Map<String, Any?>?
-        initialScannerParameters = if (args != null) ScannerParameters(args) else null
-
-        if (allPermissionsGranted()) {
-            initCamera()
-        } else {
-            requestAllPermission()
+        try {
+            when (call.method) {
+                "registerScanner" -> {
+                    val id = call.arguments.requireMap().requireInt("viewId")
+                    if (id < 0) throw PluginError.InvalidArguments
+                    consumers.getOrPut(id) { ScannerConsumer(id) }
+                    result.success(preview)
+                }
+                "unregisterScanner" -> {
+                    val id = call.arguments.requireMap().requireInt("viewId")
+                    if (selected?.consumer?.viewId == id) closeSelected()
+                    consumers.remove(id)
+                    result.success(null)
+                }
+                "subscribePreview" -> {
+                    val endpoint = ResultEndpoint()
+                    previewSubscriptions[endpoint.id] = endpoint
+                    result.success(mapOf("subscriptionId" to endpoint.id, "description" to preview))
+                }
+                "unsubscribePreview" -> {
+                    previewSubscriptions
+                        .remove(call.arguments.requireMap()["subscriptionId"] as? String)
+                        ?.close()
+                    result.success(null)
+                }
+                "openCapture" -> {
+                    val id = call.arguments.requireMap().requireInt("viewId")
+                    val consumer = consumers[id] ?: throw PluginError.InvalidArguments
+                    closeSelected()
+                    val lease = CaptureLease(consumer)
+                    selected = lease
+                    result.success(lease.id)
+                }
+                "closeCapture" -> {
+                    if (selected?.id == call.arguments.requireMap()["captureId"]) closeSelected()
+                    result.success(null)
+                }
+                "disposeScanner" -> disposeScanner(result)
+                else -> executeScoped(call, result)
+            }
+        } catch (error: Exception) {
+            reportScannerError(result, error)
         }
     }
 
-    private fun resumeCamera(result: Result) {
-        isLockedAutoResumeCamera = false
-        cameraLifecycle!!.resume()
-        result.success(true)
+    /** Validates capture ownership before running controls with an at-most-once reply. */
+    private fun executeScoped(call: MethodCall, result: Result) {
+        val values = call.arguments.requireMap()
+        val lease =
+            selected?.takeIf { !it.closed && it.id == values["captureId"] }
+                ?: throw PluginError.CameraSessionDisposed
+        val reply = lease.reply(result)
+        val current = {
+            if (selected !== lease || lease.closed) throw PluginError.CameraSessionDisposed
+            scanner ?: throw PluginError.CameraIsNotInitialized
+        }
+        try {
+            when (call.method) {
+                PluginConstants.resumeCameraMethod -> resumeCapture(lease, values, reply)
+                PluginConstants.pauseCameraMethod -> {
+                    scanner?.pauseCamera()
+                    reply.success(null)
+                    closeSelected()
+                }
+                "updatePreviewGeometry" -> {
+                    lease.consumer.updateGeometry(values)
+                    current().updateGeometry()
+                    reply.success(null)
+                }
+                "focus" -> {
+                    val locked = values.requireBoolean("locked")
+                    current().focusCropCenter(if (locked) 0 else 3000)
+                    reply.success(null)
+                }
+                "subscribeScan" -> {
+                    lease.subscription?.close()
+                    current().pauseScan()
+                    val endpoint = ResultEndpoint()
+                    lease.subscription = endpoint
+                    reply.success(endpoint.id)
+                }
+                PluginConstants.startScanMethod -> {
+                    val endpoint =
+                        lease.subscription?.takeIf {
+                            !it.closed && it.id == values["subscriptionId"]
+                        } ?: throw PluginError.InvalidArguments
+                    endpoint.enabled = true
+                    StartScanCommand(current).execute(call, reply)
+                }
+                PluginConstants.cancelScanMethod -> {
+                    lease.subscription?.close()
+                    lease.subscription = null
+                    CancelScanCommand(current).execute(call, reply)
+                }
+                PluginConstants.setZoomRatioMethod ->
+                    SetZoomRatioCommand(current, lease.scope).execute(call, reply)
+                "updateCameraSettings" ->
+                    UpdateCameraSettingsCommand(current, lease.scope).execute(call, reply)
+                PluginConstants.toggleFlashMethod ->
+                    ToggleFlashCommand(current, lease.scope).execute(call, reply)
+                PluginConstants.setScanDelayMethod ->
+                    SetScanDelayCommand(current).execute(call, reply)
+                PluginConstants.setCropAreaMethod ->
+                    SetCropAreaCommand(current).execute(call, reply)
+                else -> reply.notImplemented()
+            }
+        } catch (error: Exception) {
+            reportScannerError(reply, error)
+        }
     }
 
-    private fun pauseCamera(result: Result) {
-        isLockedAutoResumeCamera = true
-        cameraLifecycle!!.pause()
-        result.success(true)
+    /**
+     * Completes disposal after the camera has released all preview resources.
+     */
+    private fun disposeScanner(result: Result) {
+        val device = scanner ?: disposingScanner
+        val cleanupError = runCatching { disposeResources() }.exceptionOrNull()
+        if (device == null) {
+            if (cleanupError == null) result.success(null)
+            else
+                reportScannerError(
+                    result,
+                    cleanupError as? Exception ?: RuntimeException(cleanupError),
+                )
+        } else
+            device.disposal.invokeOnCompletion { error ->
+                val complete = Runnable {
+                    val failure = cleanupError ?: error
+                    if (failure == null) result.success(null)
+                    else
+                        reportScannerError(
+                            result,
+                            failure as? Exception ?: RuntimeException(failure),
+                        )
+                }
+                if (Looper.myLooper() == Looper.getMainLooper()) complete.run()
+                else mainHandler.post(complete)
+            }
     }
 
-    private fun invokeToggleFlash(result: Result) {
-        if (checkCameraActiveStatus(
-                result,
-                "You need to invoke the \'initCameraPreview\' method before using flash"
-            )
-        ) {
+    /**
+     * Validates the capture snapshot and resumes camera work within the selected lease lifetime.
+     */
+    private fun resumeCapture(lease: CaptureLease, values: Map<*, *>, reply: PendingReply) {
+        val configuration = ScannerConfiguration.from(values["configuration"])
+        lease.consumer.updateGeometry(values["geometry"])
+        lease.scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                camera?.toggleFlashLight()
-                result.success(true)
-            } catch (e: HasNoFlashUnitException) {
-                result.error(
-                    PluginError.DeviceHasNotFlash.errorCode,
-                    "Device has no flash",
-                    null
+                if (!permissions.requestCameraPermission())
+                    throw PluginError.AuthorizationCameraError
+                currentCoroutineContext().ensureActive()
+                if (selected !== lease) throw PluginError.CameraSessionDisposed
+                disposingScanner?.disposal?.await()
+                currentCoroutineContext().ensureActive()
+                if (selected !== lease) throw PluginError.CameraSessionDisposed
+                val lifecycle =
+                    activityBinding?.activityLifecycle ?: throw PluginError.CameraSessionDisposed
+                val device =
+                    scanner
+                        ?: createScanner().also {
+                            scanner = it
+                            it.attachActivity(lifecycle)
+                        }
+                device.select(lease.consumer)
+                device.capture(configuration)
+                reply.success(null)
+            } catch (error: Exception) {
+                reportScannerError(
+                    reply,
+                    if (error is CancellationException) PluginError.CameraSessionDisposed else error,
                 )
             }
         }
     }
 
-    private fun invokeStartScan(call: MethodCall, result: Result) {
-        val options = AnalyzeOptions.fromMap(call.arguments as Map<String, Any?>)
-        if (cameraLifecycle == null) {
-            return result.error(
-                PluginError.CameraIsNotInitialized.errorCode,
-                "You need to invoke \'initCameraPreview\' method before start scan",
-                null
-            )
-        }
-        analyzer?.resumeScan(options.periodMs)
-        if (analyzer?.isDisposed == true || analyzer?.type != options.recognizeType) {
-            analyzer = AnalyzerCreator.create(options.recognizeType)
-            analyzer?.init(options.periodMs, this::onScan, cameraImagePreparer::prepare)
-        }
-        camera?.attachAnalyser(analyzer!!)
-        scannerOverlay?.isActive = true
-        result.success(true)
+    /** Revokes the current lease before releasing its scanner selection. */
+    private fun closeSelected() {
+        val old = selected
+        selected = null
+        old?.close()
+        scanner?.releaseCamera()
     }
 
-    private fun invokeCancelScan(result: Result) {
-        analyzer?.pauseScan()
-        scannerOverlay?.isActive = false
-        result.success(true)
+    /** Attempts independent scanner cleanup steps and reports the first failure. */
+    private fun disposeResources() {
+        val failures = ExceptionCollector()
+        failures.attempt(::closeSelected)
+        val old = scanner
+        scanner = null
+        if (old != null) trackDisposal(old)
+        failures.attempt { old?.dispose() }
+        publishPreview(null)
+        failures.throwIfFailed()
     }
 
-    private fun invokeSetScanDelay(call: MethodCall, result: Result) {
-        val delay = call.arguments
-        if (delay !is Number) {
-            result.error(
-                PluginError.InvalidArguments.errorCode,
-                "Invalid argument passed, Number type is expected",
-                null
-            )
-            return
-        }
-        analyzer?.updatePeriod(delay as Int)
-        result.success(true)
-    }
-
-    private fun invokeDispose(result: Result) {
-        cameraLifecycle?.dispose()
-        cameraLifecycle = null
-        scannerOverlay = null
-        analyzer?.dispose()
-        isAlreadyInitialized = false
-        result.success(true)
-    }
-
-    private fun initCamera() {
-        isLockedAutoResumeCamera = false
-        cameraLifecycle = CameraLifecycle()
-        createScannerCamera()
-        cameraLifecycle!!.resume()
-        cameraView.addOnLayoutChangeListener { _, l, t, r, b, oldL, oldT, oldR, oldB ->
-            val cropRect = scannerOverlay?.cropRect
-            // exclude parasite redraws
-            if ((l != oldL || t != oldT || r != oldR || b != oldB) && cropRect != null) {
-                updateCropOptions(cropRect)
+    /** Creates the shared texture camera and recognition coordinator for this engine. */
+    private fun createScanner(): Scanner = Scanner.create(
+        cameraFactory = {
+            XCamera(requireNotNull(context), requireNotNull(textures).createSurfaceProducer())
+        },
+        analyzerFactory = ::MlkitImageBarcodeAnalyzer,
+        mainHandler = mainHandler,
+        onReleased = { device, _ ->
+            if (scanner === device) {
+                scanner = null
+                trackDisposal(device)
+                publishPreview(null)
             }
-        }
-    }
-
-    private fun createScannerCamera() {
-        if (camera == null || camera?.isActive() != true) {
-            camera = CameraViewScannerCamera(cameraLifecycle!!, cameraView)
-            // Some devices can change zoom before camera is initialized.
-            // This is the reason why this method is called twice.
-            if (initialScannerParameters?.zoom != null) {
-                trySetZoom(
-                    initialScannerParameters!!.zoom!!,
-                    result = initialMethodResult
-                )
-            }
-            camera?.startCamera(this::onInitSuccess, this::onInitError)
-        }
-    }
-
-    private fun onInitSuccess() {
-        if (analyzer != null) {
-            camera?.attachAnalyser(analyzer!!)
-        }
-        if (initialScannerParameters?.zoom != null) {
-            trySetZoom(
-                initialScannerParameters!!.zoom!!,
-                result = initialMethodResult
-            )
-        }
-        if (initialScannerParameters?.cropRect != null) {
-            setCropArea(initialScannerParameters!!.cropRect!!)
-        }
-
-        initialMethodResult?.success(true)
-        initialMethodResult = null
-        isAlreadyInitialized = true
-    }
-
-    private fun onInitError(e: Exception) {
-        Log.e(TAG, e.toString())
-        initialMethodResult?.error(
-            PluginError.InitCameraError.errorCode,
-            "Internal camera initialisation error",
-            e.message
-        )
-        initialMethodResult = null
-    }
-
-    private fun invokeSetZoom(call: MethodCall, result: Result) {
-        if (checkCameraActiveStatus(
-                result,
-                "You need to invoke the 'initCameraPreview' method before using zoom"
-            )
-        ) {
-            val value = call.arguments
-            if (value !is Double) {
-                result.error(
-                    PluginError.InvalidArguments.errorCode,
-                    "Invalid argument passed, Double type is expected",
-                    null
-                )
-                return
-            }
-            if (trySetZoom(value, result = result)) {
-                result.success(true)
-            }
-        }
-    }
-
-    private fun trySetZoom(value: Double, result: Result?): Boolean {
-        return try {
-            camera?.setZoom(value.toFloat())
-            true
-        } catch (e: ZoomNotSupportedException) {
-            result?.error(
-                PluginError.DeviceHasNotZoom.errorCode,
-                "Zoom is not supported on this device",
-                null
-            )
-            false
-        }
-    }
-
-    private fun invokeSetCropArea(call: MethodCall, result: Result) {
-        val rect = RecognizeVisorCropRect.fromMap(call.arguments as Map<String, Any?>)
-        setCropArea(rect)
-        result.success(true)
-    }
-
-    private fun setCropArea(rect: RecognizeVisorCropRect) {
-        updateCropOptions(rect)
-        if (scannerOverlay != null) {
-            scannerOverlay?.cropRect = rect
-        } else {
-            scannerOverlay = ScannerOverlay(rect, cameraView.context)
-            cameraView.addOverlay(scannerOverlay!!)
-        }
-    }
-
-    private fun checkCameraActiveStatus(result: Result, errorMsg: String): Boolean {
-        if (camera?.isActive() != true) {
-            result.error(PluginError.CameraIsNotInitialized.errorCode, errorMsg, null)
-            return false
-        }
-        return true
-    }
-
-    private fun allPermissionsGranted() = PermissionsConstants.REQUIRED_PERMISSIONS.all {
-        ContextCompat.checkSelfPermission(
-            binding.activity.baseContext,
-            it
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun requestAllPermission() = ActivityCompat.requestPermissions(
-        binding.activity,
-        PermissionsConstants.REQUIRED_PERMISSIONS,
-        PermissionsConstants.REQUEST_CODE_PERMISSIONS
+        },
+        onResult = ::emitResult,
+        onPreviewChanged = { device, description ->
+            if (scanner === device) publishPreview(description)
+        },
     )
 
-    private fun updateCropOptions(cropRect: RecognizeVisorCropRect) {
-        val screenSize = getDisplaySize()
-        val scaleX = cameraView.measuredWidth.toDouble() / screenSize.x
-        val scaleY = cameraView.measuredHeight.toDouble() / screenSize.y
-        camera?.changeFocusCenter(
-            cropRect.centerOffsetX.toFloat(),
-            cropRect.centerOffsetY.toFloat()
+    /** Keeps concurrent disposal and replacement capture waiting on the same scanner. */
+    private fun trackDisposal(device: Scanner) {
+        disposingScanner = device
+        device.disposal.invokeOnCompletion {
+            val clear = Runnable {
+                if (disposingScanner === device) disposingScanner = null
+            }
+            if (Looper.myLooper() == Looper.getMainLooper()) clear.run()
+            else mainHandler.post(clear)
+        }
+    }
+
+    /** Stores the latest texture state and delivers it to live preview subscribers. */
+    private fun publishPreview(description: Map<String, Any>?) {
+        preview = description
+        for (subscription in previewSubscriptions.values.toList()) {
+            if (!subscription.closed)
+                channel?.invokeMethod(
+                    "onPreviewState",
+                    mapOf("subscriptionId" to subscription.id, "description" to description),
+                )
+        }
+    }
+
+    /** Delivers a barcode only to the active capture's enabled event endpoint. */
+    private fun emitResult(viewId: Int, barcode: Barcode) {
+        val lease = selected?.takeIf { it.consumer.viewId == viewId && !it.closed } ?: return
+        val endpoint = lease.subscription?.takeIf { it.enabled && !it.closed } ?: return
+        channel?.invokeMethod(
+            PluginConstants.scanResultMethod,
+            mapOf(
+                "viewId" to viewId,
+                "captureId" to lease.id,
+                "subscriptionId" to endpoint.id,
+                "barcode" to barcode.toMap(),
+            ),
         )
-        cameraImagePreparer.visorRectFormer.updateWidgetScales(scaleX, scaleY)
-        cameraImagePreparer.visorRectFormer.recognizeCropRect = cropRect
-    }
-
-    private fun getDisplaySize(): Point {
-        return Point().apply {
-            val display =
-                (binding.activity.applicationContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
-            display.getSize(this)
-        }
-    }
-
-    private fun onScan(barcode: Barcode) =
-        channel.invokeMethod(PluginConstants.scanResultMethod, barcode.toJson())
-
-    @OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
-    private fun onResume() {
-        if (isLockedAutoResumeCamera) return
-        cameraLifecycle?.resume()
-    }
-
-    @OnLifecycleEvent(Lifecycle.Event.ON_PAUSE)
-    private fun onPause() {
-        if (camera?.isActive() == true) {
-            cameraLifecycle?.pause()
-        }
     }
 }
