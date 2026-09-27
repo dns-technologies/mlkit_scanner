@@ -8,25 +8,35 @@
 import AVFoundation
 import Foundation
 
-/// Camera Information.
+/// Camera selection by device type and position.
 struct CameraData {
-    /// Camera type.
+    /// Physical lens or combined camera device to select.
     let type: AVCaptureDevice.DeviceType
 
-    /// Camera position.
+    /// Direction the camera faces relative to the user.
     let position: AVCaptureDevice.Position
 
-    init(arguments: Dictionary<String, Any?>) {
-        self.type = AVCaptureDevice.DeviceType.fromCode(arguments["type"] as! Int)!
-        self.position = AVCaptureDevice.Position.fromCode(arguments["position"] as! Int)!
+    init(arguments: [String: Any]) throws {
+        let typeNumber = try PlatformChannelScalar.number(from: arguments["type"])
+        let positionNumber = try PlatformChannelScalar.number(from: arguments["position"])
+        guard
+            typeNumber.doubleValue == Double(typeNumber.intValue),
+            positionNumber.doubleValue == Double(positionNumber.intValue),
+            let type = AVCaptureDevice.DeviceType.fromCode(typeNumber.intValue),
+            let position = AVCaptureDevice.Position.fromCode(positionNumber.intValue)
+        else {
+            throw MlKitPluginError.invalidArguments
+        }
+        self.type = type
+        self.position = position
     }
-    
+
     init(type: AVCaptureDevice.DeviceType, position: AVCaptureDevice.Position) {
         self.type = type
         self.position = position
     }
-    
-    /// Creates json for transmission over the platform channel.
+
+    /// Creates a JSON-compatible platform-channel representation.
     func toJson() -> [String: Any] {
         [
             "position": position.code,

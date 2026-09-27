@@ -1,0 +1,18 @@
+plugins {
+    id 'io.gitlab.arturbosch.detekt' version '1.23.8'
+}
+
+repositories {
+    mavenCentral()
+}
+
+detekt {
+    toolVersion = '1.23.8'
+    source.setFrom(
+        '../../../android/src/main/kotlin',
+        '../../../android/src/test/kotlin',
+        '../../../example/android/app/src/main/kotlin',
+    )
+    config.setFrom(file('detekt.yml'))
+    buildUponDefaultConfig = false
+}

@@ -1,0 +1,51 @@
+import Flutter
+import CoreVideo
+import XCTest
+@testable import mlkit_scanner
+
+final class CameraTextureOutputTests: XCTestCase {
+    func testTexturePublishesOnlyMetadataChangesAndRetainsLatestBuffer() throws {
+        let registry = RecordingTextureRegistry()
+        let texture = CameraTextureOutput(registry: registry)
+        var descriptions: [CameraPreviewDescription?] = []
+        texture.publish = { descriptions.append($0) }
+        XCTAssertNil(texture.copyPixelBuffer())
+        var buffer: CVPixelBuffer?
+        XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, 16, 8, kCVPixelFormatType_32BGRA, nil, &buffer), kCVReturnSuccess)
+        let frame = try XCTUnwrap(buffer)
+        texture.present(frame); texture.present(frame)
+        XCTAssertEqual(registry.frames, [42, 42])
+        XCTAssertEqual(descriptions.count, 1)
+        XCTAssertEqual(descriptions[0], CameraPreviewDescription(textureId: 42, width: 16, height: 8, state: .streaming))
+        XCTAssertTrue(texture.copyPixelBuffer()?.takeRetainedValue() === frame)
+        texture.pause()
+        XCTAssertEqual(descriptions.compactMap { $0 }.last?.state, .paused)
+        XCTAssertNotNil(texture.copyPixelBuffer()?.takeRetainedValue())
+        texture.present(frame)
+        XCTAssertEqual(descriptions.count, 3)
+        XCTAssertEqual(descriptions[2]?.state, .streaming)
+        texture.dispose(); texture.dispose()
+        XCTAssertNil(texture.copyPixelBuffer())
+        XCTAssertEqual(descriptions.count, 4)
+        XCTAssertNil(descriptions[3])
+        XCTAssertEqual(registry.removed, [42])
+    }
+    func testLateFrameCannotRepopulateDisposedTexture() throws {
+        let registry = RecordingTextureRegistry()
+        let texture = CameraTextureOutput(registry: registry)
+        var frame: CVPixelBuffer?
+        CVPixelBufferCreate(kCFAllocatorDefault, 16, 8, kCVPixelFormatType_32BGRA, nil, &frame)
+        texture.dispose(); texture.present(try XCTUnwrap(frame))
+        XCTAssertTrue(registry.frames.isEmpty)
+        XCTAssertNil(texture.copyPixelBuffer())
+    }
+}
+
+final class RecordingTextureRegistry: NSObject, FlutterTextureRegistry {
+    var registered: [FlutterTexture] = []
+    var frames: [Int64] = []
+    var removed: [Int64] = []
+    func register(_ texture: FlutterTexture) -> Int64 { registered.append(texture); return 42 }
+    func textureFrameAvailable(_ textureId: Int64) { frames.append(textureId) }
+    func unregisterTexture(_ textureId: Int64) { removed.append(textureId); registered.removeAll() }
+}
