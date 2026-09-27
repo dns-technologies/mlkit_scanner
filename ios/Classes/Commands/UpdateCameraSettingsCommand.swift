@@ -3,7 +3,6 @@ import Flutter
 /// Applies changed camera controls together without reacquiring the camera.
 final class UpdateCameraSettingsCommand: ScannerCommand {
 
-    /// Decodes the complete batch before applying settings validated by Dart.
     override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
         let values = try ScannerMethodArguments.map(call.arguments)
         let zoom = try values["zoomRatio"].map {

@@ -6,7 +6,6 @@ class BaseScannerCommand {
     /// Native scanner targeted by this command.
     let scannerDevice: ScannerDevice
 
-    /// Creates command functionality for the native scanner.
     init(scannerDevice: ScannerDevice) {
         self.scannerDevice = scannerDevice
     }

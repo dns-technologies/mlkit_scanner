@@ -1,9 +1,10 @@
 import AVFoundation
 import UIKit
 
-/// Serial AVFoundation session, independently of the Flutter texture's consumer widgets.
+/// Manages an AVFoundation session, camera controls and preview frame delivery.
+/// Keeps preview orientation aligned with the interface.
 final class CameraPreview: NSObject, CameraPreviewing {
-    /// Shared Flutter texture receiving frames on main.
+    /// Preview output receiving frames on main.
     private let output: CameraPreviewOutput
     /// Serial owner of AVFoundation session configuration and camera controls.
     private let queue = DispatchQueue(label: "mlkit_scanner.camera_session", qos: .userInitiated)
@@ -103,7 +104,6 @@ final class CameraPreview: NSObject, CameraPreviewing {
         }
     }
 
-    /// Binds the shared texture and observes interface orientation on main.
     init(output: CameraPreviewOutput) {
         self.output = output
         super.init()
@@ -185,7 +185,7 @@ final class CameraPreview: NSObject, CameraPreviewing {
         DispatchQueue.main.async { [weak self] in if self?.closed == false { self?.observeTorch(device) } }
     }
 
-    /// Replaces the stream receiver on the session queue, revoking prior queued frames.
+    /// Prepares frame delivery for the current recognition settings, discarding pending frames.
     private func installReceiver() {
         receiver?.close()
         let receiver = CameraFrameReceiver()
@@ -331,7 +331,7 @@ final class CameraPreview: NSObject, CameraPreviewing {
         }
     }
 
-    /// Updates normalized focus geometry while refreshing the frame endpoint.
+    /// Updates the normalized focus area.
     func setCropArea(_ cropRect: CropRect) {
         sync {
             crop = cropRect
@@ -347,7 +347,7 @@ final class CameraPreview: NSObject, CameraPreviewing {
         }
     }
 
-    /// Runs a camera control on the session queue with its configuration lock held.
+    /// Provides exclusive access to the active camera for configuration changes.
     private func withCamera(_ action: (AVCaptureDevice) throws -> Void) throws {
         try sync {
             guard !closed, let camera = camera else { throw MlKitPluginError.cameraIsNotInitialized }
@@ -357,7 +357,7 @@ final class CameraPreview: NSObject, CameraPreviewing {
         }
     }
 
-    /// Reads interface orientation on main and schedules its session update.
+    /// Aligns the camera stream with the interface orientation.
     private func updateOrientation() {
         let value: UIInterfaceOrientation
         if #available(iOS 13.0, *) {
@@ -386,7 +386,7 @@ final class CameraPreview: NSObject, CameraPreviewing {
         }
     }
 
-    /// Observes the selected device and filters stale notifications by identity.
+    /// Observes torch changes on the selected device, replacing any previous observation.
     private func observeTorch(_ device: AVCaptureDevice) {
         torchObserver?.invalidate()
         observedDevice = device
@@ -449,13 +449,10 @@ final class CameraPreview: NSObject, CameraPreviewing {
 private final class CameraPreparation {
     /// Protects mutable state shared across callback queues.
     private let lock = NSLock()
-    /// Pending response, cleared before delivery to enforce one completion.
+
+    /// Response awaiting completion or cancellation.
     private var completion: ((Error?) -> Void)?
 
-    /// Stores one cancellable camera-configuration response.
-    init(_ completion: @escaping (Error?) -> Void) {
-        self.completion = completion
-    }
     /// Whether the request still has an unfinished response.
     var active: Bool {
         lock.lock()
@@ -465,7 +462,11 @@ private final class CameraPreparation {
         return completion != nil
     }
 
-    /// Takes the pending response under the lock, then invokes it after unlocking.
+    init(_ completion: @escaping (Error?) -> Void) {
+        self.completion = completion
+    }
+
+    /// Completes at most once without holding the state lock during callback delivery.
     func finish(_ error: Error?) {
         lock.lock()
         let callback = completion
@@ -479,7 +480,7 @@ private final class CameraPreparation {
 private final class CameraStart {
     /// Protects mutable state shared across callback queues.
     private let lock = NSLock()
-    /// Pending response, cleared before delivery to enforce one completion.
+    /// Response awaiting completion or cancellation.
     private var completion: ((Error?) -> Void)?
     /// Receiver identity associated with this start; protected by lock.
     private var output: CameraFrameReceiver?
@@ -507,12 +508,11 @@ private final class CameraStart {
         return completion != nil
     }
 
-    /// Stores one response awaiting the first frame of its stream.
     init(_ completion: @escaping (Error?) -> Void) {
         self.completion = completion
     }
 
-    /// Takes the pending response under the lock, then invokes it after unlocking.
+    /// Completes at most once without holding the state lock during callback delivery.
     func finish(_ error: Error?) {
         lock.lock()
         let callback = completion

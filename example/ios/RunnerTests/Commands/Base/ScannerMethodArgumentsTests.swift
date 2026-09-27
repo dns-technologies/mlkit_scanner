@@ -3,6 +3,23 @@ import XCTest
 @testable import mlkit_scanner
 
 final class ScannerMethodArgumentsTests: XCTestCase {
+    func testGeometryPreservesFractionalDimensions() throws {
+        let size = try ScannerMethodArguments.geometry(["width": 320.5, "height": 240.25])
+        XCTAssertEqual(size.width, 320.5)
+        XCTAssertEqual(size.height, 240.25)
+    }
+
+    func testGeometryRejectsMalformedAndNonPositiveDimensions() {
+        let invalidArguments: [Any?] = [nil, "size", [String: Any](), ["width": 320], ["height": 240]]
+        for arguments in invalidArguments {
+            assertInvalid { _ = try ScannerMethodArguments.geometry(arguments) }
+        }
+        for invalid: Any in [true, "320", 0, -1, Double.nan, Double.infinity, -Double.infinity] {
+            assertInvalid { _ = try ScannerMethodArguments.geometry(["width": invalid, "height": 240]) }
+            assertInvalid { _ = try ScannerMethodArguments.geometry(["width": 320, "height": invalid]) }
+        }
+    }
+
     func testCodecNSNumberZeroAndOneRemainNumericValues() throws {
         let zero = NSNumber(value: Int32(0))
         let oneDouble = NSNumber(value: 1.0)

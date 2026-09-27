@@ -12,7 +12,7 @@ class ScannerCommand: BaseScannerCommand {
         }
     }
 
-    /// Performs subclass-specific command work after common error handling.
+    /// Performs the command's operation.
     func executeCommand(
         _ call: FlutterMethodCall,
         result: @escaping FlutterResult

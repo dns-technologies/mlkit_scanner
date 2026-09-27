@@ -9,8 +9,10 @@ import Foundation
 
 /// Normalized barcode recognition rectangle relative to the camera preview.
 ///
-/// The portion inside the preview is analyzed. A rectangle completely outside
-/// the preview produces no recognition results.
+/// Scales describe size relative to the preview; offsets describe displacement
+/// of the rectangle's center from the preview center.
+/// Defaults to the centered full preview. Argument decoding requires finite values
+/// and uses the same defaults for omitted coordinates.
 struct CropRect {
     /// Rectangle width as a fraction of the preview width.
     ///
@@ -31,7 +33,6 @@ struct CropRect {
     /// top preview edges respectively.
     let offsetY: CGFloat
 
-    /// Creates a centered recognition area covering the full preview.
     init() {
         scaleWidth = 1
         scaleHeight = 1
@@ -39,7 +40,6 @@ struct CropRect {
         offsetY = 0
     }
 
-    /// Decodes crop geometry; Dart validates the positive scale requirement.
     init(arguments: [String: Any]) throws {
 
         /// Reads one finite numeric argument or its cross-platform default.

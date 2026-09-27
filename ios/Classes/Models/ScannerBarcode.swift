@@ -1,15 +1,15 @@
-/// Recognized barcode data independent of the recognition backend.
+/// Recognized barcode contents and classification codes.
 struct ScannerBarcode {
     /// Decoded barcode contents.
     let rawValue: String
     /// Optional human-readable representation.
     let displayValue: String?
-    /// Barcode format code used by the scanner channel.
+    /// Stable barcode format code.
     let format: Int
-    /// Content type code used by the scanner channel.
+    /// Stable barcode content type code.
     let valueType: Int
 
-    /// Encodes the scanner's existing cross-platform result contract.
+    /// Serializes barcode values into a string-keyed dictionary.
     func toJson() -> [String: Any?] {
         ["raw_value": rawValue, "display_value": displayValue,
          "format": format, "value_type": valueType]

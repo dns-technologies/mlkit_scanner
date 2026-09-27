@@ -1,6 +1,6 @@
 /// Barcode content value type.
 enum BarcodeValueType {
-  /// Barcode value type unknown.
+  /// The native content type is absent or not recognized by this plugin version.
   unknown,
 
   /// Contact information.
@@ -42,15 +42,12 @@ enum BarcodeValueType {
 
 /// Converts between [BarcodeValueType] values and native platform codes.
 extension BarcodeValueTypeCode on BarcodeValueType {
-  /// Code of type for transmission over the platform channel.
-  int get code => _typeToCode[this]!;
+  /// Platform code for an unrecognized barcode content type.
+  static const _unknownCode = 0;
 
-  /// Returns the type corresponding to the [code].
-  static BarcodeValueType fromCode(int code) => _codeToType[code] ?? BarcodeValueType.unknown;
-
-  /// Stable ML Kit content-type codes used by both native platforms.
+  /// Stable content-type codes, independent of enum ordering.
   static final _typeToCode = {
-    BarcodeValueType.unknown: 0,
+    BarcodeValueType.unknown: _unknownCode,
     BarcodeValueType.contactInfo: 1,
     BarcodeValueType.email: 2,
     BarcodeValueType.isbn: 3,
@@ -67,4 +64,10 @@ extension BarcodeValueTypeCode on BarcodeValueType {
 
   /// Reverse lookup used while decoding native barcode results.
   static final _codeToType = {for (final entry in _typeToCode.entries) entry.value: entry.key};
+
+  /// Platform code of this barcode content type.
+  int get code => _typeToCode[this] ?? _unknownCode;
+
+  /// Decodes a barcode content type from its platform code.
+  static BarcodeValueType fromCode(int code) => _codeToType[code] ?? BarcodeValueType.unknown;
 }

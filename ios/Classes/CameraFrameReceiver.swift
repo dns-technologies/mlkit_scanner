@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-/// The delegate belongs to one actual camera stream; closing it revokes queued frames.
+/// Coalesces preview frames and submits recognition work; closing revokes queued frames.
 final class CameraFrameReceiver: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     /// Protects mutable state shared across callback queues.
     private let lock = NSLock()
@@ -9,7 +9,7 @@ final class CameraFrameReceiver: NSObject, AVCaptureVideoDataOutputSampleBufferD
     private var closed = false
     /// Recognition endpoint snapshotted when admitting a frame; protected by lock.
     private var recognition: RecognitionHandler?
-    /// Latest Flutter viewport dimensions; protected by lock.
+    /// Latest preview viewport dimensions; protected by lock.
     private var viewport = CGSize(width: 1, height: 1)
     /// Dimensions of the latest received buffer; protected by lock.
     private var size = CGSize(width: 720, height: 1280)
@@ -23,7 +23,7 @@ final class CameraFrameReceiver: NSObject, AVCaptureVideoDataOutputSampleBufferD
     private var analyzing = false
     /// Main-thread callback installed before attaching this receiver to capture output.
     var onPreview: ((CVPixelBuffer) -> Void)?
-    /// Returns the latest buffer dimensions under the state lock.
+    /// Latest received frame dimensions.
     var latestSize: CGSize {
         lock.lock()
         defer {
@@ -47,7 +47,7 @@ final class CameraFrameReceiver: NSObject, AVCaptureVideoDataOutputSampleBufferD
         lock.unlock()
     }
 
-    /// Revokes the receiver and drops queued preview data under the state lock.
+    /// Stops frame delivery and discards pending preview frames.
     func close() {
         lock.lock()
         closed = true
@@ -89,7 +89,7 @@ final class CameraFrameReceiver: NSObject, AVCaptureVideoDataOutputSampleBufferD
         }
     }
 
-    /// Takes the newest pending frame for main-thread preview delivery.
+    /// Delivers the latest pending preview frame on the main thread.
     private func deliverPreview() {
         lock.lock()
         let buffer = closed ? nil : pendingBuffer

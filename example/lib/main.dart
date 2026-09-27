@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mlkit_scanner/mlkit_scanner.dart';
 
-/// Starts the scanner example application.
 void main() => runApp(const MyApp());
 
 /// Formats camera failures without discarding their structured operation details.
@@ -33,19 +32,14 @@ class _ScannerPage extends StatefulWidget {
 
 /// Keeps desired scanner settings in Flutter state.
 class _ScannerPageState extends State<_ScannerPage> {
-  /// Most recent barcode text; absent until a barcode has been recognized.
-  String? _barcode;
-
   /// Magnifications cycled by the zoom button.
   static const _zoomRatios = [1.0, 2.0, 3.0];
 
   /// User-visible recognition cooldown choices in milliseconds.
-  static const _delayOptions = {
-    '0 milliseconds': 0,
-    '100 milliseconds': 100,
-    '500 milliseconds': 500,
-    '2000 milliseconds': 2000,
-  };
+  static const _delayOptions = {'0 milliseconds': 0, '100 milliseconds': 100, '500 milliseconds': 500, '2000 milliseconds': 2000};
+
+  /// Most recent barcode text; absent until a barcode has been recognized.
+  String? _barcode;
 
   /// Index of the selected demo magnification.
   int _zoomIndex = 0;
@@ -154,16 +148,14 @@ class _ScannerPageState extends State<_ScannerPage> {
     return Scaffold(
       appBar: _isFullscreen ? null : AppBar(title: const Text('MLKit Scanner example')),
       body: LayoutBuilder(
-        builder: (context, constraints) => Column(
-          children: [
-            // Keep the scanner at the same tree location when resizing it.
-            SizedBox(
-              height: _isFullscreen ? constraints.maxHeight : constraints.maxHeight.clamp(0.0, 240.0),
-              child: _buildPreview(),
+        builder:
+            (context, constraints) => Column(
+              children: [
+                // Keep the scanner at the same tree location when resizing it.
+                SizedBox(height: _isFullscreen ? constraints.maxHeight : constraints.maxHeight.clamp(0.0, 240.0), child: _buildPreview()),
+                if (!_isFullscreen) Expanded(child: SingleChildScrollView(child: _buildControls())),
+              ],
             ),
-            if (!_isFullscreen) Expanded(child: SingleChildScrollView(child: _buildControls())),
-          ],
-        ),
       ),
     );
   }
@@ -194,10 +186,7 @@ class _ScannerPageState extends State<_ScannerPage> {
               alignment: Alignment.topCenter,
               child: Padding(
                 padding: EdgeInsets.all(8),
-                child: Text(
-                  'Tap to focus / Long press to lock focus',
-                  style: TextStyle(color: Colors.white),
-                ),
+                child: Text('Tap to focus / Long press to lock focus', style: TextStyle(color: Colors.white)),
               ),
             ),
           ),
@@ -224,51 +213,31 @@ class _ScannerPageState extends State<_ScannerPage> {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (_barcode case final barcode?)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(barcode, style: const TextStyle(fontSize: 18)),
-          ),
+          Padding(padding: const EdgeInsets.all(16), child: Text(barcode, style: const TextStyle(fontSize: 18))),
         if (_error case final error?)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
-              children: [
-                Text(_describeError(error)),
-                TextButton(
-                  onPressed: _retryScanner,
-                  child: const Text('Retry scanner'),
-                ),
-              ],
+              children: [Text(_describeError(error)), TextButton(onPressed: _retryScanner, child: const Text('Retry scanner'))],
             ),
           ),
         Wrap(
           alignment: WrapAlignment.center,
           spacing: 8,
           children: [
-            TextButton(
-              onPressed: () => setState(() => _scanning = true),
-              child: const Text('Start scan'),
-            ),
-            TextButton(
-              onPressed: () => setState(() => _scanning = false),
-              child: const Text('Cancel scan'),
-            ),
-            TextButton(
-              onPressed: () => setState(() => _cameraPaused = true),
-              child: const Text('Pause camera'),
-            ),
-            TextButton(
-              onPressed: () => setState(() => _cameraPaused = false),
-              child: const Text('Resume camera'),
-            ),
+            TextButton(onPressed: () => setState(() => _scanning = true), child: const Text('Start scan')),
+            TextButton(onPressed: () => setState(() => _scanning = false), child: const Text('Cancel scan')),
+            TextButton(onPressed: () => setState(() => _cameraPaused = true), child: const Text('Pause camera')),
+            TextButton(onPressed: () => setState(() => _cameraPaused = false), child: const Text('Resume camera')),
             TextButton(
               onPressed: () => setState(() => _flashEnabled = !_flashEnabled),
               child: Text('Flash: ${_flashEnabled ? 'on' : 'off'}'),
             ),
             TextButton(
-              onPressed: () => setState(() {
-                _zoomIndex = (_zoomIndex + 1) % _zoomRatios.length;
-              }),
+              onPressed:
+                  () => setState(() {
+                    _zoomIndex = (_zoomIndex + 1) % _zoomRatios.length;
+                  }),
               child: Text('Zoom: ${_zoomRatios[_zoomIndex]}x'),
             ),
             TextButton(
@@ -278,9 +247,7 @@ class _ScannerPageState extends State<_ScannerPage> {
             PopupMenuButton<int>(
               tooltip: 'Set scan delay',
               onSelected: (delay) => setState(() => _scanDelay = delay),
-              itemBuilder: (_) => [
-                for (final entry in _delayOptions.entries) PopupMenuItem(value: entry.value, child: Text(entry.key)),
-              ],
+              itemBuilder: (_) => [for (final entry in _delayOptions.entries) PopupMenuItem(value: entry.value, child: Text(entry.key))],
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Text(
@@ -298,10 +265,7 @@ class _ScannerPageState extends State<_ScannerPage> {
           ),
           Center(child: Text('Actual torch: $_actualFlashEnabled')),
           if (_discoveryError case final error?)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text('Camera discovery: ${_describeError(error)}'),
-            ),
+            Padding(padding: const EdgeInsets.all(16), child: Text('Camera discovery: ${_describeError(error)}')),
         ],
       ],
     );

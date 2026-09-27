@@ -46,20 +46,19 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 
-/** CameraX binding with a persistent texture output. No Android View participates in capture. */
+/** CameraX binding with persistent texture output and frame analysis. */
 @MainThread
 @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
 internal class XCamera(
     context: Context,
     producer: TextureRegistry.SurfaceProducer,
-    publish: (Map<String, Any>?) -> Unit = {},
+    publish: (CameraPreviewDescription?) -> Unit = {},
     /** Loads the process camera provider; injectable for deterministic binding tests. */
     private val providerLoader: () -> ListenableFuture<ProcessCameraProvider> = {
         ProcessCameraProvider.getInstance(context.applicationContext)
     },
 ) : Camera {
-    /** Preview observer owned by the scanner using this camera. */
-    override var onPreviewChanged: (Map<String, Any>?) -> Unit = publish
+    override var onPreviewChanged: (CameraPreviewDescription?) -> Unit = publish
     /** Reusable NV21 conversion buffers shared by analysis frames. */
     private val nv21Converter = ImageProxyNv21Converter()
     /** Serial executor for CameraX state and preview callbacks. */
@@ -68,7 +67,6 @@ internal class XCamera(
     private val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
     /** Persistent Flutter texture output owned by this camera adapter. */
     private val output = CameraTextureOutput(producer, mainExecutor) { onPreviewChanged(it) }
-    /** Completes when CameraX returns all surfaces and the texture producer is released. */
     override val disposal: Deferred<Unit>
         get() = output.disposal
 
@@ -76,7 +74,7 @@ internal class XCamera(
     private var provider: ProcessCameraProvider? = null
     /** Current SDK binding identity, visible to the analysis worker. */
     @Volatile private var binding: Binding? = null
-    /** Latest widget viewport size, published to the analysis worker. */
+    /** Latest preview viewport size, published to the analysis worker. */
     @Volatile private var previewSize = Size(1, 1)
     /** Startup request still awaiting its provider and use-case binding. */
     private var pending: Start? = null
@@ -84,20 +82,17 @@ internal class XCamera(
     private var disposed = false
     /** Startup context retained only while Flutter's surface is unavailable. */
     private var suspended: Start? = null
-    /** Current default-display rotation, falling back to an upright display. */
+    /** Current default-display rotation. */
     private val rotation: Int
         get() = displayManager.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: Surface.ROTATION_0
 
     /** Updates both use cases when the default display rotates. */
     private val displayListener =
         object : DisplayManager.DisplayListener {
-            /** Ignores secondary display creation because capture uses the default display. */
             override fun onDisplayAdded(id: Int) = Unit
 
-            /** Ignores display removal; rotation is resolved from the current default display. */
             override fun onDisplayRemoved(id: Int) = Unit
 
-            /** Applies default-display rotation to the currently bound use cases. */
             override fun onDisplayChanged(id: Int) {
                 if (id != Display.DEFAULT_DISPLAY) return
                 binding?.let {
@@ -129,15 +124,12 @@ internal class XCamera(
         }
     }
 
-    /** Publishes the selected widget's viewport for analysis and focus mapping. */
     override fun updateGeometry(size: Size) {
         previewSize = size
     }
 
-    /** Reports whether CameraX use cases currently have a live binding. */
     override fun isBound() = binding != null
 
-    /** Starts one binding attempt and routes callbacks through its request identity. */
     override fun bind(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
@@ -185,7 +177,7 @@ internal class XCamera(
                     val group =
                         UseCaseGroup.Builder()
                             .setViewPort(
-                                // Keep the shared sensor area; Flutter applies the widget's cover crop.
+                                // Keep the full sensor area in both outputs to avoid discarding source pixels.
                                 ViewPort.Builder(Rational(16, 9), Surface.ROTATION_0)
                                     .setScaleType(ViewPort.FIT)
                                     .build()
@@ -224,7 +216,7 @@ internal class XCamera(
         )
     }
 
-    /** Builds the preview and correlates real capture completions with their surface requests. */
+    /** Creates a camera preview with frame-readiness notifications. */
     private fun createPreview(start: Start): Preview {
         val builder =
             Preview.Builder().setTargetRotation(rotation).setResolutionSelector(RESOULTION)
@@ -237,7 +229,6 @@ internal class XCamera(
                      */
                     private val frames = mutableMapOf<Long, CameraTextureOutput.PreviewFrame>()
 
-                    /** Snapshots the surface request for a camera capture on the main executor. */
                     override fun onCaptureStarted(
                         session: CameraCaptureSession,
                         request: CaptureRequest,
@@ -254,7 +245,6 @@ internal class XCamera(
                         }
                     }
 
-                    /** Confirms preview readiness only for a frame from the current binding. */
                     override fun onCaptureCompleted(
                         session: CameraCaptureSession,
                         request: CaptureRequest,
@@ -271,14 +261,12 @@ internal class XCamera(
         return builder.build().also { it.setSurfaceProvider(output) }
     }
 
-    /** Restores continuous focusing through CameraX's cancellable control future. */
     override fun resetFocus() =
         requireCamera()
             .cameraControl
             .cancelFocusAndMetering()
             .asCameraControlDeferred(CameraControlOperation.FOCUS)
 
-    /** Maps viewport coordinates to the source crop and starts focus metering. */
     override fun focus(resetDelayMs: Long, x: Float, y: Float): Deferred<Unit> {
         val current = binding ?: throw PluginError.CameraIsNotInitialized
         if (!x.isFinite() || !y.isFinite()) throw PluginError.InvalidArguments
@@ -313,7 +301,6 @@ internal class XCamera(
             .asCameraControlDeferred(CameraControlOperation.FOCUS)
     }
 
-    /** Validates the device's supported range before applying absolute zoom. */
     override fun setZoomRatio(ratio: Float): Deferred<Unit> {
         val camera = requireCamera()
         val zoom = camera.cameraInfo.zoomState.value ?: throw PluginError.CameraIsNotInitialized
@@ -324,7 +311,6 @@ internal class XCamera(
             .asCameraControlDeferred(CameraControlOperation.ZOOM)
     }
 
-    /** Applies torch state; disabling an unavailable flash remains harmless. */
     override fun setTorch(enabled: Boolean): Deferred<Unit> {
         val camera = requireCamera()
         if (!camera.cameraInfo.hasFlashUnit()) {
@@ -339,7 +325,6 @@ internal class XCamera(
     /** Returns the active SDK camera or reports an uninitialized scanner. */
     private fun requireCamera() = binding?.camera ?: throw PluginError.CameraIsNotInitialized
 
-    /** Revokes binding identity and removes this adapter's use cases and observer. */
     override fun unbind() {
         suspended = null
         pending = null
@@ -354,7 +339,6 @@ internal class XCamera(
         }
     }
 
-    /** Closes the binding, texture output, display listener, and conversion buffers. */
     override fun dispose() {
         if (disposed) return
         disposed = true
@@ -413,6 +397,18 @@ internal class XCamera(
     }
 
     companion object {
+        /** Resolution policy shared by preview and analysis. */
+        private val RESOULTION =
+            ResolutionSelector.Builder()
+                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                .setResolutionStrategy(
+                    ResolutionStrategy(
+                        Size(1280, 720),
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
+                    )
+                )
+                .build()
+
         /** Maps a normalized fill-center viewport point into unrotated source coordinates. */
         internal fun sourcePoint(
             x: Float,
@@ -437,18 +433,6 @@ internal class XCamera(
                 else -> PointF(uprightX, uprightY)
             }
         }
-
-        /** Shared 16:9 resolution preference with a 1280 by 720 target and device fallback. */
-        private val RESOULTION =
-            ResolutionSelector.Builder()
-                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
-                .setResolutionStrategy(
-                    ResolutionStrategy(
-                        Size(1280, 720),
-                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
-                    )
-                )
-                .build()
 
         /** Bridges SDK completion and cancellation while preserving native failure causes. */
         fun ListenableFuture<*>.asCameraControlDeferred(

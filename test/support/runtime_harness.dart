@@ -12,21 +12,6 @@ import 'package:mlkit_scanner/src/platform/scanner_controller.dart';
 
 /// Shared platform-channel fixture for scanner tests.
 class RuntimeHarness {
-  final calls = <MethodCall>[];
-  final errors = <FlutterErrorDetails>[];
-  final _previousErrorHandler = FlutterError.onError;
-  final controllers = <BarcodeScannerController>[];
-  Future<Object?> Function(MethodCall)? handler;
-  int _nextLease = 0;
-  int _nextSubscription = 0;
-  final leases = <int, String>{};
-  final scans = <String, String>{};
-  bool terminalFailureExpected = false;
-  bool _disposed = false;
-  final runtime = ScannerRuntime(MlKitChannel());
-  final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-  static const channel = MethodChannel('mlkit_channel');
-
   RuntimeHarness() {
     FlutterError.onError = errors.add;
     ScannerRuntime.instance = runtime;
@@ -51,6 +36,36 @@ class RuntimeHarness {
     });
   }
 
+  static const channel = MethodChannel('mlkit_channel');
+
+  final calls = <MethodCall>[];
+
+  final errors = <FlutterErrorDetails>[];
+
+  final _previousErrorHandler = FlutterError.onError;
+
+  final controllers = <BarcodeScannerController>[];
+
+  Future<Object?> Function(MethodCall)? handler;
+
+  int _nextLease = 0;
+
+  int _nextSubscription = 0;
+
+  final leases = <int, String>{};
+
+  final scans = <String, String>{};
+
+  bool terminalFailureExpected = false;
+
+  bool _disposed = false;
+
+  final runtime = ScannerRuntime(MlKitChannel());
+
+  final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+  Iterable<String> get methods => calls.map((call) => call.method);
+
   BarcodeScannerController controller(
     int viewId, {
     bool scanning = false,
@@ -62,13 +77,12 @@ class RuntimeHarness {
       configuration: ScannerConfiguration(scanEnabled: scanning),
       onScan: onScan,
       onTorchChanged: onTorchChanged,
+      runtime: runtime,
     );
     controllers.add(controller);
-    runtime.register(controller);
+    controller.initialize();
     return controller;
   }
-
-  Iterable<String> get methods => calls.map((call) => call.method);
 
   /// Simulates the visible widget requesting capture after the controller resumes.
   Future<void> resumeVisible(BarcodeScannerController controller) async {

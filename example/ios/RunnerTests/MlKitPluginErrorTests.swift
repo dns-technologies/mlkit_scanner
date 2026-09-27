@@ -46,5 +46,6 @@ final class MlKitPluginErrorTests: XCTestCase {
 }
 
 private enum PluginErrorTestCause: Error {
+    /// An operation was rejected.
     case rejected
 }

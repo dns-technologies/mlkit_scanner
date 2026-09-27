@@ -76,7 +76,6 @@ internal class ByteArrayLease(val data: ByteArray, private val release: (ByteArr
     /** Atomic guard ensuring the buffer is returned at most once. */
     private val isClosed = AtomicBoolean(false)
 
-    /** Returns [data] to its owner once; subsequent calls have no effect. */
     override fun close() {
         if (isClosed.compareAndSet(false, true)) {
             release(data)

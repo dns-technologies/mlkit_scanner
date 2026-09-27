@@ -11,7 +11,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
-/** Base command abstraction for asynchronous Dart->native scanner commands. */
+/** Executes scanner method calls with asynchronous completion. */
 internal abstract class AsyncScannerCommand(
     scannerProvider: () -> Scanner?,
     /** Capture-owned coroutine scope that cancels controls when the lease closes. */

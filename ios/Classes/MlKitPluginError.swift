@@ -17,7 +17,7 @@ enum MlKitPluginError: String, Error, LocalizedError {
     case cameraIsNotInitialized = "3"
     /// When device doesn't have a flash, or can't use it.
     case deviceHasNotFlash = "4"
-    /// Flutter side sends wrong argument
+    /// Malformed or incomplete command arguments.
     case invalidArguments = "5"
 
     /// The active camera does not support zoom control.
@@ -66,30 +66,21 @@ enum CameraControlOperation: String {
 struct CameraControlError: Error, LocalizedError {
     /// Stable platform-channel code for camera-control failures.
     static let errorCode = "9"
+
     /// Shared platform-channel message for camera-control failures.
     static let errorMessage = "Camera control operation failed"
 
     /// Camera operation that failed.
     let operation: CameraControlOperation
-    /// Logical Flutter consumer associated with the failure, when available.
+
+    /// Camera consumer identifier associated with the failure, when available.
     let viewId: Int64?
+
     /// Original native failure retained for diagnostics.
     let underlyingError: Error?
+
     /// Optional native camera-state code included in channel diagnostics.
     let cameraStateErrorCode: Int?
-
-    /// Captures operation and consumer context for a camera-control failure.
-    init(
-        operation: CameraControlOperation,
-        viewId: Int64? = nil,
-        underlyingError: Error? = nil,
-        cameraStateErrorCode: Int? = nil
-    ) {
-        self.operation = operation
-        self.viewId = viewId
-        self.underlyingError = underlyingError
-        self.cameraStateErrorCode = cameraStateErrorCode
-    }
 
     /// Human-readable description exposed through native error reporting.
     var errorDescription: String? {
@@ -112,5 +103,17 @@ struct CameraControlError: Error, LocalizedError {
             ]
         }
         return details
+    }
+
+    init(
+        operation: CameraControlOperation,
+        viewId: Int64? = nil,
+        underlyingError: Error? = nil,
+        cameraStateErrorCode: Int? = nil
+    ) {
+        self.operation = operation
+        self.viewId = viewId
+        self.underlyingError = underlyingError
+        self.cameraStateErrorCode = cameraStateErrorCode
     }
 }

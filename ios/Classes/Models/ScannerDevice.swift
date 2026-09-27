@@ -3,7 +3,7 @@ import CoreGraphics
 /// Completes a native scanner request with an optional failure.
 typealias ScannerCompletion = (Error?) -> Void
 
-/// Native controls for the shared scanner; widget configuration remains in Dart.
+/// Camera capture, device controls and barcode recognition operations.
 protocol ScannerDevice: AnyObject {
 
     /// Acquires the shared camera for a registered consumer using its settings.

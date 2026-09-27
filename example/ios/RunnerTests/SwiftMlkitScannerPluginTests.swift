@@ -3,6 +3,30 @@ import XCTest
 @testable import mlkit_scanner
 
 final class SwiftMlkitScannerPluginTests: XCTestCase {
+    func testPreviewMetadataPreservesTheChannelRepresentation() {
+        let preview = CameraPreviewDescription(textureId: 42, width: 720, height: 1280, state: .streaming)
+        let expected: [String: Any] = ["textureId": Int64(42), "width": 720, "height": 1280,
+            "rotationDegrees": 0, "mirrored": false, "state": "streaming"]
+        XCTAssertEqual(SwiftMlkitScannerPlugin.previewArguments(preview) as NSDictionary, expected as NSDictionary)
+
+        var paused = preview
+        paused.state = .paused
+        XCTAssertEqual(SwiftMlkitScannerPlugin.previewArguments(paused)["state"] as? String, "paused")
+    }
+
+    func testGeometryRejectsInvalidChannelValuesWithoutAllocatingCamera() {
+        let registry = RecordingTextureRegistry()
+        let plugin = makePlugin(registry)
+        _ = call(plugin, "registerScanner", ["viewId": 1])
+        let capture = call(plugin, "openCapture", ["viewId": 1]) as! String
+
+        XCTAssertEqual((call(plugin, "updatePreviewGeometry", ["captureId": capture, "width": 0, "height": 240]) as? FlutterError)?.code,
+            MlKitPluginError.invalidArguments.rawValue)
+        XCTAssertNil(call(plugin, "updatePreviewGeometry", ["captureId": capture, "width": 320.5, "height": 240.25]))
+        XCTAssertTrue(registry.registered.isEmpty)
+        _ = call(plugin, "disposeScanner")
+    }
+
     func testBatchedSettingsRejectAnObsoleteLeaseBeforeValidation() {
         let plugin = makePlugin(RecordingTextureRegistry())
         _ = call(plugin, "registerScanner", ["viewId": 1])

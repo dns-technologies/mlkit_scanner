@@ -12,7 +12,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 
-/** Coordinates camera binding and preview readiness; lifecycle policy belongs to the caller. */
+/** Tracks camera binding and availability to gate asynchronous controls. */
 internal class CameraConnection {
     /** Acknowledgment for the current camera binding attempt. */
     private var binding: CompletableDeferred<Unit>? = null
@@ -45,7 +45,7 @@ internal class CameraConnection {
         awaitAll(started, ready)
     }
 
-    /** Updates readiness or reports a camera opening failure for the selected widget. */
+    /** Updates readiness or reports an opening failure with the supplied consumer identifier. */
     fun onAvailabilityChanged(availability: CameraAvailability, viewId: Int?) {
         if (disposed) return
         if (availability == CameraAvailability.Open) {

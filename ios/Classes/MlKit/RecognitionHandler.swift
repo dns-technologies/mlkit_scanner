@@ -7,7 +7,7 @@
 import Foundation
 import AVFoundation
 
-/// Processes camera frames independently of view ownership.
+/// Processes camera frames for the declared recognition mode.
 protocol RecognitionHandler: AnyObject {
     /// Recognition mode implemented by this handler.
     var type: RecognitionType { get }

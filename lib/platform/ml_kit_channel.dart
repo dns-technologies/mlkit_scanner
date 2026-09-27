@@ -12,7 +12,7 @@ import 'scanner_preview.dart';
 /// A native event addressed to its source preview.
 typedef ScannerEvent<T> =
     ({
-      /// Logical widget that originally owned the native operation.
+      /// Logical consumer identifier associated with the native operation.
       int viewId,
 
       /// Native camera lease used to reject events after ownership changes.
@@ -36,25 +36,7 @@ typedef PreviewEvent =
     });
 
 /// Typed access to the scanner platform channel.
-class MlKitChannel {
-  /// Single native callback handler shared by scanner runtimes.
-  static MlKitChannel? _instance;
-
-  /// Plugin transport for metadata and commands; video stays native.
-  final MethodChannel _channel = const MethodChannel('mlkit_channel');
-
-  /// Broadcasts decoded results with their lease and subscription handles.
-  final StreamController<ScannerEvent<Barcode>> _scanResultStreamController = StreamController<ScannerEvent<Barcode>>.broadcast();
-
-  /// Broadcasts iOS torch changes with their originating capture handle.
-  final StreamController<ScannerEvent<bool>> _torchToggleStreamController = StreamController<ScannerEvent<bool>>.broadcast();
-
-  /// Synchronous delivery lets resources buffer events arriving before replies.
-  final _previews = StreamController<PreviewEvent>.broadcast(sync: true);
-
-  /// Preview metadata changes for all live native output subscriptions.
-  Stream<PreviewEvent> get previewEvents => _previews.stream;
-
+final class MlKitChannel {
   factory MlKitChannel() => _instance ??= MlKitChannel._();
 
   MlKitChannel._() {
@@ -74,6 +56,30 @@ class MlKitChannel {
       }
     });
   }
+
+  /// Shared transport instance with a single native callback handler.
+  static MlKitChannel? _instance;
+
+  /// Plugin transport for metadata and commands; video stays native.
+  final MethodChannel _channel = const MethodChannel('mlkit_channel');
+
+  /// Broadcasts decoded results with their lease and subscription handles.
+  final StreamController<ScannerEvent<Barcode>> _scanResultStreamController = StreamController<ScannerEvent<Barcode>>.broadcast();
+
+  /// Broadcasts iOS torch changes with their originating capture handle.
+  final StreamController<ScannerEvent<bool>> _torchToggleStreamController = StreamController<ScannerEvent<bool>>.broadcast();
+
+  /// Synchronous preview metadata notifications.
+  final _previews = StreamController<PreviewEvent>.broadcast(sync: true);
+
+  /// Preview metadata changes for all live native output subscriptions.
+  Stream<PreviewEvent> get previewEvents => _previews.stream;
+
+  /// All recognized barcodes, tagged with the native source view.
+  Stream<ScannerEvent<Barcode>> get scanResults => _scanResultStreamController.stream;
+
+  /// All iOS torch changes, tagged with the native source view.
+  Stream<ScannerEvent<bool>> get torchToggleStream => _torchToggleStreamController.stream;
 
   /// Decodes the common payload of preview callbacks and subscription replies.
   PreviewEvent _decodePreview(Object? arguments) {
@@ -103,7 +109,7 @@ class MlKitChannel {
     }
   }
 
-  /// Invokes a native command and maps camera error code 9 to its typed form.
+  /// Preserves typed camera-control failures when a native command fails.
   Future<void> _invokeVoidMethod(String method, Object? arguments) async {
     try {
       await _channel.invokeMethod<void>(method, arguments);
@@ -115,12 +121,10 @@ class MlKitChannel {
     }
   }
 
-  /// Physically stops camera work when releasing a hidden or background owner.
-  /// Manual widget pause keeps hardware running and never calls this method.
+  /// Requests a physical camera stop for the specified capture lease.
   Future<void> stopCamera({required String captureId}) => _invokeVoidMethod('pauseCameraMethod', {'captureId': captureId});
 
   /// Starts or resumes the camera and applies settings for the native capture lease.
-  /// Used for first startup, ownership changes and recovery after a physical stop.
   /// Completes after SDK configuration; [stopCamera] may interrupt this operation.
   Future<void> resumeCamera({required ScannerConfiguration configuration, required String captureId, required Size geometry}) =>
       _invokeVoidMethod('resumeCameraMethod', {
@@ -150,13 +154,13 @@ class MlKitChannel {
   /// Stops recognition without stopping preview.
   Future<void> cancelScan({required String captureId}) => _invokeVoidMethod('cancelScan', {'captureId': captureId});
 
-  /// Registers a logical widget without allocating a camera or texture.
+  /// Registers a logical consumer without allocating a camera or texture.
   Future<void> registerScanner(int viewId) => _invokeVoidMethod('registerScanner', {'viewId': viewId});
 
-  /// Removes a widget and closes its lease if it still owns capture.
+  /// Unregisters a logical consumer and closes its active capture lease.
   Future<void> unregisterScanner(int viewId) => _invokeVoidMethod('unregisterScanner', {'viewId': viewId});
 
-  /// Allocates a native lease before permission or camera startup can block.
+  /// Acquires exclusive camera ownership without starting the camera.
   Future<String> openCapture(int viewId) async => (await _channel.invokeMethod<String>('openCapture', {'viewId': viewId}))!;
 
   /// Revokes a native lease while keeping the shared camera output warm.
@@ -165,8 +169,8 @@ class MlKitChannel {
   /// Completes after native camera, analyzer and texture resources are released.
   Future<void> disposeScanner() => _invokeVoidMethod('disposeScanner', null);
 
-  /// Creates a preview endpoint and decodes its initial metadata snapshot.
-  /// Releases the endpoint if decoding fails before its owner receives the handle.
+  /// Subscribes to preview changes and returns the current metadata.
+  /// A failed subscription leaves no active endpoint.
   Future<PreviewEvent> subscribePreview() async {
     final reply = await _channel.invokeMethod<Map>('subscribePreview');
     try {
@@ -190,12 +194,6 @@ class MlKitChannel {
 
   /// Requests continuous or locked focus at the current crop center.
   Future<void> focus(String id, bool locked) => _invokeVoidMethod('focus', {'captureId': id, 'locked': locked});
-
-  /// All recognized barcodes, tagged with the native source view.
-  Stream<ScannerEvent<Barcode>> get scanResults => _scanResultStreamController.stream;
-
-  /// All iOS torch changes, tagged with the native source view.
-  Stream<ScannerEvent<bool>> get torchToggleStream => _torchToggleStreamController.stream;
 
   /// Returns all iOS cameras supported by the native implementation.
   Future<List<IosCamera>> getIosAvailableCameras() async {

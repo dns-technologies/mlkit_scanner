@@ -76,11 +76,6 @@ internal class XCameraTest {
             assertEquals(state == CameraState.Type.OPEN, f.availability.last() == CameraAvailability.Open)
         }
     }
-    @Test fun `widget resizing never rebinds the camera use cases`() = withCameraFixture { f ->
-        f.start(); f.layout(400, 800); f.layout(800, 400)
-        assertEquals(1, f.groups.size); assertEquals(1, f.initialized)
-        verify(f.provider, never()).unbindAll()
-    }
     @Test fun `shared viewport preserves full preview and analysis frames at every rotation`() = withCameraFixture { f ->
         f.start()
         val group = f.groups.single()
@@ -665,6 +660,8 @@ internal class XCameraAnalyzerTest {
         val crops = mutableListOf<Rect>()
         f.onFrame = { crops += it.cropRect }
         f.start()
+        f.layout(400, 800)
+        f.layout(800, 400)
         f.layout(8, 6)
         f.analyzer().analyze(image())
         f.layout(1, 1)
@@ -675,6 +672,8 @@ internal class XCameraAnalyzerTest {
             Rect(1, 0, 7, 6),
         ), crops)
         assertEquals(1, f.groups.size)
+        assertEquals(1, f.initialized)
+        verify(f.provider, never()).unbindAll()
     }
 
     @Test

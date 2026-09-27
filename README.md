@@ -283,3 +283,12 @@ image, including rotation and front-camera mirroring.
 ## Contributing
 
 Contributions are welcome.
+
+Follow the [test guidelines](docs/test-guidelines.md): one test file per source
+file, with a named outer group and entity/behavior groups inside it.
+
+Follow the [code style guidelines](docs/code-style-guidelines.md) for declaration
+order, Effective Dart and the commands for Dart, Kotlin and Swift lint checks.
+
+Follow the [comment guidelines](docs/comment-guidelines.md): comments describe an
+entity's own purpose and contract without assuming how unrelated components use it.

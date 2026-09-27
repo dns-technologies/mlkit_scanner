@@ -6,6 +6,9 @@ import org.junit.Assert.assertSame
 import org.junit.Test
 
 internal class ScannerConfigurationTest {
+    private val arguments = mapOf("zoomRatio" to 1.0, "torchEnabled" to false,
+        "cropRect" to null)
+
     @Test
     fun `camera settings parse without Dart recognition preferences`() {
         assertEquals(ScannerConfiguration(), ScannerConfiguration.from(arguments))
@@ -40,7 +43,4 @@ internal class ScannerConfigurationTest {
         assertEquals(0F, decoded.zoomRatio)
         assertEquals(-1.0, decoded.cropArea?.scaleWidth)
     }
-
-    private val arguments = mapOf("zoomRatio" to 1.0, "torchEnabled" to false,
-        "cropRect" to null)
 }

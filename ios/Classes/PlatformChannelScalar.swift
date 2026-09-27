@@ -1,7 +1,7 @@
 import CoreFoundation
 import Foundation
 
-/// Decodes scalar values produced by Flutter's Darwin standard message codec.
+/// Decodes scalar channel values with exact numeric and Boolean type checks.
 enum PlatformChannelScalar {
 
     /// Reads a finite numeric value without imposing scanner-specific ranges.

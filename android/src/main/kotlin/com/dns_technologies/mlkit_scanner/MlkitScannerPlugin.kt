@@ -9,6 +9,8 @@ import com.dns_technologies.mlkit_scanner.commands.base.reportScannerError
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.*
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.mlkit.MlkitImageBarcodeAnalyzer
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.x.XCamera
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.utils.*
@@ -27,7 +29,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
-/** Transport and native lifecycle. Flutter owns widget demand and the idle timer. */
+/** Routes scanner commands and events and manages engine and Activity attachment. */
 class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
     /** Channel used for command replies and preview/recognition events while attached. */
     private var channel: MethodChannel? = null
@@ -39,12 +41,12 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
     private var scanner: Scanner? = null
     /** Scanner retained until its owned resources finish asynchronous disposal. */
     private var disposingScanner: Scanner? = null
-    /** Registered Flutter widgets keyed by their logical view identifiers. */
+    /** Registered camera consumers keyed by their logical identifiers. */
     private val consumers = mutableMapOf<Int, ScannerConsumer>()
     /** Live preview event endpoints independent of capture ownership. */
     private val previewSubscriptions = mutableMapOf<String, ResultEndpoint>()
-    /** Latest texture description returned to newly registered widgets. */
-    private var preview: Map<String, Any>? = null
+    /** Latest texture description returned to new preview subscriptions. */
+    private var preview: CameraPreviewDescription? = null
     /** Exclusive capture lease whose identity rejects stale commands and results. */
     private var selected: CaptureLease? = null
     /** Permission requests that survive Activity configuration changes. */
@@ -61,7 +63,6 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
     /** Main-thread dispatcher for result delivery and deferred disposal replies. */
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /** Registers the command channel and borrows engine resources. */
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
         textures = binding.textureRegistry
@@ -71,7 +72,6 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
             }
     }
 
-    /** Releases native resources and clears references to the detached engine. */
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         try {
             disposeResources()
@@ -86,17 +86,13 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         }
     }
 
-    /** Attaches permissions and any retained scanner to the current Activity. */
     override fun onAttachedToActivity(binding: ActivityPluginBinding) = attach(binding)
 
-    /** Restores Activity-dependent resources after a configuration change. */
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) =
         attach(binding)
 
-    /** Releases the old Activity while preserving pending permission requests. */
     override fun onDetachedFromActivityForConfigChanges() = detach(false)
 
-    /** Ends Activity ownership and releases scanner resources. */
     override fun onDetachedFromActivity() = detach(true)
 
     /** Connects permission callbacks and the camera to the attached Activity. */
@@ -120,7 +116,6 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         } else permissions.detachForConfigChange()
     }
 
-    /** Handles registrations and routes capture commands through their owning lease. */
     override fun onMethodCall(call: MethodCall, result: Result) {
         if (channel == null) {
             reportScannerError(result, PluginError.CameraSessionDisposed)
@@ -132,7 +127,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                     val id = call.arguments.requireMap().requireInt("viewId")
                     if (id < 0) throw PluginError.InvalidArguments
                     consumers.getOrPut(id) { ScannerConsumer(id) }
-                    result.success(preview)
+                    result.success(preview?.toMap())
                 }
                 "unregisterScanner" -> {
                     val id = call.arguments.requireMap().requireInt("viewId")
@@ -143,7 +138,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                 "subscribePreview" -> {
                     val endpoint = ResultEndpoint()
                     previewSubscriptions[endpoint.id] = endpoint
-                    result.success(mapOf("subscriptionId" to endpoint.id, "description" to preview))
+                    result.success(mapOf("subscriptionId" to endpoint.id, "description" to preview?.toMap()))
                 }
                 "unsubscribePreview" -> {
                     previewSubscriptions
@@ -191,7 +186,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                     closeSelected()
                 }
                 "updatePreviewGeometry" -> {
-                    lease.consumer.updateGeometry(values)
+                    lease.consumer.updateGeometry(values.requireSize())
                     current().updateGeometry()
                     reply.success(null)
                 }
@@ -271,7 +266,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
      */
     private fun resumeCapture(lease: CaptureLease, values: Map<*, *>, reply: PendingReply) {
         val configuration = ScannerConfiguration.from(values["configuration"])
-        lease.consumer.updateGeometry(values["geometry"])
+        lease.consumer.updateGeometry(values.requireMap("geometry").requireSize())
         lease.scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 if (!permissions.requestCameraPermission())
@@ -301,7 +296,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         }
     }
 
-    /** Revokes the current lease before releasing its scanner selection. */
+    /** Releases camera ownership and cancels outstanding capture work. */
     private fun closeSelected() {
         val old = selected
         selected = null
@@ -354,16 +349,35 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
     }
 
     /** Stores the latest texture state and delivers it to live preview subscribers. */
-    private fun publishPreview(description: Map<String, Any>?) {
+    private fun publishPreview(description: CameraPreviewDescription?) {
         preview = description
+        val payload = description?.toMap()
         for (subscription in previewSubscriptions.values.toList()) {
             if (!subscription.closed)
                 channel?.invokeMethod(
                     "onPreviewState",
-                    mapOf("subscriptionId" to subscription.id, "description" to description),
+                    mapOf("subscriptionId" to subscription.id, "description" to payload),
                 )
         }
     }
+
+    /** Encodes preview metadata only where it crosses the platform channel. */
+    private fun CameraPreviewDescription.toMap(): Map<String, Any> = mapOf(
+        "textureId" to textureId,
+        "width" to width,
+        "height" to height,
+        "rotationDegrees" to rotationDegrees,
+        "mirrored" to mirrored,
+        "state" to when (state) {
+            CameraPreviewState.Starting -> "starting"
+            CameraPreviewState.Streaming -> "streaming"
+            CameraPreviewState.Paused -> "paused"
+        },
+        "cropLeft" to cropRect.left,
+        "cropTop" to cropRect.top,
+        "cropWidth" to cropRect.width,
+        "cropHeight" to cropRect.height,
+    )
 
     /** Delivers a barcode only to the active capture's enabled event endpoint. */
     private fun emitResult(viewId: Int, barcode: Barcode) {

@@ -7,7 +7,7 @@
 
 import Foundation
 
-/// Object recognition modes supported by the native plugin.
+/// Supported object recognition modes.
 enum RecognitionType: Int {
     /// Barcode recognition.
     case barcodeRecognition = 0

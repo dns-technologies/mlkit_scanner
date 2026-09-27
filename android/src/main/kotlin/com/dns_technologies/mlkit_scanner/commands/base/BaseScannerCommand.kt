@@ -7,13 +7,13 @@ import io.flutter.plugin.common.MethodChannel.Result
 /**
  * Shared command functionality that does not define sync or async execution policy.
  *
- * @property scannerProvider Resolves the scanner while validating the current capture lease.
+ * @property scannerProvider Provides the scanner available for command execution.
  */
 internal sealed class BaseScannerCommand(private val scannerProvider: () -> Scanner?) {
     /** Sends a successful command completion. */
     protected fun success(result: Result) = result.success(true)
 
-    /** Resolves the single SDK executor once, before any permission or device await. */
+    /** Current scanner, or null when camera resources are unavailable. */
     protected fun scanner(): Scanner? = scannerProvider()
 
     /** Sends a typed plugin error response. */
@@ -27,7 +27,7 @@ internal sealed class BaseScannerCommand(private val scannerProvider: () -> Scan
     }
 }
 
-/** Keeps direct plugin calls and command responses on the same Dart error contract. */
+/** Completes a channel response with a stable error code and diagnostic details. */
 internal fun reportScannerError(result: Result, error: Exception) {
     val pluginError = error as? PluginError ?: PluginError.UnknownError
     val details =

@@ -1,16 +1,16 @@
 package com.dns_technologies.mlkit_scanner
 
 /**
- * Describes plugin errors that can be sent to Dart and propagated as exceptions.
+ * Scanner failures with stable error codes and diagnostic details.
  *
- * @property errorCode Method channel error code exposed to Flutter.
+ * @property errorCode Stable error code for channel responses.
  * @property message Human-readable error message.
  */
 internal sealed class PluginError(
     val errorCode: String,
     override val message: String,
     cause: Throwable? = null,
-    /** Optional StandardMessageCodec-compatible diagnostic payload sent to Dart. */
+    /** Optional diagnostic payload containing codec-compatible values. */
     val details: Any? = null,
 ) : Exception(message, cause) {
     /** The app has no granted camera permission. */
@@ -22,7 +22,7 @@ internal sealed class PluginError(
     /** The device does not expose a flash unit for the active camera. */
     object DeviceHasNotFlash : PluginError("4", "Device has no flash")
 
-    /** Flutter supplied a malformed or incomplete command payload. */
+    /** A command payload is malformed or incomplete. */
     object InvalidArguments : PluginError("5", "Invalid scanner arguments")
 
     /** The active camera does not support zoom control. */
@@ -38,7 +38,7 @@ internal sealed class PluginError(
     class CameraControlError(
         /** Camera operation whose asynchronous completion failed. */
         val operation: CameraControlOperation,
-        /** Logical widget that owned the failed operation, when known. */
+        /** Consumer identifier associated with the failed operation, when known. */
         val viewId: Int? = null,
         cause: Throwable? = null,
         /** Original state error code reported by the camera, when readiness failed. */
@@ -75,7 +75,7 @@ internal sealed class PluginError(
 }
 
 /**
- * Camera operation attached to error code 9 and sent to Dart.
+ * Camera operation associated with a camera-control failure.
  *
  * @property wireValue Stable operation name serialized in channel error details.
  */

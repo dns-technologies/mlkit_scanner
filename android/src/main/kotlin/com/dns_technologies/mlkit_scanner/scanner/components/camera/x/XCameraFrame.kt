@@ -15,16 +15,12 @@ internal class XCameraFrame(
     previewWidth: Int,
     previewHeight: Int,
 ) : CameraFrame {
-    /** Clockwise rotation required to display this source buffer upright. */
     override val rotationDegree: Int = imageProxy.imageInfo.rotationDegrees
 
-    /** Snapshot of source pixels visible in the selected widget's fill-center preview. */
     override val cropRect: Rect = calculatePreviewCrop(previewWidth, previewHeight)
 
-    /** Unrotated source-buffer width in pixels. */
     override val width: Int = imageProxy.width
 
-    /** Unrotated source-buffer height in pixels. */
     override val height: Int = imageProxy.height
 
     /** Whether the frame's single permitted NV21 access has begun. */
@@ -32,9 +28,7 @@ internal class XCameraFrame(
     /** Whether the borrowed CameraX image has already been released. */
     private var isClosed = false
 
-    // Keep close() from another thread from invalidating the image during conversion/use.
     @Synchronized
-    /** Converts and borrows NV21 bytes while holding off concurrent frame closure. */
     override fun <T> useNv21(cropRect: Rect?, block: (ByteArray, Int, Int, Int) -> T): T {
         check(!isClosed) { "Camera frame is already closed" }
         check(!isAccessed) { "Camera frame was already accessed" }
@@ -46,7 +40,6 @@ internal class XCameraFrame(
     }
 
     @Synchronized
-    /** Releases the CameraX image once, after any active buffer access finishes. */
     override fun close() {
         if (isClosed) return
         isClosed = true

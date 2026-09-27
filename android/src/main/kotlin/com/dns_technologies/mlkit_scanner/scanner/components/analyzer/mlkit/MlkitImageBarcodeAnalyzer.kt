@@ -29,7 +29,6 @@ internal constructor(
     private val fromByteArray: (ByteArray, Int, Int, Int, Int) -> InputImage =
         InputImage::fromByteArray,
 ) : ImageBarcodeAnalyzer(currentTimeMs) {
-    /** Creates the production analyzer and logs recognition failures under the plugin tag. */
     constructor() :
         this(
             barcodeScanner = BarcodeScanning.getClient(),
@@ -37,7 +36,6 @@ internal constructor(
             logError = { message -> Log.e(PluginConstants.LOG_TAG, message) },
         )
 
-    /** Lazily creates one cropped recognition image for an accepted frame. */
     @WorkerThread
     override fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode? {
         check(Looper.myLooper() != Looper.getMainLooper()) {
@@ -51,12 +49,11 @@ internal constructor(
         }
     }
 
-    /** Closes the underlying barcode recognizer. */
     override fun disposeAnalyzer() {
         barcodeScanner.close()
     }
 
-    /** Runs barcode recognition for the provided scanner image. */
+    /** Keeps borrowed image data alive until recognition finishes, even after interruption. */
     private fun analyzeImage(image: InputImage): Barcode? {
         var interrupted = false
         try {

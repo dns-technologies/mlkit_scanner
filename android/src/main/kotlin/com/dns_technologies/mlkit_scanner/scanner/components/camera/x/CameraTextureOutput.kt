@@ -1,22 +1,24 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
-import android.graphics.Rect
 import android.view.Surface
 import androidx.camera.core.Preview
 import androidx.camera.core.SurfaceRequest
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import io.flutter.view.TextureRegistry
 import java.util.concurrent.Executor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 
-/** One Flutter texture, independent of widget ownership and view layout. */
+/** Manages a Flutter texture's surfaces, frame readiness and metadata. */
 internal class CameraTextureOutput(
     /** Flutter-owned texture producer released after all provided surfaces return. */
     private val producer: TextureRegistry.SurfaceProducer,
     /** Serial callback executor used for CameraX surface and transformation updates. */
     private val executor: Executor,
     /** Publishes texture metadata or null when the preview becomes unavailable. */
-    private val publish: (Map<String, Any>?) -> Unit,
+    private val publish: (CameraPreviewDescription?) -> Unit,
 ) : Preview.SurfaceProvider {
     /** Current CameraX surface request, also used to reject stale frame completions. */
     private var request: SurfaceRequest? = null
@@ -38,15 +40,14 @@ internal class CameraTextureOutput(
     val disposal: Deferred<Unit>
         get() = released
 
-    /** Callback used to suspend camera binding when Flutter destroys its surface. */
+    /** Notifies that the texture surface is unavailable. */
     var onSurfaceLost: () -> Unit = {}
-    /** Callback used to resume a suspended binding after Flutter recreates its surface. */
+    /** Notifies that the texture surface is available again. */
     var onSurfaceRestored: () -> Unit = {}
 
     init {
         producer.setCallback(
             object : TextureRegistry.SurfaceProducer.Callback {
-                /** Drops preview metadata before informing the camera that its surface was lost. */
                 override fun onSurfaceCleanup() {
                     if (closed) return
                     clearRequest()
@@ -55,7 +56,6 @@ internal class CameraTextureOutput(
                     onSurfaceLost()
                 }
 
-                /** Requests rebinding only while the output is still live. */
                 override fun onSurfaceAvailable() {
                     if (!closed) onSurfaceRestored()
                 }
@@ -63,7 +63,6 @@ internal class CameraTextureOutput(
         )
     }
 
-    /** Supplies the current Flutter surface and tracks its eventual return by CameraX. */
     override fun onSurfaceRequested(next: SurfaceRequest) {
         if (closed) {
             next.willNotProvideSurface()
@@ -118,23 +117,26 @@ internal class CameraTextureOutput(
      */
     class PreviewFrame(val number: Long, val output: SurfaceRequest)
 
-    /** Publishes retained-frame state before invalidating the active surface request. */
+    /** Pauses preview delivery while retaining the last available frame. */
     fun pause() {
         if (closed) return
-        emit(if (hasFrame) "paused" else "starting")
+        emit(if (hasFrame) CameraPreviewState.Paused else CameraPreviewState.Starting)
         clearRequest()
     }
 
     /** Marks a closed camera as paused or starting without discarding retained pixels. */
     fun cameraAvailable(available: Boolean) {
         if (!available) {
-            emit(if (hasFrame) "paused" else "starting")
+            emit(if (hasFrame) CameraPreviewState.Paused else CameraPreviewState.Starting)
             streaming = false
         }
     }
 
-    /** Publishes preview coordinates adjusted for Flutter's crop and rotation handling. */
-    private fun emit(state: String = if (streaming) "streaming" else "starting") {
+    /** Publishes the source crop and rotation not already applied by the producer. */
+    private fun emit(
+        state: CameraPreviewState =
+            if (streaming) CameraPreviewState.Streaming else CameraPreviewState.Starting,
+    ) {
         val info = transformation ?: return
         val size = request?.resolution ?: return
         val automatic = producer.handlesCropAndRotation()
@@ -148,24 +150,21 @@ internal class CameraTextureOutput(
                     if (swapped) size.height else size.width,
                     if (swapped) size.width else size.height,
                 )
-            else info.cropRect
+            else info.cropRect.let { Rect(it.left, it.top, it.right, it.bottom) }
         publish(
-            mapOf(
-                "textureId" to producer.id(),
-                "width" to if (swapped) size.height else size.width,
-                "height" to if (swapped) size.width else size.height,
-                "rotationDegrees" to if (automatic) 0 else rotation,
-                "mirrored" to false,
-                "state" to state,
-                "cropLeft" to crop.left,
-                "cropTop" to crop.top,
-                "cropWidth" to crop.width(),
-                "cropHeight" to crop.height(),
+            CameraPreviewDescription(
+                textureId = producer.id(),
+                width = if (swapped) size.height else size.width,
+                height = if (swapped) size.width else size.height,
+                rotationDegrees = if (automatic) 0 else rotation,
+                mirrored = false,
+                state = state,
+                cropRect = crop,
             )
         )
     }
 
-    /** Revokes request identity before invalidating its CameraX surface. */
+    /** Withdraws the current camera surface. */
     private fun clearRequest() {
         val previous = request
         request = null

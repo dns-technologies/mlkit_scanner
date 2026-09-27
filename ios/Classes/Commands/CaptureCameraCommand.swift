@@ -1,9 +1,9 @@
 import Flutter
 
-/// Transfers camera ownership to one registered iOS platform view.
+/// Acquires camera capture for a registered consumer.
 final class CaptureCameraCommand: BaseScannerCommand {
 
-    /// Parses the target view and completes after camera capture finishes.
+    /// Acquires camera capture with the requested settings.
     func execute(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         do {
             let viewId = try ScannerMethodArguments.viewId(call.arguments)

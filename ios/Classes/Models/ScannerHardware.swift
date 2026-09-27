@@ -2,50 +2,86 @@ import AVFoundation
 import Foundation
 import UIKit
 
-/// Main-thread ownership bridge. Camera operations are serialized by the camera adapter.
+/// Coordinates camera ownership, recognition and resource lifetime on the main thread.
+/// Suspends camera work while the application is backgrounded.
 final class ScannerHardware: ScannerDevice {
-    /// Registered logical Flutter consumers keyed by view identifier.
+    /// One capture request whose identity remains stable across asynchronous callbacks.
+    private final class Capture {
+        /// Concrete consumer identity owning this capture request.
+        let consumer: ScannerConsumer
+        /// Immutable settings captured when ownership was requested.
+        let configuration: ScannerConfiguration
+        /// Capture response awaiting completion.
+        private var completion: ScannerCompletion?
+
+        init(consumer: ScannerConsumer, configuration: ScannerConfiguration, completion: @escaping ScannerCompletion) {
+            self.consumer = consumer
+            self.configuration = configuration
+            self.completion = completion
+        }
+
+        /// Delivers the response at most once, including during reentrant callbacks.
+        func complete(_ error: Error?) {
+            let reply = completion
+            completion = nil
+            reply?(error)
+        }
+    }
+
+    /// Registered camera consumers keyed by identifier.
     private var consumers: [Int64: ScannerConsumer] = [:]
+
     /// Consumer currently owning camera controls on main.
     private var selected: ScannerConsumer?
+
     /// Shared native camera retained across ownership handoffs.
     private var camera: CameraPreviewing?
+
     /// Reusable recognizer attached to the active scan subscription.
     private var analyzer: BarcodeAnalyzing?
-    /// Current capture request, validated by object identity.
+
+    /// Current camera capture request.
     private var capture: Capture?
+
     /// In-flight camera disposal and callbacks waiting for it to finish.
     private var disposal: HardwareDisposal?
+
     /// Whether this hardware bridge has permanently released its resources.
     private var isReleased = false
+
     /// Whether application lifecycle currently prevents capture.
     private var isBackgrounded = UIApplication.shared.applicationState == .background
+
     /// Main-thread barcode callback scoped to the owning consumer.
     private let onScanResult: (Int64, ScannerBarcode) -> Void
+
     /// Main-thread torch callback scoped to the owning consumer.
     private let onTorchChanged: (Int64, Bool) -> Void
+
     /// Publishes preview state only from the currently owned camera.
-    private let onPreviewChanged: ([String: Any]?) -> Void
+    private let onPreviewChanged: (CameraPreviewDescription?) -> Void
+
     /// Creates the shared native session adapter when needed.
     private let cameraFactory: () -> CameraPreviewing
+
     /// Creates the recognition backend when the first capture is prepared.
     private let analyzerFactory: () -> BarcodeAnalyzing
+
     /// Requests camera permission before admitting a capture.
     private let requestPermission: (@escaping (Bool) -> Void) -> Void
+
     /// Notification center used for application lifecycle observation.
     private let notificationCenter: NotificationCenter
+
     /// Lifecycle tokens removed when this bridge is released.
     private var observers: [NSObjectProtocol] = []
 
-    /// Installs lifecycle observers and collaborators for shared camera ownership.
     init(onScanResult: @escaping (Int64, ScannerBarcode) -> Void,
          onTorchChanged: @escaping (Int64, Bool) -> Void,
-         onPreviewChanged: @escaping ([String: Any]?) -> Void = { _ in },
+         onPreviewChanged: @escaping (CameraPreviewDescription?) -> Void = { _ in },
          notificationCenter: NotificationCenter = .default,
          cameraFactory: @escaping () -> CameraPreviewing,
-         analyzerFactory: @escaping () -> BarcodeAnalyzing = {
-             MlkitBarcodeScanner(delay: 0, cropRect: nil)
-         },
+         analyzerFactory: @escaping () -> BarcodeAnalyzing,
          requestPermission: @escaping (@escaping (Bool) -> Void) -> Void = ScannerHardware.requestCameraPermission) {
         self.onScanResult = onScanResult
         self.onTorchChanged = onTorchChanged
@@ -62,9 +98,18 @@ final class ScannerHardware: ScannerDevice {
             object: nil, queue: .main) { [weak self] _ in self?.isBackgrounded = false }]
     }
 
-    /// Removes any lifecycle observers still registered at deallocation.
-    deinit {
-        observers.forEach(notificationCenter.removeObserver)
+    /// Runs immediately on main or dispatches the action there.
+    private static func onMain(_ action: @escaping () -> Void) {
+        if Thread.isMainThread { action() } else { DispatchQueue.main.async(execute: action) }
+    }
+
+    /// Returns current permission or requests access when still undetermined.
+    private static func requestCameraPermission(_ completion: @escaping (Bool) -> Void) {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: completion(true)
+        case .notDetermined: AVCaptureDevice.requestAccess(for: .video, completionHandler: completion)
+        default: completion(false)
+        }
     }
 
     /// Creates a logical consumer if its view identifier is not registered.
@@ -74,24 +119,21 @@ final class ScannerHardware: ScannerDevice {
         }
     }
 
-    /// Releases ownership before removing a registered consumer.
+    /// Unregisters a consumer and releases its camera ownership.
     func unregister(viewId: Int64) {
         if selected === consumers[viewId] { releaseCamera(completion: {}) }
         consumers.removeValue(forKey: viewId)
     }
 
-    /// Whether a logical Flutter consumer is registered.
+    /// Whether a camera consumer is registered.
     func contains(viewId: Int64) -> Bool {
         consumers[viewId] != nil
     }
 
     /// Updates the viewport used to map preview coordinates into camera frames.
-    func updateGeometry(viewId: Int64, arguments: Any?) throws {
-        guard let consumer = consumers[viewId], let values = arguments as? [String: Any] else { throw MlKitPluginError.invalidArguments }
-        let width = try PlatformChannelScalar.number(from: values["width"]).doubleValue
-        let height = try PlatformChannelScalar.number(from: values["height"]).doubleValue
-        guard width.isFinite, height.isFinite, width > 0, height > 0 else { throw MlKitPluginError.invalidArguments }
-        consumer.size = CGSize(width: width, height: height)
+    func updateGeometry(viewId: Int64, size: CGSize) throws {
+        guard let consumer = consumers[viewId] else { throw MlKitPluginError.invalidArguments }
+        consumer.size = size
         if selected === consumer { camera?.updateGeometry(consumer.size) }
     }
 
@@ -180,7 +222,7 @@ final class ScannerHardware: ScannerDevice {
         stopScan()
     }
 
-    /// Coalesces disposal callbacks while releasing the shared camera and recognizer.
+    /// Releases camera and recognition resources, notifying all waiting callers.
     func disposeResources(completion: @escaping () -> Void) {
         releaseCamera(completion: {})
         if let disposal = disposal {
@@ -208,7 +250,7 @@ final class ScannerHardware: ScannerDevice {
         consumers.removeAll()
     }
 
-    /// Waits for stale camera disposal before initializing or reusing a session.
+    /// Prepares the camera for the requested capture.
     private func prepareCamera(_ request: Capture) {
         if let disposal = disposal {
             disposal.callbacks.append { [weak self, weak request] in
@@ -243,7 +285,7 @@ final class ScannerHardware: ScannerDevice {
         }
     }
 
-    /// Tracks one camera disposal until every waiting callback has been drained.
+    /// Releases the camera and notifies callers when disposal completes.
     private func dispose(_ camera: CameraPreviewing, completion: @escaping () -> Void) {
         let operation = HardwareDisposal()
         disposal = operation
@@ -258,7 +300,7 @@ final class ScannerHardware: ScannerDevice {
         }
     }
 
-    /// Applies capture settings before awaiting the selected stream first frame.
+    /// Starts capture with the requested settings, completing when preview is ready.
     private func activate(_ request: Capture, camera: CameraPreviewing) {
         camera.prepare(request.configuration, geometry: request.consumer.size) { [weak self, weak request, weak camera] error in
             guard let self = self, let request = request, let camera = camera, self.isCurrent(request) else { return }
@@ -282,7 +324,7 @@ final class ScannerHardware: ScannerDevice {
         }
     }
 
-    /// Revokes the result subscription before detaching frame recognition.
+    /// Stops recognition and cancels outstanding result delivery.
     private func stopScan() {
         analyzer?.unsubscribe()
         camera?.recognitionHandler = nil
@@ -317,7 +359,7 @@ final class ScannerHardware: ScannerDevice {
         !isReleased && capture === request && selected === request.consumer
     }
 
-    /// Clears the current capture before completing its response.
+    /// Completes the current capture without admitting a second response during callback reentry.
     private func finish(_ request: Capture, error: Error?) {
         guard capture === request else {
             return
@@ -326,53 +368,19 @@ final class ScannerHardware: ScannerDevice {
         request.complete(error)
     }
 
-    /// Runs immediately on main or dispatches the action there.
-    private static func onMain(_ action: @escaping () -> Void) {
-        if Thread.isMainThread { action() } else { DispatchQueue.main.async(execute: action) }
-    }
-
-    /// Returns current permission or requests access when still undetermined.
-    private static func requestCameraPermission(_ completion: @escaping (Bool) -> Void) {
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized: completion(true)
-        case .notDetermined: AVCaptureDevice.requestAccess(for: .video, completionHandler: completion)
-        default: completion(false)
-        }
-    }
-
-    /// One capture request whose identity remains stable across asynchronous callbacks.
-    private final class Capture {
-        /// Concrete consumer identity owning this capture request.
-        let consumer: ScannerConsumer
-        /// Immutable settings captured when ownership was requested.
-        let configuration: ScannerConfiguration
-        /// Pending capture response cleared before delivery.
-        private var completion: ScannerCompletion?
-
-        /// Stores the consumer, capture settings, and pending completion.
-        init(consumer: ScannerConsumer, configuration: ScannerConfiguration, completion: @escaping ScannerCompletion) {
-            self.consumer = consumer
-            self.configuration = configuration
-            self.completion = completion
-        }
-
-        /// Clears the pending response before invoking it to prevent repeated delivery.
-        func complete(_ error: Error?) {
-            let reply = completion
-            completion = nil
-            reply?(error)
-        }
+    /// Removes any lifecycle observers still registered at deallocation.
+    deinit {
+        observers.forEach(notificationCenter.removeObserver)
     }
 }
 
-/// Logical Flutter consumer retaining its latest viewport between captures.
+/// Registered camera consumer with retained viewport geometry.
 private final class ScannerConsumer {
-    /// Identifier of the logical Flutter consumer.
+    /// Stable identifier assigned at registration.
     let viewId: Int64
-    /// Latest positive Flutter viewport dimensions for this consumer.
+    /// Latest positive preview viewport dimensions for this consumer.
     var size = CGSize(width: 1, height: 1)
 
-    /// Creates a logical consumer with a default viewport.
     init(_ viewId: Int64) {
         self.viewId = viewId
     }
@@ -385,7 +393,7 @@ private final class HardwareDisposal {
 }
 extension ScannerHardware: CameraPreviewDelegate {
     /// Rejects late publications from a released or replaced camera.
-    func onPreviewChanged(_ camera: CameraPreviewing, description: [String: Any]?) {
+    func onPreviewChanged(_ camera: CameraPreviewing, description: CameraPreviewDescription?) {
         guard self.camera === camera, !isReleased else { return }
         onPreviewChanged(description)
     }

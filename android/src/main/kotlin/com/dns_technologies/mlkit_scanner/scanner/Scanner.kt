@@ -12,6 +12,7 @@ import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarco
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnection
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
 import com.dns_technologies.mlkit_scanner.scanner.utils.ScanAreaState
@@ -37,7 +38,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 
-/** Native scanner operations. Dart owns selection, serialization and retained configuration. */
+/** Coordinates camera capture, controls, recognition and resource lifetime. */
 @MainThread
 internal class Scanner(
     /** Camera adapter owned by this scanner until terminal disposal. */
@@ -48,14 +49,14 @@ internal class Scanner(
     private val mainHandler: Handler,
     /** Owner callback invoked after terminal cleanup attempts finish. */
     private val onReleased: (Scanner, Throwable) -> Unit,
-    /** Delivers recognized values with the currently selected widget identifier. */
+    /** Delivers recognized values with the selected consumer identifier. */
     private val onResult: (Int, Barcode) -> Unit = { _, _ -> },
     /** Owns control work and result delivery for this scanner's lifetime. */
     val scope: CoroutineScope = createScope(),
     /** Tracks SDK binding, readiness, and camera-control failures. */
     private val connection: CameraConnection = CameraConnection(),
     /** Forwards preview state with this scanner's identity to its owner. */
-    private val onPreviewChanged: (Scanner, Map<String, Any>?) -> Unit = { _, _ -> },
+    private val onPreviewChanged: (Scanner, CameraPreviewDescription?) -> Unit = { _, _ -> },
 ) {
     /** Completes once owned camera and preview resources finish asynchronous disposal. */
     val disposal: Deferred<Unit>
@@ -66,7 +67,7 @@ internal class Scanner(
             if (!isDisposed) onPreviewChanged(this, description)
         }
     }
-    /** Borrows only the selected view; Flutter owns its lifetime. */
+    /** Currently selected consumer; null after ownership is revoked. */
     private var view: ScannerConsumer? = null
     /** Identifier of the borrowed consumer, or null after its selection is revoked. */
     val viewId: Int?
@@ -99,7 +100,7 @@ internal class Scanner(
     val isDisposed: Boolean
         get() = closeCause != null
 
-    /** Selects the consumer before binding so release can interrupt an unfinished capture. */
+    /** Selects the camera consumer; release may interrupt an unfinished capture. */
     fun select(target: ScannerConsumer) {
         check(!isDisposed) { "Scanner is disposed" }
 
@@ -110,7 +111,7 @@ internal class Scanner(
         camera.updateGeometry(target.size)
     }
 
-    /** Applies one Dart snapshot after the plugin has obtained camera permission. */
+    /** Applies capture settings and starts the camera; requires granted camera permission. */
     suspend fun capture(configuration: ScannerConfiguration) =
         runOperation { id ->
             currentCoroutineContext().ensureActive()
@@ -125,20 +126,20 @@ internal class Scanner(
             }
 
             currentCoroutineContext().ensureActive()
-            // Analysis starts only after Dart installs its native result endpoint.
+            // Analysis remains disabled until a result endpoint is installed.
         }
 
-    /** Applies zoom through the current cancellable camera-control operation. */
+    /** Applies the requested camera zoom ratio. */
     suspend fun setZoomRatio(value: Float) = runOperation { id ->
         connection.control(id, CameraControlOperation.ZOOM) { camera.setZoomRatio(value) }
     }
 
-    /** Applies the torch state through the current camera-control operation. */
+    /** Applies the requested torch state. */
     suspend fun setTorch(enabled: Boolean) = runOperation { id ->
         connection.control(id, CameraControlOperation.TORCH) { camera.setTorch(enabled) }
     }
 
-    /** A new gesture replaces transient focus, but cannot interrupt an unfinished Dart command. */
+    /** A new gesture replaces transient focus while pending control operations finish. */
     fun focus(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             if (operation != null && !operationIsFocus || !connection.isReady) return@launch
@@ -161,7 +162,7 @@ internal class Scanner(
         }
     }
 
-    /** Updates the cooldown and starts or resumes recognition for the selected widget. */
+    /** Updates the cooldown and starts or resumes recognition for the selected consumer. */
     fun startScan(periodMs: Int) {
         val id = viewId ?: return
         setScanPeriod(periodMs)
@@ -200,7 +201,7 @@ internal class Scanner(
         failures.throwIfFailed()
     }
 
-    /** Copies the selected widget's viewport size to the shared camera adapter. */
+    /** Applies the selected consumer's viewport size to the camera. */
     fun updateGeometry() {
         view?.let { camera.updateGeometry(it.size) }
     }
@@ -228,13 +229,12 @@ internal class Scanner(
         if (lifecycleOwner != null) detachActivity()
         lifecycleOwner =
             object : LifecycleOwner {
-                /** The Activity's lifecycle itself, without a mirrored state machine. */
                 override val lifecycle: Lifecycle = lifecycle
             }
     }
 
     /**
-     * Drops the old Activity binding; Dart's next capture supplies settings for its replacement.
+     * Detaches the Activity and releases its active capture.
      */
     fun detachActivity() {
         if (isDisposed) return
@@ -278,7 +278,7 @@ internal class Scanner(
         try {
             camera.bind(
                 owner,
-                analysisExecutor(),
+                getOrCreateAnalysisExecutor(),
                 this::analyzeFrame,
                 onAvailabilityChanged = { availability ->
                     post {
@@ -300,7 +300,7 @@ internal class Scanner(
         }
     }
 
-    /** Owns only the in-flight SDK job; there is no native command queue or saved view state. */
+    /** Tracks the current camera-control job and cancels a superseded operation. */
     private suspend fun runOperation(isFocus: Boolean = false, action: suspend (Int) -> Unit) {
         val id = viewId ?: return
         val work = scope.async(start = CoroutineStart.LAZY) { action(id) }
@@ -320,7 +320,7 @@ internal class Scanner(
         }
     }
 
-    /** Clears operation ownership before cancelling the outstanding SDK wait. */
+    /** Cancels the pending camera-control operation. */
     private fun cancelOperation() {
         val previous = operation
         operation = null
@@ -335,7 +335,7 @@ internal class Scanner(
     /**
      * Subscription lifetime rejects queued results even across release/recapture of the same ID.
      *
-     * @property id Selected widget whose results belong to this subscription lifetime.
+     * @property id Consumer identifier associated with this subscription's results.
      */
     private inner class Scan(private val id: Int) {
         /** Main-thread result jobs cancelled independently for this scan subscription. */
@@ -373,8 +373,8 @@ internal class Scanner(
         }
     }
 
-    /** Returns the shared analysis worker, rejecting use after disposal. */
-    private fun analysisExecutor(): ExecutorService =
+    /** Provides the shared analysis worker; unavailable after disposal. */
+    private fun getOrCreateAnalysisExecutor(): ExecutorService =
         synchronized(scanJobLock) {
             if (isDisposed) throw PluginError.CameraSessionDisposed
             analysisExecutor ?: Executors.newSingleThreadExecutor().also { analysisExecutor = it }
@@ -426,14 +426,14 @@ internal class Scanner(
         }
     }
 
-    /** The child represents this analysis invocation; pausing cancels its result eligibility. */
+    /** Starts an analysis lifetime whose results become invalid when scanning pauses. */
     private fun createAnalysisJob(): CompletableJob? =
         synchronized(scanJobLock) {
             val activeScanJob = scanJob?.takeIf { it.isActive } ?: return@synchronized null
             Job(activeScanJob)
         }
 
-    /** Delivers results to a listener snapshot while rechecking cancellation and membership. */
+    /** Delivers results to active listeners while recognition remains enabled. */
     private fun emitScanResult(result: Barcode, analysisJob: Job) =
         synchronized(scanJobLock) {
             // A listener can synchronously pause/restart scanning or cancel another subscription.
@@ -452,7 +452,7 @@ internal class Scanner(
             mainHandler: Handler,
             onReleased: (Scanner, Throwable) -> Unit,
             onResult: (Int, Barcode) -> Unit,
-            onPreviewChanged: (Scanner, Map<String, Any>?) -> Unit,
+            onPreviewChanged: (Scanner, CameraPreviewDescription?) -> Unit,
         ): Scanner {
             val camera = cameraFactory()
             var analyzer: ImageBarcodeAnalyzer? = null

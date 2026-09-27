@@ -13,6 +13,8 @@ import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnection
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraAvailabilityChanged
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
@@ -325,11 +327,12 @@ internal class ScannerTest {
     }
 
     private class FakeCamera : Camera {
-        override var onPreviewChanged: (Map<String, Any>?) -> Unit = {}
+        override var onPreviewChanged: (CameraPreviewDescription?) -> Unit = {}
         override val disposal = CompletableDeferred<Unit>()
-        override fun updateGeometry(size: android.util.Size) = Unit
         val zoomRatioValues = mutableListOf<Float>()
         private var onFrame: OnCameraFrame? = null
+
+        override fun updateGeometry(size: android.util.Size) = Unit
 
         override fun bind(
             lifecycleOwner: LifecycleOwner,
@@ -1320,17 +1323,21 @@ internal class ScannerOwnershipTest {
         val analyzer = mock(ImageBarcodeAnalyzer::class.java)
         val disposal = CompletableDeferred<Unit>()
         doReturn(disposal).`when`(camera).disposal
-        lateinit var publish: (Map<String, Any>?) -> Unit
+        lateinit var publish: (CameraPreviewDescription?) -> Unit
         doAnswer { publish = it.getArgument(0); null }.`when`(camera).onPreviewChanged = anyValue()
-        val descriptions = mutableListOf<Map<String, Any>?>()
+        val descriptions = mutableListOf<CameraPreviewDescription?>()
         val scanner = Scanner(camera, analyzer, mock(Handler::class.java), { _, _ -> },
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             onPreviewChanged = { _, description -> descriptions += description })
 
-        val preview = mapOf<String, Any>("textureId" to 7)
+        val preview = CameraPreviewDescription(
+            textureId = 7, width = 1280, height = 720, rotationDegrees = 90,
+            mirrored = false, state = CameraPreviewState.Streaming,
+            cropRect = Rect(0, 0, 1280, 720),
+        )
         publish(preview)
         scanner.dispose()
-        publish(mapOf("textureId" to 9))
+        publish(preview.copy(textureId = 9))
 
         assertEquals(listOf(preview), descriptions)
         verify(camera).dispose()

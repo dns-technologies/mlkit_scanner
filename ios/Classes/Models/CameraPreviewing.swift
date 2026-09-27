@@ -1,19 +1,19 @@
 import AVFoundation
 import CoreGraphics
 
-/// Receives camera state changes for the current scanner owner.
+/// Receives camera state changes and provides focus permission.
 protocol CameraPreviewDelegate: AnyObject {
     /// Reports preview metadata from the camera that owns the output.
-    func onPreviewChanged(_ camera: CameraPreviewing, description: [String: Any]?)
+    func onPreviewChanged(_ camera: CameraPreviewing, description: CameraPreviewDescription?)
 
-    /// Forwards torch changes from the currently selected camera.
+    /// Reports torch changes with the originating camera.
     func onTorchChanged(_ camera: CameraPreviewing, enabled: Bool)
 
-    /// Whether an active owner is ready for focus control.
+    /// Whether focus controls may currently be applied.
     func canApplyFocus() -> Bool
 }
 
-/// Camera session and preview-stream operations, independent of view ownership.
+/// Camera session, controls and preview-stream operations.
 protocol CameraPreviewing: AnyObject {
     /// Whether native session initialization has completed.
     var isInitialized: Bool { get }

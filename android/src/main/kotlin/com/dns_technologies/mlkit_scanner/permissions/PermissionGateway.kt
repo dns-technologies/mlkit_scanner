@@ -17,8 +17,8 @@ import kotlinx.coroutines.ensureActive
  * Owns a queue of runtime permission requests, with at most one Android request in flight. Callers
  * requesting the same permission share its result, including while it is queued.
  *
- * All entry points run on the main thread, including coroutine calls and their resumptions. The
- * plugin owns listener registration; this class retains an Activity only while attached.
+ * All entry points run on the main thread, including coroutine calls and their resumptions.
+ * Permission results must be forwarded to onRequestPermissionsResult; an Activity is retained only while attached.
  * Configuration changes preserve requests, whereas final detach completes them as denied.
  */
 @MainThread
@@ -33,7 +33,7 @@ internal class PermissionGateway(
             ActivityCompat.requestPermissions(activity, arrayOf(permission), requestCode)
         },
 ) {
-    /** Activity borrowed only while the plugin remains attached. */
+    /** Activity retained between attach and detach calls. */
     private var activity: Activity? = null
     /** Insertion-ordered requests sharing one Android prompt at a time. */
     private val pendingRequests = linkedMapOf<String, PermissionRequest>()
@@ -60,15 +60,14 @@ internal class PermissionGateway(
         requests.forEach { it.result.complete(false) }
     }
 
-    /** Requests camera access using the common single-permission flow. */
+    /** Requests camera access. */
     suspend fun requestCameraPermission(): Boolean =
         requestPermission(Manifest.permission.CAMERA, requestCode = 0)
 
     /**
-     * Checks [permission] or joins/enqueues its request. Each named helper supplies its own fixed
-     * [requestCode] and an OS-supported runtime permission declared in the manifest. Codes must
-     * differ between permissions and other request owners in the same Activity. Internal visibility
-     * allows testing future permission flows without adding feature APIs.
+     * Requests access to [permission], which must be an OS-supported runtime permission declared
+     * in the manifest. The [requestCode] must remain stable for that permission and differ from
+     * codes used by other permissions and request owners in the same Activity.
      *
      * Different permissions are requested sequentially. Cancelling one caller does not cancel
      * another caller's wait. A queued request with no active callers is discarded; a dispatched
@@ -137,13 +136,11 @@ internal class PermissionGateway(
         return true
     }
 
-    /**
-     * Each pass removes the head or returns with a dispatched request or no Activity. Read the live
-     * head: completing a request can resume callers that change the queue.
-     */
+    /** Advances waiting callers while allowing at most one system permission prompt. */
     private fun dispatchNext() {
         while (pendingRequests.isNotEmpty()) {
             val currentActivity = activity ?: return
+            // Completion can resume callers that change the queue, so read its live head each time.
             val request = pendingRequests.values.first()
             if (request.isDispatched) return
             if (!request.hasActiveCallers) {
@@ -165,13 +162,13 @@ internal class PermissionGateway(
         }
     }
 
-    /** Removes the owned request before resuming its waiting callers. */
+    /** Completes the permission request for all waiting callers. */
     private fun complete(request: PermissionRequest, isGranted: Boolean) {
         if (!remove(request)) return
         request.result.complete(isGranted)
     }
 
-    /** Removes a request only if its identity still owns the permission key. */
+    /** Removes a pending permission request, leaving any replacement intact. */
     private fun remove(request: PermissionRequest): Boolean {
         // An old caller's cleanup must not remove a replacement under the same permission key.
         if (pendingRequests[request.permission] !== request) return false
@@ -192,7 +189,7 @@ internal class PermissionGateway(
         /** Jobs currently awaiting this request; null represents a caller without a job. */
         val callers = mutableListOf<Job?>()
         // Check jobs directly: cancellation can precede execution of a caller's finally block.
-        /** Checks live jobs directly, even before cancelled callers execute cleanup. */
+        /** Whether any caller is still waiting for the permission result. */
         val hasActiveCallers: Boolean
             get() = callers.any { it?.isActive != false }
 
@@ -200,7 +197,7 @@ internal class PermissionGateway(
         var isDispatched = false
             private set
 
-        /** Publishes correlation state before Android can invoke a synchronous callback. */
+        /** Requests the system permission prompt. */
         fun dispatch(activity: Activity, requester: (Activity, String, Int) -> Unit) {
             // Publish correlation before Android can invoke a synchronous callback.
             isDispatched = true

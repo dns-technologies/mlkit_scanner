@@ -12,7 +12,8 @@ import AVFoundation
 import MLKitBarcodeScanning
 import MLKitVision
 
-/// Barcode recognizer used by the native scanner.
+/// Recognizes barcodes from camera frames using ML Kit.
+/// Accepts the first frame without an initial recognition cooldown.
 class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
     /// ML Kit recognizer reused across camera frames.
     private let scanner: BarcodeScanner
@@ -27,10 +28,8 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
     /// Protected with cropRectLock; frame submissions snapshot this actual subscription.
     private var subscription: ScanResultSubscription?
 
-    /// Recognition mode supported by this endpoint.
     var type: RecognitionType = RecognitionType.barcodeRecognition
 
-    /// Creates a reusable recognizer ready to analyze its first frame immediately.
     init(delay: Int, cropRect: CropRect?) {
         scanner = BarcodeScanner.barcodeScanner()
         analysisGate = FrameAnalysisGate(successfulScanPeriodMilliseconds: delay)
@@ -71,7 +70,7 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
             analysisGate.completeAnalysis(barcodeFound: false)
             return
         }
-        // CIImage coordinates grow upward; Flutter and the video buffer use top-left geometry.
+        // CIImage coordinates grow upward; recognition bounds use a top-left origin.
         let crop = CGRect(x: visible.minX, y: cimage.extent.height - visible.maxY,
             width: visible.width, height: visible.height)
         guard let cgImage = imageContext.createCGImage(cimage, from: crop) else {
@@ -96,7 +95,7 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
         }
     }
 
-    /// Installs a real result listener; an old analysis cannot be reassigned to a new subscription.
+    /// Subscribes to future recognition results, cancelling the previous subscription.
     func subscribe(_ onResult: @escaping (ScannerBarcode) -> Void) -> ScanResultSubscription {
         unsubscribe()
         let listener = ScanResultSubscription(onResult)
@@ -128,16 +127,14 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
     }
 }
 
-/// The receiver snapshots this endpoint before crossing into the analysis queue.
+/// Recognition endpoint binding a recognizer to one retained result subscription.
 private final class ScanInput: RecognitionHandler {
     /// Weak reference to the shared recognizer receiving captured frames.
     private weak var scanner: MlkitBarcodeScanner?
     /// Concrete result subscription retained across analysis queue submission.
     private let listener: ScanResultSubscription
-    /// Recognition mode supported by this endpoint.
     var type: RecognitionType = .barcodeRecognition
 
-    /// Binds a recognizer to the subscription captured by a camera receiver.
     init(scanner: MlkitBarcodeScanner, listener: ScanResultSubscription) {
         self.scanner = scanner
         self.listener = listener

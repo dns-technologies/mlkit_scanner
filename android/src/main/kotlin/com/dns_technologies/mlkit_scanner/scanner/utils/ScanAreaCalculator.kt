@@ -8,10 +8,16 @@ import kotlin.math.floor
 
 /** Calculates a valid YUV 4:2:0 crop rectangle from scanner visor geometry. */
 internal object ScanAreaCalculator {
+    /** Minimum axis length containing a complete YUV chroma sample. */
+    private const val MIN_CROP_SIZE = 2
+
+    /** Shared result for invalid geometry or an empty frame intersection. */
+    private val EMPTY_RECT = Rect(0, 0, 0, 0)
+
     /** Returns an even bounded crop, or an empty rectangle when no pixels can be analyzed. */
     fun calculate(frame: CameraFrame, scanArea: RecognizeVisorCropRect?): Rect = calculate(frame.cropRect, frame.rotationDegree, scanArea)
 
-    /** Resolves a crop inside explicit frame [bounds], primarily for cached state and tests. */
+    /** Resolves a chroma-aligned crop inside the visible frame [bounds]. */
     internal fun calculate(
         bounds: Rect,
         rotationDegree: Int,
@@ -116,12 +122,6 @@ internal object ScanAreaCalculator {
         /** Unbounded source-space bottom coordinate before intersection and chroma alignment. */
         val bottom: Double,
     )
-
-    /** Minimum axis length containing a complete YUV chroma sample. */
-    private const val MIN_CROP_SIZE = 2
-
-    /** Shared result for invalid geometry or an empty frame intersection. */
-    private val EMPTY_RECT = Rect(0, 0, 0, 0)
 }
 
 /** Reuses a scan crop while frame geometry and crop configuration remain unchanged. */
@@ -132,7 +132,7 @@ internal class ScanAreaState {
     /** Cached chroma-aligned crop for the most recently resolved input. */
     private var cropRect: Rect? = null
 
-    /** Returns the cached crop unless frame geometry or crop configuration changed. */
+    /** Returns the recognition crop for the current frame and configuration. */
     fun resolve(frame: CameraFrame, scanArea: RecognizeVisorCropRect?): Rect {
         val nextInput = Input(frame.cropRect, frame.rotationDegree, scanArea)
         if (input == nextInput) return requireNotNull(cropRect)

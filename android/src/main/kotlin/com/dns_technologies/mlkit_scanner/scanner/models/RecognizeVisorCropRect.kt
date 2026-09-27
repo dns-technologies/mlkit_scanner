@@ -17,7 +17,25 @@ data class RecognizeVisorCropRect(
     val centerOffsetY: Double = 0.0,
 ) {
     companion object {
-        /** Creates a crop rectangle from StandardMessageCodec map values. */
+        /** Channel key for recognition width relative to the preview. */
+        private const val SCALE_WIDTH_ARGUMENT = "scaleWidth"
+
+        /** Channel key for recognition height relative to the preview. */
+        private const val SCALE_HEIGHT_ARGUMENT = "scaleHeight"
+
+        /** Channel key for the horizontal offset from the preview center. */
+        private const val OFFSET_X_ARGUMENT = "offsetX"
+
+        /** Channel key for the vertical offset from the preview center. */
+        private const val OFFSET_Y_ARGUMENT = "offsetY"
+
+        /** Full-preview fraction used when a crop scale is omitted. */
+        private const val DEFAULT_SCALE = 1.0
+
+        /** Centered position used when a crop offset is omitted. */
+        private const val DEFAULT_OFFSET = 0.0
+
+        /** Decodes finite crop coordinates from a map, defaulting to the full preview. */
         internal fun fromMap(arguments: Map<*, *>): RecognizeVisorCropRect {
             return RecognizeVisorCropRect(
                 scaleWidth = arguments.optionalFiniteDouble(SCALE_WIDTH_ARGUMENT) ?: DEFAULT_SCALE,
@@ -26,18 +44,5 @@ data class RecognizeVisorCropRect(
                 centerOffsetY = arguments.optionalFiniteDouble(OFFSET_Y_ARGUMENT) ?: DEFAULT_OFFSET,
             )
         }
-
-        /** Channel key for recognition width relative to the preview. */
-        private const val SCALE_WIDTH_ARGUMENT = "scaleWidth"
-        /** Channel key for recognition height relative to the preview. */
-        private const val SCALE_HEIGHT_ARGUMENT = "scaleHeight"
-        /** Channel key for the horizontal offset from the preview center. */
-        private const val OFFSET_X_ARGUMENT = "offsetX"
-        /** Channel key for the vertical offset from the preview center. */
-        private const val OFFSET_Y_ARGUMENT = "offsetY"
-        /** Full-preview fraction used when a crop scale is omitted. */
-        private const val DEFAULT_SCALE = 1.0
-        /** Centered position used when a crop offset is omitted. */
-        private const val DEFAULT_OFFSET = 0.0
     }
 }

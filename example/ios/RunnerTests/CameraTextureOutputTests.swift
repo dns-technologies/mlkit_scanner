@@ -7,7 +7,7 @@ final class CameraTextureOutputTests: XCTestCase {
     func testTexturePublishesOnlyMetadataChangesAndRetainsLatestBuffer() throws {
         let registry = RecordingTextureRegistry()
         let texture = CameraTextureOutput(registry: registry)
-        var descriptions: [[String: Any]?] = []
+        var descriptions: [CameraPreviewDescription?] = []
         texture.publish = { descriptions.append($0) }
         XCTAssertNil(texture.copyPixelBuffer())
         var buffer: CVPixelBuffer?
@@ -16,13 +16,18 @@ final class CameraTextureOutputTests: XCTestCase {
         texture.present(frame); texture.present(frame)
         XCTAssertEqual(registry.frames, [42, 42])
         XCTAssertEqual(descriptions.count, 1)
-        XCTAssertEqual(descriptions[0]?["width"] as? Int, 16)
+        XCTAssertEqual(descriptions[0], CameraPreviewDescription(textureId: 42, width: 16, height: 8, state: .streaming))
         XCTAssertTrue(texture.copyPixelBuffer()?.takeRetainedValue() === frame)
         texture.pause()
-        XCTAssertEqual(descriptions.compactMap { $0 }.last?["state"] as? String, "paused")
+        XCTAssertEqual(descriptions.compactMap { $0 }.last?.state, .paused)
         XCTAssertNotNil(texture.copyPixelBuffer()?.takeRetainedValue())
+        texture.present(frame)
+        XCTAssertEqual(descriptions.count, 3)
+        XCTAssertEqual(descriptions[2]?.state, .streaming)
         texture.dispose(); texture.dispose()
         XCTAssertNil(texture.copyPixelBuffer())
+        XCTAssertEqual(descriptions.count, 4)
+        XCTAssertNil(descriptions[3])
         XCTAssertEqual(registry.removed, [42])
     }
     func testLateFrameCannotRepopulateDisposedTexture() throws {

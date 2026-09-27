@@ -12,16 +12,6 @@ extension AVCaptureDevice.Position {
     /// Code used for unsupported camera positions.
     static let unsupportedCode = -1
 
-    /// Code of position for transmission over the platform channel.
-    var code: Int {
-        AVCaptureDevice.Position.positionToCode[self] ?? AVCaptureDevice.Position.unsupportedCode
-    }
-
-    /// Returns the position corresponding to the `code`.
-    static func fromCode(_ code: Int) -> AVCaptureDevice.Position? {
-        AVCaptureDevice.Position.codeToPosition[code]
-    }
-
     /// Stable platform-channel codes indexed by native camera position.
     private static let positionToCode: [AVCaptureDevice.Position: Int] = [
         .unspecified: 0,
@@ -37,4 +27,14 @@ extension AVCaptureDevice.Position {
         }
         return map
     }()
+
+    /// Code of position for transmission over the platform channel.
+    var code: Int {
+        AVCaptureDevice.Position.positionToCode[self] ?? AVCaptureDevice.Position.unsupportedCode
+    }
+
+    /// Decodes a native position, returning nil for unsupported channel codes.
+    static func fromCode(_ code: Int) -> AVCaptureDevice.Position? {
+        AVCaptureDevice.Position.codeToPosition[code]
+    }
 }

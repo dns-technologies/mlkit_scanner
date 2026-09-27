@@ -5,13 +5,15 @@ import 'scanner_preview.dart';
 
 /// Owns the subscription to one native output lifetime, including its initial snapshot.
 class ScannerResources {
+  ScannerResources(this.channel, this.preview);
+
   /// Native preview subscription transport.
   final MlKitChannel channel;
 
-  /// Shared metadata observed by every mounted scanner preview.
+  /// Publishes the latest output metadata and its withdrawal.
   final ValueNotifier<ScannerPreviewDescription?> preview;
 
-  /// Establishes the native subscription before a consumer opens a capture.
+  /// Completes after the native subscription and its initial snapshot are established.
   late final Future<void> ready = _subscribe();
 
   /// Dart listener installed before requesting the initial native snapshot.
@@ -22,8 +24,6 @@ class ScannerResources {
 
   /// Immediately rejects events once resource cleanup begins.
   bool _closed = false;
-
-  ScannerResources(this.channel, this.preview);
 
   /// Buffers early events so an older subscription reply cannot replace them.
   Future<void> _subscribe() async {
@@ -47,7 +47,7 @@ class ScannerResources {
     pending.clear();
   }
 
-  /// Revokes local delivery immediately, then removes the native endpoint.
+  /// Closes the preview subscription and prevents further event delivery.
   Future<void> close() async {
     if (_closed) return;
     _closed = true;

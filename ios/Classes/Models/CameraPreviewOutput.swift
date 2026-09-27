@@ -3,7 +3,7 @@ import CoreVideo
 /// Receives preview frames and owns their presentation resources.
 protocol CameraPreviewOutput: AnyObject {
     /// Reports current output metadata, or nil when output is withdrawn.
-    var publish: ([String: Any]?) -> Void { get set }
+    var publish: (CameraPreviewDescription?) -> Void { get set }
 
     /// Presents the latest frame on the main thread.
     func present(_ buffer: CVPixelBuffer)

@@ -3,6 +3,25 @@ import XCTest
 @testable import mlkit_scanner
 
 final class ScannerCommandTests: XCTestCase {
+    private final class TestScannerCommand: ScannerCommand {
+        private let error: Error?
+
+        init(error: Error?) {
+            self.error = error
+            super.init(scannerDevice: RecordingScannerHardware())
+        }
+
+        override func executeCommand(
+            _ call: FlutterMethodCall,
+            result: @escaping FlutterResult
+        ) throws {
+            if let error = error {
+                throw error
+            }
+            success(result)
+        }
+    }
+
     func testExecuteReturnsSuccessfulCommandValue() {
         let command = TestScannerCommand(error: nil)
         var value: Any? = true
@@ -25,24 +44,5 @@ final class ScannerCommandTests: XCTestCase {
         let error = value as? FlutterError
         XCTAssertEqual(error?.code, MlKitPluginError.invalidArguments.rawValue)
         XCTAssertEqual(error?.message, MlKitPluginError.invalidArguments.localizedDescription)
-    }
-
-    private final class TestScannerCommand: ScannerCommand {
-        private let error: Error?
-
-        init(error: Error?) {
-            self.error = error
-            super.init(scannerDevice: RecordingScannerHardware())
-        }
-
-        override func executeCommand(
-            _ call: FlutterMethodCall,
-            result: @escaping FlutterResult
-        ) throws {
-            if let error = error {
-                throw error
-            }
-            success(result)
-        }
     }
 }

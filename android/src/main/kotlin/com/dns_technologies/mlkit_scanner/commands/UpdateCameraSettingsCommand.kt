@@ -10,10 +10,9 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.CoroutineScope
 
-/** Applies a batch of changed controls validated by Dart to the current capture. */
+/** Decodes and applies a batch of camera settings to the current capture. */
 internal class UpdateCameraSettingsCommand(scannerProvider: () -> Scanner?, commandScope: CoroutineScope) :
     AsyncScannerCommand(scannerProvider, commandScope) {
-    /** Decodes all supplied fields before any side effect and awaits camera controls. */
     override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
         val values = call.arguments.requireMap()
         val zoom = if (values.containsKey("zoomRatio")) values.requireFiniteFloat("zoomRatio") else null
@@ -24,7 +23,7 @@ internal class UpdateCameraSettingsCommand(scannerProvider: () -> Scanner?, comm
 
         if (crop != null) scanner()?.setCropArea(crop)
         if (zoom != null) scanner()?.setZoomRatio(zoom)
-        // Resolving again rejects a lease revoked while zoom was awaiting the SDK.
+        // Resolve the scanner again because it may be unavailable after the awaited zoom operation.
         if (torch != null) scanner()?.setTorch(torch)
         success(result)
     }

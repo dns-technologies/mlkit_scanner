@@ -8,15 +8,14 @@
 import AVFoundation
 import Foundation
 
-/// Camera selection exchanged with Flutter.
+/// Camera selection by device type and position.
 struct CameraData {
-    /// Camera type.
+    /// Physical lens or combined camera device to select.
     let type: AVCaptureDevice.DeviceType
 
-    /// Camera position.
+    /// Direction the camera faces relative to the user.
     let position: AVCaptureDevice.Position
 
-    /// Creates a validated camera selection from platform-channel arguments.
     init(arguments: [String: Any]) throws {
         let typeNumber = try PlatformChannelScalar.number(from: arguments["type"])
         let positionNumber = try PlatformChannelScalar.number(from: arguments["position"])
@@ -32,7 +31,6 @@ struct CameraData {
         self.position = position
     }
 
-    /// Creates a camera selection from a native type and position.
     init(type: AVCaptureDevice.DeviceType, position: AVCaptureDevice.Position) {
         self.type = type
         self.position = position

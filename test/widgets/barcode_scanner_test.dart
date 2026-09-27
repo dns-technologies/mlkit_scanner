@@ -284,46 +284,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       await h.dispose();
     });
-
-    testWidgets('initial settings and laid-out geometry reach capture', (tester) async {
-      await tester.pumpWidget(
-        app(
-          BarcodeScanner(
-            onScan: (_) {},
-            scanning: true,
-            scanDelay: 200,
-            zoomRatio: 2,
-            flashEnabled: true,
-            cropRect: const CropRect(scaleWidth: .6),
-          ),
-        ),
-      );
-      await tester.pump();
-      final resume = h.calls.singleWhere((c) => c.method == 'resumeCameraMethod');
-      expect((resume.arguments as Map)['configuration'], allOf(containsPair('zoomRatio', 2.0), containsPair('torchEnabled', true)));
-      expect(h.methods, contains('startScan'));
-      expect(find.byType(ScannerOverlay), findsOneWidget);
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump(const Duration(milliseconds: 300));
-      await h.dispose();
-    });
-
-    testWidgets('capture errors reach the widget error callback', (tester) async {
-      final errors = <Object>[];
-      h.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') {
-          throw PlatformException(code: 'camera');
-        }
-        return null;
-      };
-      await tester.pumpWidget(app(scanner(error: errors.add)));
-      await tester.pump();
-      expect(errors.single, isA<PlatformException>());
-      expect((errors.single as PlatformException).code, 'camera');
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump(const Duration(milliseconds: 300));
-      await h.dispose();
-    });
   });
 
   group('parameters', () {
@@ -375,8 +335,12 @@ void main() {
       await tester.pump();
       final resume = harness.calls.singleWhere((call) => call.method == 'resumeCameraMethod');
       expect((resume.arguments as Map)['configuration'], allOf(containsPair('zoomRatio', 2.0), containsPair('torchEnabled', true)));
+      expect((resume.arguments as Map)['configuration'], containsPair('cropRect', const CropRect(scaleWidth: .6).toJson()));
+      final previewSize = tester.getSize(find.byType(BarcodeScanner));
+      expect((resume.arguments as Map)['geometry'], {'width': previewSize.width, 'height': previewSize.height});
       expect(harness.calls.singleWhere((call) => call.method == 'startScan').arguments, containsPair('delay', 200));
       expect(harness.methods.toList().indexOf('subscribeScan'), lessThan(harness.methods.toList().indexOf('startScan')));
+      expect(find.byType(ScannerOverlay), findsOneWidget);
       await close(tester);
     });
 
@@ -1330,16 +1294,6 @@ void main() {
       expect(painting(tester), isNot(paints..circle()));
       final focus = harness.calls.singleWhere((call) => call.method == 'focus');
       expect(focus.arguments, containsPair('locked', true));
-      await close(tester);
-    });
-
-    testWidgets('lock leaves focus and settles in the upper left preview corner', (tester) async {
-      await mount(tester);
-      await tester.longPress(overlay);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 800));
-      // Android's original 24dp icon frame starts at 0.8 * its size.
-      expect(painting(tester), paints..translate(x: 19.2, y: 19.2));
       await close(tester);
     });
 

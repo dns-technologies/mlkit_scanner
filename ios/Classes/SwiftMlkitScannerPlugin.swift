@@ -5,16 +5,22 @@ import UIKit
 public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     /// Method channel for this Flutter engine.
     private let channel: FlutterMethodChannel
+
     /// Texture registry owned by this Flutter engine.
     private let textures: FlutterTextureRegistry
+
     /// Active capture lease, accessed on main.
     private var selected: CaptureLease?
+
     /// Preview subscriptions keyed by their opaque identifiers on main.
     private var subscriptions: [String: PreviewSubscription] = [:]
+
     /// Latest shared preview description, cached on main.
     private var preview: [String: Any]?
+
     /// Whether the plugin has detached from its Flutter engine.
     private var isDisposed = false
+
     /// Shared native scanner with main-thread lease-aware event routing.
     private lazy var scannerDevice = ScannerHardware(
         onScanResult: { [weak self] viewId, barcode in
@@ -31,9 +37,10 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         }, cameraFactory: { [unowned self] in
             let output: CameraPreviewOutput = CameraTextureOutput(registry: self.textures)
             return CameraPreview(output: output)
+        }, analyzerFactory: {
+            MlkitBarcodeScanner(delay: 0, cropRect: nil)
         })
 
-    /// Binds the engine channel and texture registry.
     init(channel: FlutterMethodChannel, textures: FlutterTextureRegistry) {
         self.channel = channel
         self.textures = textures
@@ -46,6 +53,17 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         let instance = SwiftMlkitScannerPlugin(channel: channel, textures: registrar.textures())
         registrar.publish(instance)
         registrar.addMethodCallDelegate(instance, channel: channel)
+    }
+
+    /// Encodes native metadata only at the Flutter channel boundary.
+    static func previewArguments(_ metadata: CameraPreviewDescription) -> [String: Any] {
+        let state: String
+        switch metadata.state {
+        case .streaming: state = "streaming"
+        case .paused: state = "paused"
+        }
+        return ["textureId": metadata.textureId, "width": metadata.width, "height": metadata.height,
+            "rotationDegrees": metadata.rotationDegrees, "mirrored": metadata.mirrored, "state": state]
     }
 
     /// Revokes active responses and releases resources when the engine detaches.
@@ -106,13 +124,13 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
                 do {
                     switch call.method {
                     case PluginConstants.resumeCameraMethod:
-                        try scannerDevice.updateGeometry(viewId: lease.viewId, arguments: values["geometry"])
+                        try scannerDevice.updateGeometry(viewId: lease.viewId, size: ScannerMethodArguments.geometry(values["geometry"]))
                         let settings = try ScannerConfiguration(arguments: values["configuration"])
                         scannerDevice.captureCamera(viewId: lease.viewId, configuration: settings) { error in command.complete(scoped, error: error) }
                     case PluginConstants.pauseCameraMethod:
                         scannerDevice.pauseCamera { scoped(nil) }
                     case "updatePreviewGeometry":
-                        try scannerDevice.updateGeometry(viewId: lease.viewId, arguments: values)
+                        try scannerDevice.updateGeometry(viewId: lease.viewId, size: ScannerMethodArguments.geometry(values))
                         scoped(nil)
                     case "focus":
                         try scannerDevice.focus(locked: PlatformChannelScalar.bool(from: values["locked"]))
@@ -146,7 +164,7 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         } catch { command.reportError(reply, error: error) }
     }
 
-    /// Revokes the selected lease before releasing native ownership.
+    /// Releases camera ownership and cancels outstanding capture work.
     private func closeSelected() {
         let previous = selected
         selected = nil
@@ -155,7 +173,8 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     }
 
     /// Caches preview metadata and broadcasts it to active subscriptions.
-    private func publishPreview(_ description: [String: Any]?) {
+    private func publishPreview(_ metadata: CameraPreviewDescription?) {
+        let description = metadata.map(Self.previewArguments)
         preview = description
         guard !isDisposed else { return }
         for subscription in subscriptions.values {
@@ -166,9 +185,9 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
 
 /// Main-thread ownership lifetime for camera commands and barcode delivery.
 private final class CaptureLease {
-    /// Opaque identifier exposed to Flutter for this concrete lifetime.
+    /// Unique identifier of this subscription or capture lifetime.
     let id = UUID().uuidString
-    /// Identifier of the logical Flutter consumer.
+    /// Identifier of the registered camera consumer.
     let viewId: Int64
     /// Current barcode endpoint belonging to this capture lease.
     var scan: ScanEndpoint?
@@ -177,7 +196,6 @@ private final class CaptureLease {
     /// Unfinished method replies keyed by object identity.
     private var replies: [ObjectIdentifier: PendingReply] = [:]
 
-    /// Creates a capture lifetime for one registered Flutter consumer.
     init(viewId: Int64) {
         self.viewId = viewId
     }
@@ -203,20 +221,19 @@ private final class CaptureLease {
     }
 }
 
-/// Main-thread method response removed from its lease before invoking Flutter.
+/// Main-thread method response that delivers its result at most once.
 private final class PendingReply {
-    /// Flutter response cleared before its first delivery.
+    /// Response awaiting delivery.
     private var result: FlutterResult?
-    /// Removes this reply from its owning lease before invoking Flutter.
+    /// Completion callback invoked before delivering the response.
     private let onComplete: (PendingReply) -> Void
 
-    /// Stores a Flutter response and its ownership-cleanup callback.
     init(_ result: @escaping FlutterResult, onComplete: @escaping (PendingReply) -> Void) {
         self.result = result
         self.onComplete = onComplete
     }
 
-    /// Clears the pending response before invoking it to prevent repeated delivery.
+    /// Delivers the response at most once, including during reentrant callbacks.
     func complete(_ value: Any?) {
         let reply = result
         result = nil
@@ -225,16 +242,16 @@ private final class PendingReply {
     }
 }
 
-/// Barcode subscription identity within one capture lease.
+/// Barcode result endpoint with an explicit delivery-enabled state.
 private final class ScanEndpoint {
-    /// Opaque identifier exposed to Flutter for this concrete lifetime.
+    /// Unique identifier of this subscription or capture lifetime.
     let id = UUID().uuidString
-    /// Whether Flutter has started recognition for this endpoint.
+    /// Whether result delivery is enabled for this endpoint.
     var enabled = false
 }
 
 /// Independent subscription identity for shared preview state.
 private final class PreviewSubscription {
-    /// Opaque identifier exposed to Flutter for this concrete lifetime.
+    /// Unique identifier of this subscription or capture lifetime.
     let id = UUID().uuidString
 }

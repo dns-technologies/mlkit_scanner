@@ -21,12 +21,6 @@ enum IosCameraType {
 
 /// Converts between [IosCameraType] values and native platform codes.
 extension IosCameraTypeCode on IosCameraType {
-  /// Code of type for transmission over the platform channel.
-  int get code => _typeToCode[this]!;
-
-  /// Returns the type corresponding to the [code].
-  static IosCameraType fromCode(int code) => _codeToType[code]!;
-
   /// Stable numeric device-type codes used for iOS camera selection.
   static final _typeToCode = {
     IosCameraType.builtInWideAngleCamera: 0,
@@ -39,4 +33,10 @@ extension IosCameraTypeCode on IosCameraType {
 
   /// Reverse lookup for device types returned by native camera discovery.
   static final _codeToType = {for (final entry in _typeToCode.entries) entry.value: entry.key};
+
+  /// Code of type for transmission over the platform channel.
+  int get code => _typeToCode[this]!;
+
+  /// Decodes a supported native camera type; [code] must belong to this mapping.
+  static IosCameraType fromCode(int code) => _codeToType[code]!;
 }

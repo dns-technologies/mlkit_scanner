@@ -1,24 +1,24 @@
 import CoreGraphics
 import Foundation
 
-/// Validates untyped Flutter values once, before they reach the SDK.
+/// Decodes typed scanner command arguments from untyped channel values.
 enum ScannerMethodArguments {
 
     /// Parsed recognition configuration for a scan start.
     struct ScanOptions {
-        /// Validated recognition mode requested by Flutter.
+        /// Requested recognition mode.
         let type: RecognitionType
         /// Requested successful-recognition cooldown in milliseconds.
         let delay: Int
     }
 
-    /// Parses the platform-view identifier required when attaching a preview.
+    /// Parses a nonnegative consumer identifier.
     static func viewId(_ arguments: Any?) throws -> Int64 {
         let values = try map(arguments)
         return try nonNegativeInt64(values[PluginConstants.viewIdArgument])
     }
 
-    /// Parses recognition mode and cooldown validated by Dart.
+    /// Parses the recognition mode and integer cooldown.
     static func scanOptions(_ arguments: Any?) throws -> ScanOptions {
         let values = try map(arguments)
         let rawType = try integer(values[PluginConstants.typeArgument])
@@ -31,13 +31,13 @@ enum ScannerMethodArguments {
         )
     }
 
-    /// Parses a recognition cooldown; Dart owns its range.
+    /// Parses a recognition cooldown as an exact integer.
     static func scanDelay(_ arguments: Any?) throws -> Int {
         let values = try map(arguments)
         return try integer(values[PluginConstants.delayArgument])
     }
 
-    /// Reads numeric zoom; Dart validates its application-level range.
+    /// Reads a finite numeric zoom ratio.
     static func zoomRatio(_ arguments: Any?) throws -> Double {
         let values = try map(arguments)
         return try PlatformChannelScalar.finiteDouble(from: values[PluginConstants.valueArgument])
@@ -48,6 +48,15 @@ enum ScannerMethodArguments {
         let values = try map(arguments)
         let cropValues = try map(values[PluginConstants.cropRectArgument])
         return try CropRect(arguments: cropValues)
+    }
+
+    /// Decodes positive finite viewport dimensions.
+    static func geometry(_ arguments: Any?) throws -> CGSize {
+        let values = try map(arguments)
+        let width = try PlatformChannelScalar.finiteDouble(from: values["width"])
+        let height = try PlatformChannelScalar.finiteDouble(from: values["height"])
+        guard width > 0, height > 0 else { throw MlKitPluginError.invalidArguments }
+        return CGSize(width: width, height: height)
     }
 
     /// Returns an untyped channel value as a string-keyed map.

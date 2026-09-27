@@ -3,23 +3,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
-/// Retains this widget's pixels while other widgets keep using the live texture.
+/// Retains a painted preview image while live rendering is paused or unavailable.
 class FrozenPreview extends StatefulWidget {
-  /// Camera pixels after crop, rotation and fitting, without scanner controls.
-  final Widget child;
-
-  /// Whether to hold this widget's image while paused or without capture ownership.
-  final bool paused;
-
-  /// Whether native pixels are ready for display and retention.
-  final bool ready;
-
-  /// Checks ownership at capture time, including deferred post-frame callbacks.
-  final bool Function()? canRetainFrame;
-
-  /// Reports image capture failures to the owning scanner.
-  final void Function(Object, StackTrace) onError;
-
   const FrozenPreview({
     super.key,
     required this.child,
@@ -29,11 +14,26 @@ class FrozenPreview extends StatefulWidget {
     this.canRetainFrame,
   });
 
+  /// Preview content to paint and retain.
+  final Widget child;
+
+  /// Whether to display a retained image instead of live content.
+  final bool paused;
+
+  /// Whether native pixels are ready for display and retention.
+  final bool ready;
+
+  /// Checks retention permission at capture time, including deferred post-frame callbacks.
+  final bool Function()? canRetainFrame;
+
+  /// Receives image capture failures.
+  final void Function(Object, StackTrace) onError;
+
   @override
   State<FrozenPreview> createState() => FrozenPreviewState();
 }
 
-/// Owns the frame and lets camera handoff wait for rasterization to finish.
+/// Owns the retained image and tracks completion of its rasterization.
 class FrozenPreviewState extends State<FrozenPreview> {
   /// Isolates camera pixels from overlays and surrounding application content.
   final _boundaryKey = GlobalKey();
@@ -41,7 +41,7 @@ class FrozenPreviewState extends State<FrozenPreview> {
   /// Independent image that cannot change when the shared texture advances.
   ui.Image? _image;
 
-  /// Current capture operation; its identity rejects results after resume.
+  /// Pending capture of the paused preview image.
   Future<ui.Image>? _capture;
 
   /// Acknowledgment that the current capture succeeded or reported its error.
@@ -60,7 +60,7 @@ class FrozenPreviewState extends State<FrozenPreview> {
     }
   }
 
-  /// Copies the last painted preview, including when handoff precedes rebuild.
+  /// Copies the last painted preview, including before a pending rebuild.
   /// A widget without a painted camera frame has nothing to retain yet.
   Future<void> retainFrame() {
     if (_ready case final ready?) return ready;
@@ -115,10 +115,10 @@ class FrozenPreviewState extends State<FrozenPreview> {
 
 /// Makes the last painted camera layer available independently of layout dirtiness.
 class _PreviewBoundaryWidget extends SingleChildRenderObjectWidget {
+  const _PreviewBoundaryWidget({super.key, required super.child, required this.ready});
+
   /// Whether the next paint contains a camera frame eligible for retention.
   final bool ready;
-
-  const _PreviewBoundaryWidget({super.key, required super.child, required this.ready});
 
   @override
   RenderObject createRenderObject(BuildContext context) => _PreviewBoundary(ready);
@@ -129,17 +129,12 @@ class _PreviewBoundaryWidget extends SingleChildRenderObjectWidget {
   }
 }
 
-/// Snapshots already painted layers without relying on debug-only paint flags.
+/// Provides snapshots of the last painted camera frame.
 class _PreviewBoundary extends RenderRepaintBoundary {
+  _PreviewBoundary(this._ready);
+
   /// Whether the child awaiting paint represents native camera output.
   bool _ready;
-
-  /// Requests a new paint when the child changes between loading and camera.
-  set ready(bool value) {
-    if (_ready == value) return;
-    _ready = value;
-    markNeedsPaint();
-  }
 
   /// Whether the existing layer actually contains painted camera output.
   bool _paintedCamera = false;
@@ -147,7 +142,12 @@ class _PreviewBoundary extends RenderRepaintBoundary {
   /// Dimensions belonging to the retained layer, before any pending relayout.
   Size? _paintedSize;
 
-  _PreviewBoundary(this._ready);
+  /// Requests a new paint when the child changes between loading and camera.
+  set ready(bool value) {
+    if (_ready == value) return;
+    _ready = value;
+    markNeedsPaint();
+  }
 
   @override
   void paint(PaintingContext context, Offset offset) {

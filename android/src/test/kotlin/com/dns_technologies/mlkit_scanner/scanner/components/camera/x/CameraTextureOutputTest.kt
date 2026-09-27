@@ -5,6 +5,8 @@ import android.util.Size
 import android.view.Surface
 import androidx.camera.core.SurfaceRequest
 import androidx.core.util.Consumer
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
 import io.flutter.view.TextureRegistry
 import java.util.concurrent.Executor
 import org.junit.Assert.*
@@ -21,7 +23,7 @@ internal class CameraTextureOutputTest {
         val f = Fixture(); val request = f.request()
         f.output.onSurfaceRequested(request.request)
         f.output.cameraAvailable(false); f.output.pause()
-        assertTrue(f.events.filterNotNull().all { it["state"] == "starting" })
+        assertTrue(f.events.filterNotNull().all { it.state == CameraPreviewState.Starting })
         f.output.dispose(); request.finish()
     }
     @Test fun `disposal waits for every provided request including replaced ones`() {
@@ -39,11 +41,11 @@ internal class CameraTextureOutputTest {
         val frame = f.output.frameStarted(100)!!
         f.output.onSurfaceRequested(second.request); first.finish()
         f.output.frameCaptured(frame)
-        assertEquals("starting", f.events.last()!!["state"])
+        assertEquals(CameraPreviewState.Starting, f.events.last()!!.state)
         f.output.frameCaptured(f.output.frameStarted(101)!!)
-        assertEquals("streaming", f.events.last()!!["state"])
+        assertEquals(CameraPreviewState.Streaming, f.events.last()!!.state)
         f.output.cameraAvailable(false)
-        assertEquals("paused", f.events.last()!!["state"])
+        assertEquals(CameraPreviewState.Paused, f.events.last()!!.state)
         f.output.dispose(); second.finish()
     }
     @Test fun `size precedes surface acquisition and manual transformation includes source crop`() {
@@ -54,14 +56,29 @@ internal class CameraTextureOutputTest {
             verify(f.producer).surface
             verify(request.request).provideSurface(anyValue(), anyValue(), anyValue())
         }
-        assertEquals(90, f.events.last()!!["rotationDegrees"])
-        assertEquals(160, f.events.last()!!["cropLeft"])
-        assertEquals(960, f.events.last()!!["cropWidth"])
+        assertEquals(90, f.events.last()!!.rotationDegrees)
+        assertEquals(160, f.events.last()!!.cropRect.left)
+        assertEquals(960, f.events.last()!!.cropRect.width)
         f.output.dispose(); request.finish()
+    }
+    @Test fun `producer transformation publishes rotated full bounds without double rotation`() {
+        val f = Fixture()
+        val request = f.request()
+        doReturn(true).`when`(f.producer).handlesCropAndRotation()
+
+        f.output.onSurfaceRequested(request.request)
+
+        val preview = f.events.last()!!
+        assertEquals(720, preview.width)
+        assertEquals(1280, preview.height)
+        assertEquals(0, preview.rotationDegrees)
+        assertEquals(com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect(0, 0, 720, 1280), preview.cropRect)
+        f.output.dispose()
+        request.finish()
     }
     private class Fixture {
         val producer = mock(TextureRegistry.SurfaceProducer::class.java)
-        val events = mutableListOf<Map<String, Any>?>()
+        val events = mutableListOf<CameraPreviewDescription?>()
         val output: CameraTextureOutput
         init { doReturn(mock(Surface::class.java)).`when`(producer).surface; output = CameraTextureOutput(producer, Executor { it.run() }, events::add) }
         fun request() = Request()

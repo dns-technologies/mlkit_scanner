@@ -2,7 +2,8 @@ import Flutter
 import CoreVideo
 import Foundation
 
-/// Pixel storage shared by the scanner session and Flutter's raster thread.
+/// Flutter texture with synchronized pixel-buffer storage and preview metadata.
+/// Owns its texture registration until disposal.
 final class CameraTextureOutput: NSObject, FlutterTexture, CameraPreviewOutput {
     /// Flutter texture registry belonging to this engine.
     private let registry: FlutterTextureRegistry
@@ -15,18 +16,17 @@ final class CameraTextureOutput: NSObject, FlutterTexture, CameraPreviewOutput {
     /// Registered Flutter texture identifier, assigned during initialization.
     private(set) var textureId: Int64 = -1
     /// Latest preview metadata published on main.
-    private var lastDescription: [String: Any]?
+    private var lastDescription: CameraPreviewDescription?
     /// Main-thread callback for preview state changes and disposal.
-    var publish: ([String: Any]?) -> Void = { _ in }
+    var publish: (CameraPreviewDescription?) -> Void = { _ in }
 
-    /// Registers texture storage with the owning Flutter engine.
     init(registry: FlutterTextureRegistry) {
         self.registry = registry
         super.init()
         textureId = registry.register(self)
     }
 
-    /// Returns a retained snapshot for Flutter rasterization under the storage lock.
+    /// Returns a retained preview buffer for Flutter rasterization.
     func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
         lock.lock()
         defer { lock.unlock() }
@@ -34,7 +34,7 @@ final class CameraTextureOutput: NSObject, FlutterTexture, CameraPreviewOutput {
         return Unmanaged.passRetained(buffer)
     }
 
-    /// Called on main after the originating receiver has checked its lifetime.
+    /// Retains and publishes the supplied preview buffer; must be called on main.
     func present(_ buffer: CVPixelBuffer) {
         lock.lock()
         guard !closed else {
@@ -46,11 +46,8 @@ final class CameraTextureOutput: NSObject, FlutterTexture, CameraPreviewOutput {
         registry.textureFrameAvailable(textureId)
         let width = CVPixelBufferGetWidth(buffer)
         let height = CVPixelBufferGetHeight(buffer)
-        if lastDescription?["width"] as? Int == width,
-           lastDescription?["height"] as? Int == height,
-           lastDescription?["state"] as? String == "streaming" { return }
-        let description: [String: Any] = ["textureId": textureId, "width": width, "height": height,
-            "rotationDegrees": 0, "mirrored": false, "state": "streaming"]
+        let description = CameraPreviewDescription(textureId: textureId, width: width, height: height, state: .streaming)
+        guard description != lastDescription else { return }
         lastDescription = description
         publish(description)
     }
@@ -58,7 +55,7 @@ final class CameraTextureOutput: NSObject, FlutterTexture, CameraPreviewOutput {
     /// Publishes a paused state while keeping the latest preview frame.
     func pause() {
         guard var description = lastDescription else { return }
-        description["state"] = "paused"
+        description.state = .paused
         lastDescription = description
         publish(description)
     }

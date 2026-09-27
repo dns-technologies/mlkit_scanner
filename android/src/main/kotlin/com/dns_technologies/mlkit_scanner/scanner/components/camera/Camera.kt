@@ -17,7 +17,7 @@ typealias OnCameraFrame = (frame: CameraFrame) -> Unit
 /** Callback invoked when the camera preview becomes ready or stops streaming. */
 typealias OnCameraAvailabilityChanged = (availability: CameraAvailability) -> Unit
 
-/** Device availability reported by the concrete camera adapter. */
+/** Camera device availability and optional opening failure. */
 sealed interface CameraAvailability {
     /** The camera is open and the preview has started delivering frames. */
     data object Open : CameraAvailability
@@ -33,15 +33,15 @@ sealed interface CameraAvailability {
 }
 
 /**
- * Minimal adapter implemented by a concrete camera library integration.
+ * Camera binding, preview delivery and asynchronous device controls.
  *
  * Lifecycle and control calls run on the main thread. Controls act on the current binding and
- * return their asynchronous completion; desired settings and operation ordering belong to the
- * caller. Cancelling a returned result does not guarantee cancellation of hardware work.
+ * return their asynchronous completion. Calls must be ordered externally; cancelling a returned
+ * result does not guarantee cancellation of hardware work.
  */
 interface Camera {
     /** Reports current preview metadata, or null when output is withdrawn. */
-    var onPreviewChanged: (Map<String, Any>?) -> Unit
+    var onPreviewChanged: (CameraPreviewDescription?) -> Unit
 
     /** Completes after disposal has released all camera and preview resources. */
     val disposal: Deferred<Unit>
@@ -80,6 +80,6 @@ interface Camera {
     /** Removes the active lifecycle binding while keeping camera resources reusable. */
     fun unbind()
 
-    /** Releases every resource owned by the concrete camera implementation. */
+    /** Releases all camera and preview resources. */
     fun dispose()
 }

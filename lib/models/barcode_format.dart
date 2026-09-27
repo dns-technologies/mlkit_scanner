@@ -1,6 +1,6 @@
-/// Barcode format.
+/// Encoding symbology reported by barcode recognition.
 enum BarcodeFormat {
-  /// Unknown format.
+  /// The native format is absent or not recognized by this plugin version.
   unknown,
 
   /// Code 128.
@@ -45,15 +45,12 @@ enum BarcodeFormat {
 
 /// Converts between [BarcodeFormat] values and native platform codes.
 extension BarcodeFormatCode on BarcodeFormat {
-  /// Code of format for transmission over the platform channel.
-  int get code => _formatToCode[this]!;
+  /// Platform code for an unrecognized barcode format.
+  static const _unknownCode = 0;
 
-  /// Returns the format corresponding to the [code].
-  static BarcodeFormat fromCode(int code) => _codeToFormat[code] ?? BarcodeFormat.unknown;
-
-  /// Stable ML Kit format codes, independent of Dart enum ordering.
+  /// Stable format codes, independent of enum ordering.
   static final _formatToCode = {
-    BarcodeFormat.unknown: 0,
+    BarcodeFormat.unknown: _unknownCode,
     BarcodeFormat.code128: 1,
     BarcodeFormat.code39: 2,
     BarcodeFormat.code93: 4,
@@ -69,6 +66,12 @@ extension BarcodeFormatCode on BarcodeFormat {
     BarcodeFormat.aztec: 4096,
   };
 
-  /// Reverse lookup built from the same transport mapping.
+  /// Barcode formats recognized in native event payloads.
   static final _codeToFormat = {for (final entry in _formatToCode.entries) entry.value: entry.key};
+
+  /// Platform code of this barcode format.
+  int get code => _formatToCode[this] ?? _unknownCode;
+
+  /// Decodes a barcode format from its platform code.
+  static BarcodeFormat fromCode(int code) => _codeToFormat[code] ?? BarcodeFormat.unknown;
 }

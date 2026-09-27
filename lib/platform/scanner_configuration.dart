@@ -3,15 +3,25 @@ import 'package:mlkit_scanner/models/ios_camera.dart';
 import 'package:mlkit_scanner/models/ios_camera_position.dart';
 import 'package:mlkit_scanner/models/ios_camera_type.dart';
 
-/// Desired settings of one Dart scanner, including while another view is active.
+/// Immutable desired camera and recognition settings.
 class ScannerConfiguration {
-  /// Warm preview/recognition pause, retained across route and app lifecycle changes.
+  const ScannerConfiguration({
+    this.cameraPaused = false,
+    this.zoomRatio = 1,
+    this.torchEnabled = false,
+    this.cropRect,
+    this.scanEnabled = false,
+    this.scanDelay = 0,
+    this.iosCamera,
+  });
+
+  /// Whether preview and recognition should be paused.
   final bool cameraPaused;
 
   /// Absolute camera zoom ratio, where 1 is the default magnification.
   final double zoomRatio;
 
-  /// Desired torch state, reapplied when ownership changes.
+  /// Desired torch state.
   final bool torchEnabled;
 
   /// Recognition area; null uses the full preview.
@@ -25,16 +35,6 @@ class ScannerConfiguration {
 
   /// Physical iOS camera selection; null uses the platform default.
   final IosCamera? iosCamera;
-
-  const ScannerConfiguration({
-    this.cameraPaused = false,
-    this.zoomRatio = 1,
-    this.torchEnabled = false,
-    this.cropRect,
-    this.scanEnabled = false,
-    this.scanDelay = 0,
-    this.iosCamera,
-  });
 
   /// Compares retained values, treating an omitted crop as the full preview.
   bool hasSameSettings(ScannerConfiguration other) =>
@@ -81,7 +81,7 @@ class ScannerConfiguration {
     iosCamera: iosCamera ?? this.iosCamera,
   );
 
-  /// Camera settings for activation; Dart controls recognition through separate commands.
+  /// Serializes camera settings for activation, omitting recognition and pause settings.
   Map<String, Object?> toCaptureArguments() => {
     'zoomRatio': zoomRatio,
     'torchEnabled': torchEnabled,

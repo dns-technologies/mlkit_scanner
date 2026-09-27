@@ -1,12 +1,12 @@
 package com.dns_technologies.mlkit_scanner.scanner.models
 
 /**
- * Describes a recognized barcode sent to Dart.
+ * Recognized barcode contents and classification codes.
  *
  * @property rawValue Value as it was encoded in the barcode.
  * @property displayValue User-friendly representation of the barcode value, when available.
- * @property format Barcode format code understood by the Dart model.
- * @property valueType Barcode content type code understood by the Dart model.
+ * @property format Stable barcode format code.
+ * @property valueType Stable barcode content type code.
  */
 class Barcode(
     val rawValue: String,
@@ -14,7 +14,7 @@ class Barcode(
     val format: Int,
     val valueType: Int,
 ) {
-    /** Converts this barcode into the Dart platform-channel payload. */
+    /** Serializes barcode values into a string-keyed map. */
     fun toMap(): Map<String, Any?> =
         mapOf(
             "raw_value" to rawValue,

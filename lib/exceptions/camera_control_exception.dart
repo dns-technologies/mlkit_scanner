@@ -99,7 +99,7 @@ class CameraControlException extends PlatformException {
   /// Camera operation that failed.
   final CameraControlOperation operation;
 
-  /// Logical scanner widget identifier associated with the failed operation.
+  /// Logical consumer identifier associated with the failed operation.
   final int? viewId;
 
   /// Original native failure, when available.

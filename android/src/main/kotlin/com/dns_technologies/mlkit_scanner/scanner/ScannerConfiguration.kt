@@ -6,17 +6,17 @@ import com.dns_technologies.mlkit_scanner.utils.requireBoolean
 import com.dns_technologies.mlkit_scanner.utils.requireFiniteFloat
 import com.dns_technologies.mlkit_scanner.utils.requireMap
 
-/** One decoded capture payload. Never stored on a native View or in a configuration registry. */
+/** Camera settings to apply when activating a capture. */
 internal data class ScannerConfiguration(
     /** Absolute zoom ratio to apply when capture starts. */
     val zoomRatio: Float = 1F,
     /** Desired torch state for this capture snapshot. */
     val torchEnabled: Boolean = false,
-    /** Optional recognition region expressed relative to the widget viewport. */
+    /** Optional recognition region expressed relative to the preview viewport. */
     val cropArea: RecognizeVisorCropRect? = null,
 ) {
     companion object {
-        /** Parses camera settings; recognition is controlled by separate Dart commands. */
+        /** Decodes camera settings from a capture argument map. */
         fun from(arguments: Any?): ScannerConfiguration {
             val values = arguments.requireMap()
             return ScannerConfiguration(

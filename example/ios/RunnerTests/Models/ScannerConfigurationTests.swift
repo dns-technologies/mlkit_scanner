@@ -3,6 +3,10 @@ import XCTest
 @testable import mlkit_scanner
 
 final class ScannerConfigurationTests: XCTestCase {
+    private var validArguments: [String: Any] {
+        ["zoomRatio": 1.0, "torchEnabled": false]
+    }
+
     func testCameraSettingsParseWithoutDartRecognitionPreferences() throws {
         let configuration = try ScannerConfiguration(arguments: validArguments)
         XCTAssertEqual(configuration.zoomRatio, 1)
@@ -36,9 +40,5 @@ final class ScannerConfigurationTests: XCTestCase {
         let decoded = try ScannerConfiguration(arguments: arguments)
         XCTAssertEqual(decoded.zoomRatio, 0)
         XCTAssertEqual(decoded.cropRect.scaleWidth, -1)
-    }
-
-    private var validArguments: [String: Any] {
-        ["zoomRatio": 1.0, "torchEnabled": false]
     }
 }

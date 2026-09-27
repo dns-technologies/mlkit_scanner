@@ -1,8 +1,10 @@
 /// A normalized barcode recognition rectangle relative to the camera preview.
 ///
-/// The part of the rectangle inside the camera preview is analyzed.
-/// Detection is skipped only when the area is completely outside the preview.
+/// Scales describe size relative to the preview; offsets describe displacement
+/// of the rectangle's center from the preview center.
 class CropRect {
+  const CropRect({this.scaleWidth = 1, this.scaleHeight = 1, this.offsetX = 0, this.offsetY = 0});
+
   /// Rectangle width as a fraction of the preview width.
   ///
   /// For example, `0.5` makes the recognition area half as wide as the
@@ -26,10 +28,8 @@ class CropRect {
   /// `-1` moves its center to the top edge.
   final double offsetY;
 
-  const CropRect({this.scaleWidth = 1, this.scaleHeight = 1, this.offsetX = 0, this.offsetY = 0});
-
   /// Whether scales are positive and all coordinates are finite.
-  /// The rectangle may extend beyond the preview; native geometry clips it.
+  /// A valid rectangle may extend beyond the preview bounds.
   bool get isValid =>
       scaleWidth.isFinite && scaleWidth > 0 && scaleHeight.isFinite && scaleHeight > 0 && offsetX.isFinite && offsetY.isFinite;
 

@@ -7,11 +7,11 @@
 
 import Foundation
 
-/// Constants of the Plugin.
+/// Names and keys forming the scanner's platform-channel protocol.
 class PluginConstants {
     /// Shared method channel name.
     static let channelName = "mlkit_channel"
-    /// Argument key identifying a logical Flutter widget.
+    /// Argument key identifying a registered camera consumer.
     static let viewIdArgument = "viewId"
     /// Event key containing a recognized barcode.
     static let barcodeArgument = "barcode"
@@ -35,13 +35,13 @@ class PluginConstants {
     static let setScanDelayMethod = "setScanDelay"
     /// Method name for updating the normalized recognition area.
     static let setCropAreaMethod = "setCropAreaMethod"
-    /// Stops native work; Dart decides whether to retain or release controller ownership.
+    /// Method name for requesting a physical camera stop.
     static let pauseCameraMethod = "pauseCameraMethod"
-    /// Selects a preview and applies Dart settings on startup, resume or ownership transfer.
+    /// Method name for applying capture settings and starting the camera.
     static let resumeCameraMethod = "resumeCameraMethod"
-    /// Method name for invoking Flutter Side method with success recognitions.
+    /// Event name for recognized barcode values.
     static let scanResultMethod = "onScanResult"
-    /// Method name for inform flutter side when torch change state
+    /// Event name for torch state changes.
     static let changeTorchStateMethod = "changeTorchStateMethod"
     /// Method name for getting available iOS cameras.
     static let getIosAvailableCamerasMethod = "getIosAvailableCameras"

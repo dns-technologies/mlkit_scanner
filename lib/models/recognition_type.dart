@@ -1,4 +1,4 @@
-/// Object recognition modes supported by the native plugin.
+/// Supported object recognition modes.
 enum RecognitionType {
   /// Barcode recognition.
   barcodeRecognition,

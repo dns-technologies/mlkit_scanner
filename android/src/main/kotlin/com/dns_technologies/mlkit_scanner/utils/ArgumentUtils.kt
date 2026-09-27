@@ -1,9 +1,20 @@
 package com.dns_technologies.mlkit_scanner.utils
 
+import android.util.Size
 import com.dns_technologies.mlkit_scanner.PluginError
+import kotlin.math.roundToInt
 
 /** Requires a codec map or reports the plugin's invalid-arguments error. */
 internal fun Any?.requireMap(): Map<*, *> = this as? Map<*, *> ?: throw PluginError.InvalidArguments
+
+/** Decodes positive viewport dimensions, preserving subpixel sizes as at least one pixel. */
+internal fun Map<*, *>.requireSize(): Size {
+    val width = requireFiniteDouble("width")
+    val height = requireFiniteDouble("height")
+    if (width <= 0 || height <= 0 || width > Int.MAX_VALUE || height > Int.MAX_VALUE)
+        throw PluginError.InvalidArguments
+    return Size(width.roundToInt().coerceAtLeast(1), height.roundToInt().coerceAtLeast(1))
+}
 
 /** Reads an optional nested map, rejecting values of another type. */
 internal fun Map<*, *>.optionalMap(key: String): Map<*, *>? =

@@ -1,11 +1,11 @@
 package com.dns_technologies.mlkit_scanner
 
-/** Contains method channel names used by the Dart and Android plugin sides. */
+/** Scanner method-channel names and argument keys. */
 internal object PluginConstants {
-    /** Shared tag used by Android scanner components. */
+    /** Tag for scanner diagnostic messages. */
     const val LOG_TAG = "MLKIT_SCANNER_PLUGIN"
 
-    /** Argument key identifying the logical widget that owns a command or event. */
+    /** Argument key identifying the consumer associated with a command or event. */
     const val viewIdArgument = "viewId"
 
     /** Event key containing the recognized barcode payload. */
@@ -41,12 +41,12 @@ internal object PluginConstants {
     /** Command updating recognition geometry within the preview. */
     const val setCropAreaMethod = "setCropAreaMethod"
 
-    /** Stops native work; Dart decides whether to retain or release controller ownership. */
+    /** Command requesting a physical camera stop. */
     const val pauseCameraMethod = "pauseCameraMethod"
 
-    /** Selects a preview and applies Dart settings on startup, resume or ownership transfer. */
+    /** Command applying capture settings and starting the camera. */
     const val resumeCameraMethod = "resumeCameraMethod"
 
-    /** Method name used to deliver recognized barcode values to Dart. */
+    /** Event name for recognized barcode values. */
     const val scanResultMethod = "onScanResult"
 }

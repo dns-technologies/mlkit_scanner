@@ -3,9 +3,15 @@ package com.dns_technologies.mlkit_scanner
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.util.Size
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
+import com.dns_technologies.mlkit_scanner.scanner.CaptureLease
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
+import io.flutter.plugin.common.MethodChannel
 import org.junit.Assert.*
 import org.junit.runner.RunWith
 import org.junit.Test
@@ -153,6 +159,101 @@ internal class MlkitScannerPluginLifecycleTest {
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 internal class ScannerPluginTransportTest {
+    @Test fun `geometry conversion preserves rounded dimensions and tiny positive viewports`() {
+        val f = TexturePluginFixture()
+        val captureId = f.open(1)
+        val lease = f.plugin.javaClass.getDeclaredField("selected").apply { isAccessible = true }
+            .get(f.plugin) as CaptureLease
+
+        val reply = f.call("updatePreviewGeometry", mapOf(
+            "captureId" to captureId, "width" to 100.5, "height" to 0.01,
+        ))
+
+        assertNull(reply.error)
+        assertEquals(Size(101, 1), lease.consumer.size)
+        verify(f.scanner).updateGeometry()
+    }
+
+    @Test fun `invalid geometry leaves the viewport and scanner untouched`() {
+        val f = TexturePluginFixture()
+        val captureId = f.open(1)
+        val lease = f.plugin.javaClass.getDeclaredField("selected").apply { isAccessible = true }
+            .get(f.plugin) as CaptureLease
+        clearInvocations(f.scanner)
+
+        for (width in listOf(null, true, "100", 0, -1, Double.NaN, Double.POSITIVE_INFINITY,
+            Int.MAX_VALUE.toDouble() + 1)) {
+            val reply = f.call("updatePreviewGeometry", mapOf(
+                "captureId" to captureId, "width" to width, "height" to 100,
+            ))
+            assertEquals("Invalid width: $width", PluginError.InvalidArguments.errorCode, reply.error)
+            assertEquals(1, reply.replies)
+        }
+
+        assertEquals(Size(1, 1), lease.consumer.size)
+        verifyNoInteractions(f.scanner)
+    }
+
+    @Test fun `preview registration and subscriptions preserve the complete channel snapshot`() {
+        val f = TexturePluginFixture()
+        val description = mapOf<String, Any>(
+            "textureId" to 7L, "width" to 1280, "height" to 720,
+            "rotationDegrees" to 90, "mirrored" to false, "state" to "streaming",
+            "cropLeft" to 160, "cropTop" to 0, "cropWidth" to 960, "cropHeight" to 720,
+        )
+        val preview = CameraPreviewDescription(
+            textureId = 7, width = 1280, height = 720, rotationDegrees = 90,
+            mirrored = false, state = CameraPreviewState.Streaming,
+            cropRect = Rect(160, 0, 1120, 720),
+        )
+        f.plugin.javaClass.getDeclaredMethod("publishPreview", CameraPreviewDescription::class.java)
+            .apply { isAccessible = true }.invoke(f.plugin, preview)
+
+        val registration = f.call("registerScanner", mapOf("viewId" to 1))
+        val subscription = f.call("subscribePreview").value as Map<*, *>
+
+        assertEquals(description, registration.value)
+        assertEquals(description, subscription["description"])
+    }
+
+    @Test fun `preview events preserve state names and explicit output withdrawal`() {
+        val f = TexturePluginFixture()
+        val channel = mock(MethodChannel::class.java)
+        f.set("channel", channel)
+        val subscription = f.call("subscribePreview").value as Map<*, *>
+        val publish = f.plugin.javaClass
+            .getDeclaredMethod("publishPreview", CameraPreviewDescription::class.java)
+            .apply { isAccessible = true }
+        val preview = CameraPreviewDescription(
+            textureId = 7, width = 720, height = 1280, rotationDegrees = 0,
+            mirrored = true, state = CameraPreviewState.Starting,
+            cropRect = Rect(0, 0, 720, 1280),
+        )
+
+        for ((state, name) in listOf(
+            CameraPreviewState.Starting to "starting",
+            CameraPreviewState.Streaming to "streaming",
+            CameraPreviewState.Paused to "paused",
+        )) {
+            publish.invoke(f.plugin, preview.copy(state = state))
+
+            verify(channel).invokeMethod("onPreviewState", mapOf(
+                "subscriptionId" to subscription["subscriptionId"],
+                "description" to mapOf(
+                    "textureId" to 7L, "width" to 720, "height" to 1280,
+                    "rotationDegrees" to 0, "mirrored" to true, "state" to name,
+                    "cropLeft" to 0, "cropTop" to 0, "cropWidth" to 720, "cropHeight" to 1280,
+                ),
+            ))
+        }
+        publish.invoke(f.plugin, null)
+
+        verify(channel).invokeMethod("onPreviewState", mapOf(
+            "subscriptionId" to subscription["subscriptionId"], "description" to null,
+        ))
+        assertNull(f.call("registerScanner", mapOf("viewId" to 1)).value)
+    }
+
     @Test fun `batched settings execute only for the selected lease`() = kotlinx.coroutines.runBlocking<Unit> {
         val f = TexturePluginFixture()
         val old = f.open(1)

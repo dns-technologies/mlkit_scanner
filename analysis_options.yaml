@@ -11,4 +11,6 @@ analyzer:
 linter:
   rules:
     directives_ordering: true
+    sort_constructors_first: true
+    sort_unnamed_constructors_first: true
     use_super_parameters: true

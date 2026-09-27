@@ -3,18 +3,6 @@ import 'barcode_value_type.dart';
 
 /// Represents a single recognized barcode and its value.
 class Barcode {
-  /// Barcode value as it was encoded in the barcode.
-  final String rawValue;
-
-  /// Barcode value in a user-friendly format.
-  final String? displayValue;
-
-  /// Barcode format.
-  final BarcodeFormat format;
-
-  /// Format type of the barcode value.
-  final BarcodeValueType valueType;
-
   const Barcode({required this.rawValue, required this.valueType, required this.format, this.displayValue});
 
   factory Barcode.fromJson(Map<String, dynamic> json) {
@@ -25,4 +13,16 @@ class Barcode {
       format: BarcodeFormatCode.fromCode(json['format']),
     );
   }
+
+  /// Barcode value as it was encoded in the barcode.
+  final String rawValue;
+
+  /// Barcode value in a user-friendly format.
+  final String? displayValue;
+
+  /// Encoding symbology, independent of the decoded content type.
+  final BarcodeFormat format;
+
+  /// Semantic classification of the decoded contents.
+  final BarcodeValueType valueType;
 }

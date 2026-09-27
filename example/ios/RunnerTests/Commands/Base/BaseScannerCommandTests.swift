@@ -73,6 +73,7 @@ final class BaseScannerCommandTests: XCTestCase {
 }
 
 private enum BaseScannerCommandTestError: Error {
+    /// An operation was rejected.
     case rejected
 }
 

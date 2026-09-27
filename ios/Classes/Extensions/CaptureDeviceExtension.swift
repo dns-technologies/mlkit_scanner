@@ -9,7 +9,7 @@ import Foundation
 import AVFoundation
 
 extension AVCaptureDevice {
-    /// Whether this camera is supported by the plugin.
+    /// Whether the camera supports point focus, torch and recognized type and position codes.
     var isSupported: Bool {
         isFocusPointOfInterestSupported
         && hasTorch

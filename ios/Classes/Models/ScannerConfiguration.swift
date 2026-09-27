@@ -1,6 +1,7 @@
 import Foundation
 
-/// Transient capture arguments. Desired configuration lives exclusively in Dart.
+/// Camera selection and settings for capture activation.
+/// Argument decoding defaults to the full preview and rear wide-angle camera when omitted.
 struct ScannerConfiguration {
     /// Absolute zoom factor requested for this capture.
     let zoomRatio: Double
@@ -11,7 +12,6 @@ struct ScannerConfiguration {
     /// Requested native camera type and position.
     let camera: CameraData
 
-    /// Decodes capture settings whose application-level ranges are validated by Dart.
     init(arguments: Any?) throws {
         let values = try ScannerMethodArguments.map(arguments)
         zoomRatio = try PlatformChannelScalar.finiteDouble(from: values["zoomRatio"])
@@ -24,7 +24,7 @@ struct ScannerConfiguration {
         }
     }
 
-    /// Null means the cross-platform default, not an unvalidated dictionary.
+    /// Returns nil for absent values and requires a string-keyed map otherwise.
     private static func map(_ value: Any?) throws -> [String: Any]? {
         guard let value = value, !(value is NSNull) else { return nil }
         return try ScannerMethodArguments.map(value)

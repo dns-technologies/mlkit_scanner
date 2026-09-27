@@ -9,10 +9,9 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.CoroutineScope
 
-/** Applies a point control to the scanner selected by Dart. */
+/** Applies an absolute camera zoom ratio. */
 internal class SetZoomRatioCommand(scannerProvider: () -> Scanner?, commandScope: CoroutineScope) :
     AsyncScannerCommand(scannerProvider, commandScope) {
-    /** Validates numeric zoom and acknowledges completion of the camera control. */
     override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
         val value =
             call.arguments.requireMap().requireFiniteFloat(PluginConstants.valueArgument)

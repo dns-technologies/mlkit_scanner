@@ -1,10 +1,10 @@
 import CoreGraphics
 
-/// Coordinates in the physically oriented, optionally mirrored video buffer shown by Flutter.
+/// Maps preview coordinates to a physically oriented, optionally mirrored video buffer.
 struct CameraFrameGeometry {
     /// Dimensions of the physically oriented camera buffer.
     let source: CGSize
-    /// Flutter viewport dimensions used for centered cover fitting.
+    /// Preview viewport dimensions used for centered cover fitting.
     let viewport: CGSize
     /// Source rectangle visible through the centered cover-fit viewport.
     var visible: CGRect {

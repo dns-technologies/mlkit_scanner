@@ -1,21 +1,29 @@
 import 'dart:async';
 import 'dart:ui';
 
-import 'package:mlkit_scanner/src/platform/scanner_controller.dart';
-
 import '../models/crop_rect.dart';
 import 'ml_kit_channel.dart';
 import 'scanner_configuration.dart';
+import 'scanner_consumer.dart';
 
-/// A real native ownership lease, with serial desired-state reconciliation.
+/// Exclusive camera ownership with updates to camera and recognition settings.
 class ScannerCaptureSession {
+  ScannerCaptureSession({
+    required this.channel,
+    required this.consumer,
+    required this.isSelected,
+    required this.onError,
+    required Size geometry,
+  }) : _geometry = geometry,
+       _desired = consumer.configuration;
+
   /// Transport used by this lease; never owns video buffers.
   final MlKitChannel channel;
 
-  /// Widget controller whose retained settings drive this capture.
-  final BarcodeScannerController controller;
+  /// Consumer whose retained settings drive this capture.
+  final ScannerConsumer consumer;
 
-  /// Tests whether the runtime still selects this exact session object.
+  /// Checks whether this session is still selected for camera ownership.
   final bool Function() isSelected;
 
   /// Reports failed background updates while this session is still selected.
@@ -34,10 +42,10 @@ class ScannerCaptureSession {
   /// Null means a full reapplication is needed.
   ScannerConfiguration? _applied;
 
-  /// Latest controller intent, which can change during an awaited command.
+  /// Latest consumer intent, which can change during an awaited command.
   ScannerConfiguration _desired;
 
-  /// Latest widget dimensions used for recognition and focus mapping.
+  /// Latest viewport dimensions used for recognition and focus mapping.
   Size _geometry;
 
   /// Geometry acknowledged by the native capture.
@@ -49,26 +57,17 @@ class ScannerCaptureSession {
   /// Shared completion of the currently running reconciliation loop.
   Future<void>? _draining;
 
-  /// Keeps updates arriving between the last comparison and drain completion.
+  /// Whether requested settings still need to be applied.
   bool _reconcileRequested = false;
 
   /// Cached close operation so concurrent callers await the same cleanup.
   Future<void>? _closing;
 
   /// Latest unapplied focus gesture; newer gestures replace pending ones.
-  _FocusRequest? _focus;
-
-  ScannerCaptureSession({
-    required this.channel,
-    required this.controller,
-    required this.isSelected,
-    required this.onError,
-    required Size geometry,
-  }) : _geometry = geometry,
-       _desired = controller.configuration;
+  bool? _pendingFocusLocked;
 
   /// Whether this lease still admits commands and events.
-  bool get active => !_closed.isCompleted && isSelected() && !controller.isDisposed;
+  bool get active => !_closed.isCompleted && isSelected() && !consumer.isDisposed;
 
   /// Manual pause suspends recognition without changing its retained intent.
   bool get _scanEnabled => _desired.scanEnabled && !_desired.cameraPaused;
@@ -82,12 +81,12 @@ class ScannerCaptureSession {
   /// Waits for activation or immediate ownership cancellation, whichever wins.
   Future<void> start(Future<void> registration) => Future.any([_start(registration), _closed.future]);
 
-  /// Allocates and configures a lease after registration and prior pause finish.
+  /// Prepares camera ownership and applies the requested settings.
   Future<void> _start(Future<void> registration) async {
     try {
       await registration;
       if (!active) return;
-      final lease = await channel.openCapture(controller.viewId);
+      final lease = await channel.openCapture(consumer.viewId);
       id = lease;
       if (!active) {
         await channel.closeCapture(lease);
@@ -102,7 +101,7 @@ class ScannerCaptureSession {
       } while (active && _reconcileRequested);
       if (active) {
         _initialized = true;
-        controller.setCaptureState(ScannerCaptureState.ready);
+        consumer.setCaptureState(ScannerCaptureState.ready);
       }
     } catch (error, stack) {
       if (active) Error.throwWithStackTrace(error, stack);
@@ -122,18 +121,18 @@ class ScannerCaptureSession {
   /// Reconciles the latest focus gesture after outstanding camera settings.
   Future<void> focus(bool locked) async {
     if (!active || !_initialized) return;
-    _focus = _FocusRequest(locked);
+    _pendingFocusLocked = locked;
     await _reconcile();
   }
 
   /// Revokes admission once, optionally stopping hardware before closing the lease.
   Future<void> close({bool pause = false}) => _closing ??= _close(pause);
 
-  /// Cancels Dart delivery before awaiting native pause and lease cleanup.
+  /// Releases camera ownership and prevents further result delivery.
   Future<void> _close(bool pause) async {
     _closed.complete();
     _scanSubscription = null;
-    _focus = null;
+    _pendingFocusLocked = null;
     final lease = id;
     if (lease == null) return;
     try {
@@ -154,7 +153,7 @@ class ScannerCaptureSession {
     _scanSubscription = null;
   }
 
-  /// Publishes the drain before starting work so reentrant updates share it.
+  /// Applies pending settings; concurrent requests share completion.
   Future<void> _reconcile() {
     _reconcileRequested = true;
     final current = _draining;
@@ -166,7 +165,7 @@ class ScannerCaptureSession {
   }
 
   /// Reports each failed operation once, even when updates and focus share it.
-  /// Startup owns initial failures; later failures belong to this live session.
+  /// Initial failures complete the startup future; later failures invoke [onError].
   Future<void> _drain(Completer<void> done) async {
     try {
       do {
@@ -187,13 +186,13 @@ class ScannerCaptureSession {
     }
   }
 
-  /// Re-read desired state after every acknowledgment; stale closures never accumulate.
+  /// Applies the latest camera and recognition settings to the active capture.
   Future<void> _applyChanges() async {
     while (active) {
       // Stop recognition first, then finish copying paused pixels before any
       // camera changes. Re-read ownership and intent after rasterization.
       if (_desired.cameraPaused && _applied?.scanEnabled != true) {
-        await controller.retainPreview?.call();
+        await consumer.retainPreview?.call();
         if (!active) return;
       }
       final desired = _desired;
@@ -238,20 +237,12 @@ class ScannerCaptureSession {
       } else if (scanEnabled && applied.scanDelay != desired.scanDelay) {
         await channel.setScanDelay(desired.scanDelay, captureId: lease);
         if (active) _applied = applied.copyWith(scanDelay: desired.scanDelay);
-      } else if (_focus case final request?) {
-        _focus = null;
-        await channel.focus(lease, request.locked);
+      } else if (_pendingFocusLocked case final locked?) {
+        _pendingFocusLocked = null;
+        await channel.focus(lease, locked);
       } else {
         return;
       }
     }
   }
-}
-
-/// One pending gesture, kept separate from the retained camera configuration.
-class _FocusRequest {
-  /// Whether the native focus point should remain locked.
-  final bool locked;
-
-  _FocusRequest(this.locked);
 }

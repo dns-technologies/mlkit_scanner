@@ -12,10 +12,10 @@ import kotlinx.coroutines.cancel
 /**
  * An actual camera-control lease and the work that is cancelled when it closes.
  *
- * @property consumer Registered widget that exclusively owns this capture lifetime.
+ * @property consumer Registered consumer that exclusively owns this capture lifetime.
  */
 internal class CaptureLease(val consumer: ScannerConsumer) {
-    /** Opaque identity echoed by Dart to correlate this lifetime's messages. */
+    /** Unique identifier of this lifetime. */
     val id = UUID.randomUUID().toString()
     /** Main-thread supervisor cancelled when capture ownership is revoked. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -43,11 +43,11 @@ internal class CaptureLease(val consumer: ScannerConsumer) {
     }
 }
 
-/** A real event endpoint, prepared before Dart enables frame analysis. */
+/** Cancellable result endpoint with an explicit delivery-enabled state. */
 internal class ResultEndpoint {
-    /** Opaque identity echoed by Dart to correlate this lifetime's messages. */
+    /** Unique identifier of this lifetime. */
     val id = UUID.randomUUID().toString()
-    /** Whether Dart has enabled result delivery for this endpoint. */
+    /** Whether result delivery is enabled for this endpoint. */
     var enabled = false
     /** Whether this lifetime has been permanently revoked. */
     var closed = false
@@ -60,17 +60,17 @@ internal class ResultEndpoint {
     }
 }
 
-/** Completes each platform call once, including cancellation racing SDK completion. */
+/** Completes each platform call at most once. */
 internal class PendingReply(
     /** Original Flutter reply completed by the winning response path. */
     private val target: MethodChannel.Result,
-    /** Removes this reply from its lease before invoking Flutter callbacks. */
+    /** Completion callback invoked before delivering the response. */
     private val onComplete: (PendingReply) -> Unit,
 ) : MethodChannel.Result {
-    /** Prevents cancellation and SDK completion from replying twice. */
+    /** Prevents repeated response delivery. */
     private var completed = false
 
-    /** Claims completion before invoking potentially reentrant callbacks. */
+    /** Delivers a response at most once, including during reentrant callbacks. */
     private fun complete(action: () -> Unit) {
         if (completed) return
         completed = true
@@ -78,14 +78,11 @@ internal class PendingReply(
         action()
     }
 
-    /** Completes the original reply successfully at most once. */
     override fun success(value: Any?) = complete { target.success(value) }
 
-    /** Completes the original reply with a channel error at most once. */
     override fun error(code: String, message: String?, details: Any?) = complete {
         target.error(code, message, details)
     }
 
-    /** Completes the original reply as unsupported at most once. */
     override fun notImplemented() = complete { target.notImplemented() }
 }
