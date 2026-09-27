@@ -119,10 +119,10 @@ class MlKitChannel {
   /// Manual widget pause keeps hardware running and never calls this method.
   Future<void> stopCamera({required String captureId}) => _invokeVoidMethod('pauseCameraMethod', {'captureId': captureId});
 
-  /// Applies retained settings to the owner identified by the native capture lease.
+  /// Starts or resumes the camera and applies settings for the native capture lease.
   /// Used for first startup, ownership changes and recovery after a physical stop.
   /// Completes after SDK configuration; [stopCamera] may interrupt this operation.
-  Future<void> activateCapture({required ScannerConfiguration configuration, required String captureId, required Size geometry}) =>
+  Future<void> resumeCamera({required ScannerConfiguration configuration, required String captureId, required Size geometry}) =>
       _invokeVoidMethod('resumeCameraMethod', {
         'configuration': configuration.toCaptureArguments(),
         'captureId': captureId,

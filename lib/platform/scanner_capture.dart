@@ -147,7 +147,7 @@ class ScannerCaptureSession {
   Future<void> _activate() async {
     final desired = _desired;
     final geometry = _geometry;
-    await channel.activateCapture(configuration: desired, captureId: id!, geometry: geometry);
+    await channel.resumeCamera(configuration: desired, captureId: id!, geometry: geometry);
     if (!active) return;
     _applied = desired.copyWith(scanEnabled: false);
     _appliedGeometry = geometry;
