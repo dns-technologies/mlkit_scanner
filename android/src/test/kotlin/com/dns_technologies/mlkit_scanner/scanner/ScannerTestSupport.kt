@@ -4,7 +4,7 @@ import android.os.Handler
 import androidx.lifecycle.Lifecycle
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnection
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,9 +20,8 @@ internal fun scannerForTest(
 ): Scanner {
     doReturn(42).`when`(view).viewId
     doReturn(mock(android.util.Size::class.java)).`when`(view).size
-    return Scanner(camera, analyzer, mock(Handler::class.java), { _, _ -> },
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
-        connection = CameraConnection()).apply {
+    return Scanner(CameraConnector(camera), analyzer, mock(Handler::class.java), { _, _ -> },
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)).apply {
         select(view)
         attachActivity(mock(Lifecycle::class.java))
     }

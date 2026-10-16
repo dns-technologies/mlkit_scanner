@@ -5,12 +5,10 @@ import android.util.Log
 import androidx.annotation.MainThread
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnection
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnector
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
@@ -41,8 +39,8 @@ import kotlinx.coroutines.plus
 /** Coordinates camera capture, controls, recognition and resource lifetime. */
 @MainThread
 internal class Scanner(
-    /** Camera adapter owned by this scanner until terminal disposal. */
-    private val camera: Camera,
+    /** Camera connector owned by this scanner until terminal disposal. */
+    private val camera: CameraConnector,
     /** Recognition backend whose resources outlive individual capture leases. */
     private val analyzer: ImageBarcodeAnalyzer,
     /** Dispatcher used to deliver analysis results on the main thread. */
@@ -53,8 +51,6 @@ internal class Scanner(
     private val onResult: (Int, Barcode) -> Unit = { _, _ -> },
     /** Owns control work and result delivery for this scanner's lifetime. */
     val scope: CoroutineScope = createScope(),
-    /** Tracks SDK binding, readiness, and camera-control failures. */
-    private val connection: CameraConnection = CameraConnection(),
     /** Forwards preview state with this scanner's identity to its owner. */
     private val onPreviewChanged: (Scanner, CameraPreviewDescription?) -> Unit = { _, _ -> },
 ) {
@@ -115,15 +111,11 @@ internal class Scanner(
     suspend fun capture(configuration: ScannerConfiguration) =
         runOperation { id ->
             currentCoroutineContext().ensureActive()
-            connection.awaitReady(::bindCamera)
-            connection.control(id, CameraControlOperation.FOCUS, camera::resetFocus)
+            awaitCameraReady()
+            camera.resetFocus(id)
             cropArea = configuration.cropArea
-            connection.control(id, CameraControlOperation.ZOOM) {
-                camera.setZoomRatio(configuration.zoomRatio)
-            }
-            connection.control(id, CameraControlOperation.TORCH) {
-                camera.setTorch(configuration.torchEnabled)
-            }
+            camera.setZoomRatio(id, configuration.zoomRatio)
+            camera.setTorch(id, configuration.torchEnabled)
 
             currentCoroutineContext().ensureActive()
             // Analysis remains disabled until a result endpoint is installed.
@@ -131,28 +123,27 @@ internal class Scanner(
 
     /** Applies the requested camera zoom ratio. */
     suspend fun setZoomRatio(value: Float) = runOperation { id ->
-        connection.control(id, CameraControlOperation.ZOOM) { camera.setZoomRatio(value) }
+        camera.setZoomRatio(id, value)
     }
 
     /** Applies the requested torch state. */
     suspend fun setTorch(enabled: Boolean) = runOperation { id ->
-        connection.control(id, CameraControlOperation.TORCH) { camera.setTorch(enabled) }
+        camera.setTorch(id, enabled)
     }
 
     /** A new gesture replaces transient focus while pending control operations finish. */
     fun focus(resetDelayMs: Long, offsetX: Float, offsetY: Float) {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            if (operation != null && !operationIsFocus || !connection.isReady) return@launch
+            if (operation != null && !operationIsFocus || !camera.isReady) return@launch
             try {
                 runOperation(isFocus = true) { id ->
-                    connection.control(id, CameraControlOperation.FOCUS) {
-                        val size = view?.size ?: throw PluginError.CameraSessionDisposed
-                        camera.focus(
-                            resetDelayMs,
-                            size.width / 2F + offsetX,
-                            size.height / 2F + offsetY,
-                        )
-                    }
+                    val size = view?.size ?: throw PluginError.CameraSessionDisposed
+                    camera.focus(
+                        id,
+                        resetDelayMs,
+                        size.width / 2F + offsetX,
+                        size.height / 2F + offsetY,
+                    )
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -209,7 +200,6 @@ internal class Scanner(
     /** Releases capture ownership and unbinds the reusable camera stream. */
     fun pauseCamera() {
         releaseCamera()
-        connection.reset()
         camera.unbind()
     }
 
@@ -241,7 +231,6 @@ internal class Scanner(
         lifecycleOwner = null
         val failures = ExceptionCollector()
         failures.attempt(::releaseCamera)
-        failures.attempt(connection::reset)
         failures.attempt(camera::unbind)
         failures.throwIfFailed()
     }
@@ -263,41 +252,25 @@ internal class Scanner(
         failures.attempt(::cancelOperation)
         failures.attempt(::pauseScan)
 
-        failures.attempt(camera::dispose)
+        failures.attempt { camera.dispose(cause) }
         failures.attempt { executor?.shutdownNow() }
         failures.attempt(analyzer::dispose)
-        failures.attempt { connection.dispose(cause) }
         failures.attempt { scope.cancel() }
         failures.attempt { onReleased(this, cause) }
         failures.throwIfFailed()
     }
 
-    /** Binds SDK callbacks to this Activity owner and ignores callbacks after replacement. */
-    private fun bindCamera(onInit: () -> Unit) {
-        val owner = lifecycleOwner ?: throw PluginError.CameraSessionDisposed
-        try {
-            camera.bind(
-                owner,
-                getOrCreateAnalysisExecutor(),
-                this::analyzeFrame,
-                onAvailabilityChanged = { availability ->
-                    post {
-                        if (lifecycleOwner !== owner) return@post
-                        connection.onAvailabilityChanged(availability, viewId)
-                        scan?.resumeIfReady()
-                    }
-                },
-                onInit = { post { if (lifecycleOwner === owner) onInit() } },
-                onError = { error -> post { if (lifecycleOwner === owner) dispose(error) } },
-            )
-        } catch (error: Exception) {
-            try {
-                dispose(error)
-            } catch (cleanup: Exception) {
-                if (cleanup !== error) error.addSuppressed(cleanup)
-            }
-            throw error
-        }
+    /** Starts the camera for the borrowed Activity and waits for its preview. */
+    private suspend fun awaitCameraReady() {
+        camera.awaitReady(
+            lifecycleOwner = lifecycleOwner ?: throw PluginError.CameraSessionDisposed,
+            analysisExecutor = ::getOrCreateAnalysisExecutor,
+            onFrame = this::analyzeFrame,
+            scope = scope,
+            viewId = { viewId },
+            onAvailabilityChanged = { scan?.resumeIfReady() },
+            onError = { error -> dispose(error) },
+        )
     }
 
     /** Tracks the current camera-control job and cancels a superseded operation. */
@@ -327,11 +300,6 @@ internal class Scanner(
         previous?.cancel()
     }
 
-    /** Schedules an SDK callback only while the scanner remains live. */
-    private fun post(action: () -> Unit) {
-        scope.launch { if (!isDisposed) action() }
-    }
-
     /**
      * Subscription lifetime rejects queued results even across release/recapture of the same ID.
      *
@@ -348,13 +316,13 @@ internal class Scanner(
         /** Analysis listener owned exclusively by this scan lifetime. */
         private val subscription = subscribeToScanResults { barcode ->
             deliveries.launch {
-                if (scan === this@Scan && viewId == id && connection.isReady) onResult(id, barcode)
+                if (scan === this@Scan && viewId == id && camera.isReady) onResult(id, barcode)
             }
         }
 
         /** Enables analysis only for this selected, ready scan and drops stale deliveries. */
         fun resumeIfReady() {
-            if (scan === this && viewId == id && connection.isReady) {
+            if (scan === this && viewId == id && camera.isReady) {
                 resumeAnalysis()
             } else {
                 // Closing and reopening must not revive results from the previous camera stream.
@@ -447,7 +415,7 @@ internal class Scanner(
     internal companion object {
         /** Builds owned resources and cleans up a camera if analyzer creation fails. */
         fun create(
-            cameraFactory: () -> Camera,
+            cameraFactory: () -> CameraConnector,
             analyzerFactory: () -> ImageBarcodeAnalyzer,
             mainHandler: Handler,
             onReleased: (Scanner, Throwable) -> Unit,
@@ -462,7 +430,7 @@ internal class Scanner(
                     onPreviewChanged = onPreviewChanged)
             } catch (error: Exception) {
                 val failures = ExceptionCollector(error)
-                failures.attempt(camera::dispose)
+                failures.attempt { camera.dispose(error) }
                 failures.attempt { analyzer?.dispose() }
                 failures.throwIfFailed()
                 throw error

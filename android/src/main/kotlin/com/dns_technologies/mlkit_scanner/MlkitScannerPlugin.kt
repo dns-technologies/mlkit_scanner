@@ -9,6 +9,7 @@ import com.dns_technologies.mlkit_scanner.commands.base.reportScannerError
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.*
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.mlkit.MlkitImageBarcodeAnalyzer
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnector
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.x.XCamera
@@ -319,7 +320,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
     /** Creates the shared texture camera and recognition coordinator for this engine. */
     private fun createScanner(): Scanner = Scanner.create(
         cameraFactory = {
-            XCamera(requireNotNull(context), requireNotNull(textures).createSurfaceProducer())
+            CameraConnector(XCamera(requireNotNull(context), requireNotNull(textures).createSurfaceProducer()))
         },
         analyzerFactory = ::MlkitImageBarcodeAnalyzer,
         mainHandler = mainHandler,

@@ -11,7 +11,7 @@ import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnection
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnector
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
@@ -981,7 +981,6 @@ internal class ScannerCaptureTest {
     private class Fixture(dispatcher: CoroutineDispatcher = Dispatchers.Unconfined) {
         val camera = mock(Camera::class.java)
         val analyzer = mock(ImageBarcodeAnalyzer::class.java)
-        val connection = CameraConnection()
         val host = object : LifecycleOwner {
             override val lifecycle = LifecycleRegistry.createUnsafe(this).apply {
                 currentState = Lifecycle.State.RESUMED
@@ -1021,9 +1020,8 @@ internal class ScannerCaptureTest {
             }.`when`(camera).bind(anyValue(), anyValue(), anyValue(), anyValue(), anyValue(), anyValue())
             doReturn(BARCODE).`when`(analyzer).analyze(anyValue(), anyValue())
 
-            scanner = Scanner(camera, analyzer, handler, { _, cause -> released += cause },
-                { id, barcode -> results += id to barcode }, CoroutineScope(SupervisorJob() + dispatcher),
-                connection)
+            scanner = Scanner(CameraConnector(camera), analyzer, handler, { _, cause -> released += cause },
+                { id, barcode -> results += id to barcode }, CoroutineScope(SupervisorJob() + dispatcher))
             scanner.attachActivity(host.lifecycle)
         }
 
@@ -1067,7 +1065,7 @@ internal class ScannerExpiryTest {
     @Test fun `release preserves resources beyond the former native grace period`() {
         val camera = mock(Camera::class.java)
         val analyzer = mock(ImageBarcodeAnalyzer::class.java)
-        val scanner = Scanner(camera, analyzer, Handler(Looper.getMainLooper()), { _, _ -> })
+        val scanner = Scanner(CameraConnector(camera), analyzer, Handler(Looper.getMainLooper()), { _, _ -> })
         scanner.select(ScannerConsumer(42))
         scanner.releaseCamera()
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
@@ -1080,7 +1078,7 @@ internal class ScannerExpiryTest {
     }
     @Test fun `manual pause unbinds immediately without destroying the texture owner`() {
         val camera = mock(Camera::class.java)
-        val scanner = Scanner(camera, mock(ImageBarcodeAnalyzer::class.java), Handler(Looper.getMainLooper()), { _, _ -> })
+        val scanner = Scanner(CameraConnector(camera), mock(ImageBarcodeAnalyzer::class.java), Handler(Looper.getMainLooper()), { _, _ -> })
         scanner.select(ScannerConsumer(42))
         scanner.pauseCamera()
         verify(camera).unbind()
@@ -1326,7 +1324,7 @@ internal class ScannerOwnershipTest {
         lateinit var publish: (CameraPreviewDescription?) -> Unit
         doAnswer { publish = it.getArgument(0); null }.`when`(camera).onPreviewChanged = anyValue()
         val descriptions = mutableListOf<CameraPreviewDescription?>()
-        val scanner = Scanner(camera, analyzer, mock(Handler::class.java), { _, _ -> },
+        val scanner = Scanner(CameraConnector(camera), analyzer, mock(Handler::class.java), { _, _ -> },
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             onPreviewChanged = { _, description -> descriptions += description })
 
@@ -1354,7 +1352,7 @@ internal class ScannerOwnershipTest {
         doThrow(cleanup).`when`(camera).dispose()
 
         val error = runCatching {
-            Scanner.create({ camera }, { throw failure }, mock(Handler::class.java),
+            Scanner.create({ CameraConnector(camera) }, { throw failure }, mock(Handler::class.java),
                 { _, _ -> }, { _, _ -> }, { _, _ -> })
         }.exceptionOrNull()
 
