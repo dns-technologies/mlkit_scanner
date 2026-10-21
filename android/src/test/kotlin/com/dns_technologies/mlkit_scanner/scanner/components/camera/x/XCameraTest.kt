@@ -15,7 +15,6 @@ import androidx.camera.core.Preview
 import androidx.camera.core.ZoomState
 import androidx.camera.core.impl.StreamSpec
 import androidx.camera.core.internal.ViewPorts
-import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
@@ -293,6 +292,22 @@ internal class XCameraBindingTest {
 @Config(sdk = [34])
 internal class XCameraControlsTest {
     @Test
+    fun `synchronous SDK failure describes the requested zoom and preserves its cause`() = withCameraFixture { f ->
+        runBlocking {
+            f.start()
+            setZoomBounds(f)
+            val cause = IllegalStateException("Camera disconnected")
+            doThrow(cause).`when`(f.control).setZoomRatio(2F)
+
+            val error = runCatching { f.camera.setZoomRatio(2F).await() }.exceptionOrNull() as PluginError.CameraError
+
+            assertTrue(error.message.contains("zoom"))
+            assertTrue(error.message.contains("2.0"))
+            assertSame(cause, error.cause)
+        }
+    }
+
+    @Test
     fun `zoom rejects unavailable state and non-finite or out-of-range values`() = withCameraFixture { f ->
         f.start()
         assertSame(PluginError.CameraIsNotInitialized,
@@ -345,8 +360,8 @@ internal class XCameraControlsTest {
             val cause = IllegalStateException("Torch rejected")
             future.fail(cause)
 
-            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
-            assertEquals(CameraControlOperation.TORCH, error.operation)
+            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraError
+            assertTrue(error.message.contains("torch"))
             assertSame(cause, error.cause)
         }
     }
@@ -376,8 +391,8 @@ internal class XCameraControlsTest {
             val cause = IllegalStateException("Camera closed")
             future.fail(cause)
 
-            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
-            assertEquals(CameraControlOperation.FOCUS, error.operation)
+            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraError
+            assertTrue(error.message.contains("focus"))
             assertSame(cause, error.cause)
         }
     }
@@ -455,14 +470,14 @@ internal class XCameraControlCompletionTest {
     }
 
     @Test
-    fun `failure preserves operation and original cause without cancelling source`() {
+    fun `failure describes the camera action and preserves original cause without cancelling source`() {
         val future = CameraTestFuture<Void?>()
         withResetFocus(future) { result ->
             val cause = IllegalStateException("Camera rejected operation")
             future.fail(cause)
 
-            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
-            assertEquals(CameraControlOperation.FOCUS, error.operation)
+            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraError
+            assertTrue(error.message.contains("focus"))
             assertSame(cause, error.cause)
             assertNull(future.interruptionRequested)
         }
@@ -486,8 +501,8 @@ internal class XCameraControlCompletionTest {
         withResetFocus(future) { result ->
             future.cancel(false)
 
-            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
-            assertEquals(CameraControlOperation.FOCUS, error.operation)
+            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraError
+            assertTrue(error.message.contains("focus"))
             assertTrue(error.cause is CancellationException)
         }
     }
@@ -510,13 +525,13 @@ internal class XCameraControlCompletionTest {
     }
 
     @Test
-    fun `listener registration failure is reported with operation context`() {
+    fun `listener registration failure describes the failed camera action`() {
         val future = mock(ListenableFuture::class.java)
         val cause = IllegalStateException("Listener registration failed")
         doThrow(cause).`when`(future).addListener(any(Runnable::class.java), any(Executor::class.java))
         withResetFocus(future) { result ->
-            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
-            assertEquals(CameraControlOperation.FOCUS, error.operation)
+            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraError
+            assertTrue(error.message.contains("focus"))
             assertSame(cause, error.cause)
         }
     }
@@ -528,10 +543,10 @@ internal class XCameraControlCompletionTest {
             val cause = IllegalStateException("Wrapper", CameraControl.OperationCanceledException("Camera closed"))
             future.fail(cause)
 
-            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
+            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraError
             assertSame(cause, error.cause)
-            assertSame(cause, error.contextualize(CameraControlOperation.ZOOM, 42).cause)
-            assertEquals(setOf("operation", "viewId", "cause", "cameraStateErrorCode"), (error.details as Map<*, *>).keys)
+            assertSame(cause, error.contextualize(42).cause)
+            assertEquals(setOf("viewId", "cause", "cameraStateErrorCode"), (error.details as Map<*, *>).keys)
         }
     }
 
@@ -544,7 +559,7 @@ internal class XCameraControlCompletionTest {
             first.initCause(second)
             future.fail(first)
 
-            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraControlError
+            val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraError
             assertSame(first, error.cause)
         }
     }

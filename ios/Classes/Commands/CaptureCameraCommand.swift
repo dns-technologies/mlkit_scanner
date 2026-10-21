@@ -9,7 +9,7 @@ final class CaptureCameraCommand: BaseScannerCommand {
             let viewId = try ScannerMethodArguments.viewId(call.arguments)
             let values = call.arguments as? [String: Any]
             let configuration = try ScannerConfiguration(arguments: values?["configuration"])
-            scannerDevice.captureCamera(viewId: viewId, configuration: configuration) { error in
+            scanner.captureCamera(viewId: viewId, configuration: configuration) { error in
                 self.complete(result, error: error)
             }
         } catch {

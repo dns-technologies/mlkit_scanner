@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/platform/scanner_configuration.dart';
 
-import '../exceptions/camera_control_exception.dart';
+import '../exceptions/camera_exception.dart';
 import '../models/barcode.dart';
 import '../models/crop_rect.dart';
 import '../models/ios_camera.dart';
@@ -114,8 +114,8 @@ final class MlKitChannel {
     try {
       await _channel.invokeMethod<void>(method, arguments);
     } on PlatformException catch (error, stackTrace) {
-      if (error.code == CameraControlException.errorCode) {
-        Error.throwWithStackTrace(CameraControlException.fromPlatformException(error), stackTrace);
+      if (error.code == CameraException.errorCode) {
+        Error.throwWithStackTrace(CameraException.fromPlatformException(error), stackTrace);
       }
       rethrow;
     }

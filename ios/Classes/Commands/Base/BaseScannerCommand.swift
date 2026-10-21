@@ -4,10 +4,10 @@ import Foundation
 /// Shared command functionality for the native scanner.
 class BaseScannerCommand {
     /// Native scanner targeted by this command.
-    let scannerDevice: ScannerDevice
+    let scanner: Scanner
 
-    init(scannerDevice: ScannerDevice) {
-        self.scannerDevice = scannerDevice
+    init(scanner: Scanner) {
+        self.scanner = scanner
     }
 
     /// Completes a Flutter call successfully without a return value.
@@ -26,11 +26,11 @@ class BaseScannerCommand {
 
     /// Converts a native error into a stable Flutter platform error.
     func reportError(_ result: @escaping FlutterResult, error: Error) {
-        if let controlError = error as? CameraControlError {
+        if let cameraError = error as? CameraError {
             result(FlutterError(
-                code: CameraControlError.errorCode,
-                message: CameraControlError.errorMessage,
-                details: controlError.channelDetails
+                code: CameraError.errorCode,
+                message: cameraError.message,
+                details: cameraError.channelDetails
             ))
         } else if let pluginError = error as? MlKitPluginError {
             result(FlutterError(

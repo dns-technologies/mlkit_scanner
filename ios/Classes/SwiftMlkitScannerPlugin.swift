@@ -22,7 +22,7 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     private var isDisposed = false
 
     /// Shared native scanner with main-thread lease-aware event routing.
-    private lazy var scannerDevice = ScannerHardware(
+    private lazy var scanner = Scanner(
         onScanResult: { [weak self] viewId, barcode in
             guard let self = self, let lease = self.selected, !lease.closed, lease.viewId == viewId,
                   let endpoint = lease.scan, endpoint.enabled else { return }
@@ -71,24 +71,24 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         closeSelected()
         isDisposed = true
         subscriptions.removeAll()
-        scannerDevice.release()
+        scanner.release()
     }
 
     /// Routes method calls through the current capture lease and its pending replies.
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         guard !isDisposed else { return }
         let reply = result
-        let command = BaseScannerCommand(scannerDevice: scannerDevice)
+        let command = BaseScannerCommand(scanner: scanner)
         do {
             let values = call.arguments as? [String: Any] ?? [:]
             switch call.method {
             case "registerScanner":
-                scannerDevice.register(viewId: try ScannerMethodArguments.viewId(values))
+                scanner.register(viewId: try ScannerMethodArguments.viewId(values))
                 reply(preview)
             case "unregisterScanner":
                 let viewId = try ScannerMethodArguments.viewId(values)
                 if selected?.viewId == viewId { closeSelected() }
-                scannerDevice.unregister(viewId: viewId)
+                scanner.unregister(viewId: viewId)
                 reply(nil)
             case "subscribePreview":
                 let subscription = PreviewSubscription()
@@ -99,7 +99,7 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
                 reply(nil)
             case "openCapture":
                 let viewId = try ScannerMethodArguments.viewId(values)
-                guard scannerDevice.contains(viewId: viewId) else { throw MlKitPluginError.invalidArguments }
+                guard scanner.contains(viewId: viewId) else { throw MlKitPluginError.invalidArguments }
                 closeSelected()
                 let lease = CaptureLease(viewId: viewId)
                 selected = lease
@@ -109,12 +109,12 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
                 reply(nil)
             case "disposeScanner":
                 closeSelected()
-                scannerDevice.disposeResources { [weak self] in
+                scanner.disposeResources { [weak self] in
                     self?.publishPreview(nil)
                     reply(nil)
                 }
             case PluginConstants.getIosAvailableCamerasMethod:
-                GetIosAvailableCamerasCommand(scannerDevice: scannerDevice).execute(call, result: reply)
+                GetIosAvailableCamerasCommand(scanner: scanner).execute(call, result: reply)
             default:
                 guard let lease = selected, !lease.closed, lease.id == values["captureId"] as? String else {
                     throw MlKitPluginError.cameraSessionDisposed
@@ -124,39 +124,39 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
                 do {
                     switch call.method {
                     case PluginConstants.resumeCameraMethod:
-                        try scannerDevice.updateGeometry(viewId: lease.viewId, size: ScannerMethodArguments.geometry(values["geometry"]))
+                        try scanner.updateGeometry(viewId: lease.viewId, size: ScannerMethodArguments.geometry(values["geometry"]))
                         let settings = try ScannerConfiguration(arguments: values["configuration"])
-                        scannerDevice.captureCamera(viewId: lease.viewId, configuration: settings) { error in command.complete(scoped, error: error) }
+                        scanner.captureCamera(viewId: lease.viewId, configuration: settings) { error in command.complete(scoped, error: error) }
                     case PluginConstants.pauseCameraMethod:
-                        scannerDevice.pauseCamera { scoped(nil) }
+                        scanner.pauseCamera { scoped(nil) }
                     case "updatePreviewGeometry":
-                        try scannerDevice.updateGeometry(viewId: lease.viewId, size: ScannerMethodArguments.geometry(values))
+                        try scanner.updateGeometry(viewId: lease.viewId, size: ScannerMethodArguments.geometry(values))
                         scoped(nil)
                     case "focus":
-                        try scannerDevice.focus(locked: PlatformChannelScalar.bool(from: values["locked"]))
+                        try scanner.focus(locked: PlatformChannelScalar.bool(from: values["locked"]))
                         scoped(nil)
                     case "subscribeScan":
-                        try scannerDevice.cancelScan()
+                        try scanner.cancelScan()
                         let endpoint = ScanEndpoint()
                         lease.scan = endpoint
                         scoped(endpoint.id)
                     case PluginConstants.startScanMethod:
                         guard let endpoint = lease.scan, endpoint.id == values["subscriptionId"] as? String else { throw MlKitPluginError.invalidArguments }
                         endpoint.enabled = true
-                        StartScanCommand(scannerDevice: scannerDevice).execute(call, result: scoped)
+                        StartScanCommand(scanner: scanner).execute(call, result: scoped)
                     case PluginConstants.cancelScanMethod:
                         lease.scan = nil
-                        CancelScanCommand(scannerDevice: scannerDevice).execute(call, result: scoped)
+                        CancelScanCommand(scanner: scanner).execute(call, result: scoped)
                     case PluginConstants.setZoomRatioMethod:
-                        SetZoomRatioCommand(scannerDevice: scannerDevice).execute(call, result: scoped)
+                        SetZoomRatioCommand(scanner: scanner).execute(call, result: scoped)
                     case "updateCameraSettings":
-                        UpdateCameraSettingsCommand(scannerDevice: scannerDevice).execute(call, result: scoped)
+                        UpdateCameraSettingsCommand(scanner: scanner).execute(call, result: scoped)
                     case PluginConstants.toggleFlashMethod:
-                        ToggleFlashCommand(scannerDevice: scannerDevice).execute(call, result: scoped)
+                        ToggleFlashCommand(scanner: scanner).execute(call, result: scoped)
                     case PluginConstants.setScanDelayMethod:
-                        SetScanDelayCommand(scannerDevice: scannerDevice).execute(call, result: scoped)
+                        SetScanDelayCommand(scanner: scanner).execute(call, result: scoped)
                     case PluginConstants.setCropAreaMethod:
-                        SetCropAreaCommand(scannerDevice: scannerDevice).execute(call, result: scoped)
+                        SetCropAreaCommand(scanner: scanner).execute(call, result: scoped)
                     default: scoped(FlutterMethodNotImplemented)
                     }
                 } catch { command.reportError(scoped, error: error) }
@@ -169,7 +169,7 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         let previous = selected
         selected = nil
         previous?.close()
-        scannerDevice.releaseCamera(completion: {})
+        scanner.releaseCamera(completion: {})
     }
 
     /// Caches preview metadata and broadcasts it to active subscriptions.

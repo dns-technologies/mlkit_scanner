@@ -3,7 +3,7 @@ import CoreMedia
 import XCTest
 @testable import mlkit_scanner
 
-final class ScannerHardwareTests: XCTestCase {
+final class ScannerTests: XCTestCase {
     private final class Fixture {
         let camera = TestCamera(); let notifications = NotificationCenter()
         let analyzer = TestAnalyzer()
@@ -12,7 +12,7 @@ final class ScannerHardwareTests: XCTestCase {
         var previews: [CameraPreviewDescription?] = []
         var onPreviewChanged: ((CameraPreviewDescription?) -> Void)?
         var allocations = 0; var permissions: [(Bool) -> Void] = []
-        lazy var runtime = ScannerHardware(onScanResult: { [unowned self] viewId, _ in self.resultOwners.append(viewId) }, onTorchChanged: { _, _ in },
+        lazy var runtime = mlkit_scanner.Scanner(onScanResult: { [unowned self] viewId, _ in self.resultOwners.append(viewId) }, onTorchChanged: { _, _ in },
             onPreviewChanged: { [unowned self] in self.previews.append($0); self.onPreviewChanged?($0) },
             notificationCenter: notifications, cameraFactory: { [unowned self] in self.allocations += 1; return self.camera },
             analyzerFactory: { [unowned self] in self.analyzerAllocations += 1; return self.analyzer },
@@ -48,11 +48,13 @@ final class ScannerHardwareTests: XCTestCase {
         weak var cameraPreviewDelegate: CameraPreviewDelegate?
         var zooms: [Double] = []; var pauses = 0; var disposals = 0
         var geometries: [CGSize] = []
+        var preparationError: Error?
+        var zoomError: Error?
         var holdDisposal = false; var finishDisposal: (() -> Void)?
         func initCamera(completion: @escaping (Error?) -> Void) { isInitialized = true; completion(nil) }
         func prepare(_ settings: ScannerConfiguration, geometry: CGSize, completion: @escaping (Error?) -> Void) {
             geometries.append(geometry)
-            zooms.append(settings.zoomRatio); isTorchActive = settings.torchEnabled; completion(nil)
+            zooms.append(settings.zoomRatio); isTorchActive = settings.torchEnabled; completion(preparationError)
         }
         func cancelPendingStart(completion: @escaping () -> Void) { completion() }
         func setCamera(_ cameraData: CameraData) throws {}
@@ -61,13 +63,51 @@ final class ScannerHardwareTests: XCTestCase {
         func focus(locked: Bool) throws {}
         func resumeCamera(completion: @escaping (Error?) -> Void) { completion(nil) }
         func pauseCamera(completion: @escaping () -> Void) { pauses += 1; completion() }
-        func setZoomRatio(_ value: Double) throws { zooms.append(value) }
+        func setZoomRatio(_ value: Double) throws {
+            if let error = zoomError { throw error }
+            zooms.append(value)
+        }
         func setCropArea(_ cropRect: CropRect) {}
         func updateGeometry(_ size: CGSize) { geometries.append(size) }
         func dispose(completion: @escaping () -> Void) {
             disposals += 1; isInitialized = false
             if holdDisposal { finishDisposal = completion } else { completion() }
         }
+    }
+
+    func testCameraFailurePreservesDescriptionAndNativeCauseWhenAddingConsumer() throws {
+        let f = Fixture()
+        f.runtime.register(viewId: 42)
+        try f.capture(42)
+        let cause = NSError(domain: "CameraTest", code: 7)
+        f.camera.zoomError = CameraError(message: "Failed to set camera zoom ratio to 2.0", underlyingError: cause, stackTrace: "native trace")
+
+        XCTAssertThrowsError(try f.runtime.setZoomRatio(value: 2)) { error in
+            let failure = error as? CameraError
+            XCTAssertEqual(failure?.message, "Failed to set camera zoom ratio to 2.0")
+            XCTAssertEqual(failure?.viewId, 42)
+            XCTAssertTrue((failure?.underlyingError as? NSError) === cause)
+            XCTAssertEqual(failure?.stackTrace, "native trace")
+        }
+        f.runtime.release()
+    }
+
+    func testStartupCameraFailurePreservesDescriptionAndNativeCauseWhenAddingConsumer() throws {
+        let f = Fixture()
+        f.runtime.register(viewId: 42)
+        let cause = NSError(domain: "CameraTest", code: 7)
+        f.camera.preparationError = CameraError(message: "Failed to configure camera", underlyingError: cause, stackTrace: "native trace")
+        var received: Error?
+
+        f.runtime.captureCamera(viewId: 42, configuration: try ScannerConfiguration(arguments: ["zoomRatio": 1.0, "torchEnabled": false])) { received = $0 }
+        f.permissions.removeFirst()(true)
+
+        let failure = received as? CameraError
+        XCTAssertEqual(failure?.message, "Failed to configure camera")
+        XCTAssertEqual(failure?.viewId, 42)
+        XCTAssertTrue((failure?.underlyingError as? NSError) === cause)
+        XCTAssertEqual(failure?.stackTrace, "native trace")
+        f.runtime.release()
     }
 
     func testGeometryUpdatesOnlyTheSelectedCameraAndIsRetainedForHandoff() throws {

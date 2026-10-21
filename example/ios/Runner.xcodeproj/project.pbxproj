@@ -18,7 +18,7 @@
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		A1000001A1000001A1000001 /* CameraFrameGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000011A1000011A1000011 /* CameraFrameGeometryTests.swift */; };
 		A1000002A1000002A1000002 /* FrameAnalysisGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000012A1000012A1000012 /* FrameAnalysisGateTests.swift */; };
-		A1000003A1000003A1000003 /* ScannerHardwareTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000013A1000013A1000013 /* ScannerHardwareTests.swift */; };
+		A1000003A1000003A1000003 /* ScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000013A1000013A1000013 /* ScannerTests.swift */; };
 		A1000005A1000005A1000005 /* ScannerMethodArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000015A1000015A1000015 /* ScannerMethodArgumentsTests.swift */; };
 		B3000001B3000001B3000001 /* CameraTextureOutputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001B2000001B2000001 /* CameraTextureOutputTests.swift */; };
 		B3000002B3000002B3000002 /* CameraUtilTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002B2000002B2000002 /* CameraUtilTests.swift */; };
@@ -93,7 +93,7 @@
 		999D4C0FFF45843DDD1C1A22 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		A1000011A1000011A1000011 /* CameraFrameGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraFrameGeometryTests.swift; sourceTree = "<group>"; };
 		A1000012A1000012A1000012 /* FrameAnalysisGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameAnalysisGateTests.swift; sourceTree = "<group>"; };
-		A1000013A1000013A1000013 /* ScannerHardwareTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerHardwareTests.swift; sourceTree = "<group>"; };
+		A1000013A1000013A1000013 /* ScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerTests.swift; sourceTree = "<group>"; };
 		A1000014A1000014A1000014 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000015A1000015A1000015 /* ScannerMethodArgumentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerMethodArgumentsTests.swift; sourceTree = "<group>"; };
 		B2000001B2000001B2000001 /* CameraTextureOutputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraTextureOutputTests.swift; sourceTree = "<group>"; };
@@ -282,7 +282,7 @@
 		B4000005B4000005B4000005 /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				A1000013A1000013A1000013 /* ScannerHardwareTests.swift */,
+				A1000013A1000013A1000013 /* ScannerTests.swift */,
 				B2000032B2000032B2000032 /* ScannerConfigurationTests.swift */,
 			);
 			path = Models;
@@ -519,7 +519,7 @@
 			files = (
 				A1000001A1000001A1000001 /* CameraFrameGeometryTests.swift in Sources */,
 				A1000002A1000002A1000002 /* FrameAnalysisGateTests.swift in Sources */,
-				A1000003A1000003A1000003 /* ScannerHardwareTests.swift in Sources */,
+				A1000003A1000003A1000003 /* ScannerTests.swift in Sources */,
 				A1000005A1000005A1000005 /* ScannerMethodArgumentsTests.swift in Sources */,
 				B3000001B3000001B3000001 /* CameraTextureOutputTests.swift in Sources */,
 				B3000002B3000002B3000002 /* CameraUtilTests.swift in Sources */,

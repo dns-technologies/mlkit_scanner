@@ -4,6 +4,7 @@ import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.PluginError
 import java.util.concurrent.ExecutorService
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,10 +19,43 @@ import org.junit.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doThrow
+import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 
 internal class CameraConnectorTest {
+    @Test
+    fun `camera failure keeps its description and original cause when adding the current view`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            val connected = f.connect()
+            f.bindings.single().initialized()
+            f.bindings.single().availability(CameraAvailability.Open)
+            connected.await()
+            val cause = IllegalStateException("Camera disconnected")
+            val failure = PluginError.CameraError("Failed to set camera zoom ratio to 2.0", cause = cause)
+            val pending = CompletableDeferred<Unit>().apply { completeExceptionally(failure) }
+            doReturn(pending).`when`(f.camera).setZoomRatio(2F)
+
+            val error = runCatching { f.connector.setZoomRatio(42, 2F) }.exceptionOrNull() as PluginError.CameraError
+
+            assertEquals(failure.message, error.message)
+            assertEquals(42, error.viewId)
+            assertSame(cause, error.cause)
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `controls before readiness report camera state without requiring an operation tag`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            val error = runCatching { f.connector.setZoomRatio(42, 2F) }.exceptionOrNull() as PluginError.CameraError
+
+            assertTrue(error.message.contains("not ready"))
+            assertEquals(42, error.viewId)
+        } finally { f.close() }
+    }
+
     @Test
     fun `concurrent readiness waits share one binding and executor`() = runBlocking<Unit> {
         val f = Fixture()

@@ -3,9 +3,11 @@ import XCTest
 @testable import mlkit_scanner
 
 final class GetIosAvailableCamerasCommandTests: XCTestCase {
-    func testExecuteReturnsOnlyJsonCompatibleCameraDescriptors() {
+    func testExecuteReturnsOnlyJsonCompatibleCameraDescriptors() throws {
+        let fixture = try ScannerCommandFixture(activate: false)
+        defer { fixture.scanner.release() }
         let command = GetIosAvailableCamerasCommand(
-            scannerDevice: RecordingScannerHardware()
+            scanner: fixture.scanner
         )
         var resultValue: Any?
 

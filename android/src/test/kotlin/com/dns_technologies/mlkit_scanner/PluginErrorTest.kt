@@ -3,6 +3,7 @@ package com.dns_technologies.mlkit_scanner
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 internal class PluginErrorTest {
@@ -25,10 +26,10 @@ internal class PluginErrorTest {
     }
 
     @Test
-    fun `camera control error serializes its operation and native cause`() {
+    fun `camera error preserves its description and native cause without an operation tag`() {
         val cause = IllegalStateException("camera disconnected")
-        val error = PluginError.CameraControlError(
-            operation = CameraControlOperation.AWAIT_OPEN,
+        val error = PluginError.CameraError(
+            message = "Camera failed to open",
             viewId = 4,
             cause = cause,
             cameraStateErrorCode = 3,
@@ -37,7 +38,8 @@ internal class PluginErrorTest {
         val causeDetails = details["cause"] as Map<*, *>
 
         assertEquals("9", error.errorCode)
-        assertEquals("awaitOpen", details["operation"])
+        assertEquals("Camera failed to open", error.message)
+        assertFalse(details.containsKey("operation"))
         assertEquals(4, details["viewId"])
         assertEquals(3, details["cameraStateErrorCode"])
         assertEquals(IllegalStateException::class.java.name, causeDetails["type"])
@@ -47,17 +49,17 @@ internal class PluginErrorTest {
     }
 
     @Test
-    fun `contextualize replaces operation and view without losing native failure`() {
+    fun `contextualize adds the view without replacing the description or native failure`() {
         val cause = IllegalArgumentException("out of range")
-        val original = PluginError.CameraControlError(
-            operation = CameraControlOperation.ZOOM,
+        val original = PluginError.CameraError(
+            message = "Failed to set camera zoom ratio to 2.0",
             cause = cause,
             cameraStateErrorCode = 5,
         )
 
-        val contextualized = original.contextualize(CameraControlOperation.TORCH, 12)
+        val contextualized = original.contextualize(12)
 
-        assertEquals(CameraControlOperation.TORCH, contextualized.operation)
+        assertEquals(original.message, contextualized.message)
         assertEquals(12, contextualized.viewId)
         assertEquals(5, contextualized.cameraStateErrorCode)
         assertSame(cause, contextualized.cause)

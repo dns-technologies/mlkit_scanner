@@ -4,7 +4,7 @@ import UIKit
 
 /// Coordinates camera ownership, recognition and resource lifetime on the main thread.
 /// Suspends camera work while the application is backgrounded.
-final class ScannerHardware: ScannerDevice {
+final class Scanner {
     /// One capture request whose identity remains stable across asynchronous callbacks.
     private final class Capture {
         /// Concrete consumer identity owning this capture request.
@@ -12,9 +12,9 @@ final class ScannerHardware: ScannerDevice {
         /// Immutable settings captured when ownership was requested.
         let configuration: ScannerConfiguration
         /// Capture response awaiting completion.
-        private var completion: ScannerCompletion?
+        private var completion: ((Error?) -> Void)?
 
-        init(consumer: ScannerConsumer, configuration: ScannerConfiguration, completion: @escaping ScannerCompletion) {
+        init(consumer: ScannerConsumer, configuration: ScannerConfiguration, completion: @escaping (Error?) -> Void) {
             self.consumer = consumer
             self.configuration = configuration
             self.completion = completion
@@ -82,7 +82,7 @@ final class ScannerHardware: ScannerDevice {
          notificationCenter: NotificationCenter = .default,
          cameraFactory: @escaping () -> CameraPreviewing,
          analyzerFactory: @escaping () -> BarcodeAnalyzing,
-         requestPermission: @escaping (@escaping (Bool) -> Void) -> Void = ScannerHardware.requestCameraPermission) {
+         requestPermission: @escaping (@escaping (Bool) -> Void) -> Void = Scanner.requestCameraPermission) {
         self.onScanResult = onScanResult
         self.onTorchChanged = onTorchChanged
         self.onPreviewChanged = onPreviewChanged
@@ -138,7 +138,7 @@ final class ScannerHardware: ScannerDevice {
     }
 
     /// Acquires the shared camera for a registered consumer using its settings.
-    func captureCamera(viewId: Int64, configuration: ScannerConfiguration, completion: @escaping ScannerCompletion) {
+    func captureCamera(viewId: Int64, configuration: ScannerConfiguration, completion: @escaping (Error?) -> Void) {
         guard !isReleased, !isBackgrounded, let target = consumers[viewId] else {
             completion(MlKitPluginError.cameraSessionDisposed)
             return
@@ -182,21 +182,21 @@ final class ScannerHardware: ScannerDevice {
 
     /// Applies autofocus and exposure modes at the recognition-area center.
     func focus(locked: Bool) throws {
-        try control(operation: .focus) {
+        try control {
             try $0.focus(locked: locked)
         }
     }
 
     /// Applies the desired torch state to the active camera.
     func setTorch(enabled: Bool) throws {
-        try control(operation: .torch) {
+        try control {
             try $0.setFlash(enabled)
         }
     }
 
     /// Applies an absolute zoom factor to the selected camera.
     func setZoomRatio(value: Double) throws {
-        try control(operation: .zoom) {
+        try control {
             try $0.setZoomRatio(value)
         }
     }
@@ -306,9 +306,8 @@ final class ScannerHardware: ScannerDevice {
             guard let self = self, let request = request, let camera = camera, self.isCurrent(request) else { return }
             if let error = error {
                 let failure: Error
-                if let control = error as? CameraControlError {
-                    failure = CameraControlError(operation: control.operation, viewId: request.consumer.viewId,
-                        underlyingError: control.underlyingError, cameraStateErrorCode: control.cameraStateErrorCode)
+                if let cameraError = error as? CameraError {
+                    failure = cameraError.contextualize(viewId: request.consumer.viewId)
                 } else { failure = error }
                 self.finish(request, error: failure)
                 return
@@ -317,7 +316,12 @@ final class ScannerHardware: ScannerDevice {
             self.analyzer?.updateCropRect(cropRect: request.configuration.cropRect)
             camera.resumeCamera { [weak self, weak request, weak camera] error in
                 guard let self = self, let request = request, let camera = camera, self.isCurrent(request) else { return }
-                let failure = error.map { self.controlError(.awaitOpen, error: $0) }
+                let failure = error.map { error -> CameraError in
+                    if let cameraError = error as? CameraError {
+                        return cameraError.contextualize(viewId: request.consumer.viewId)
+                    }
+                    return CameraError(message: "Failed to start camera preview", viewId: request.consumer.viewId, underlyingError: error)
+                }
                 self.finish(request, error: failure)
                 if error == nil, self.selected === request.consumer { self.onTorchChanged(request.consumer.viewId, camera.isTorchActive) }
             }
@@ -342,16 +346,12 @@ final class ScannerHardware: ScannerDevice {
     }
 
     /// Runs a selected-camera control with consistent error context.
-    private func control(operation: CameraControlOperation, action: (CameraPreviewing) throws -> Void) throws {
+    private func control(_ action: (CameraPreviewing) throws -> Void) throws {
         guard selected != nil, !isBackgrounded, let camera = camera else { throw MlKitPluginError.cameraIsNotInitialized }
         do { try action(camera) }
         catch MlKitPluginError.deviceHasNotFlash { throw MlKitPluginError.deviceHasNotFlash }
-        catch { throw controlError(operation, error: error) }
-    }
-
-    /// Attaches the current consumer and failed operation to a native error.
-    private func controlError(_ operation: CameraControlOperation, error: Error) -> CameraControlError {
-        CameraControlError(operation: operation, viewId: selected?.viewId, underlyingError: error)
+        catch let error as CameraError { throw error.contextualize(viewId: selected?.viewId) }
+        catch { throw CameraError(message: "Camera operation failed", viewId: selected?.viewId, underlyingError: error) }
     }
 
     /// Checks that a capture still belongs to the selected live consumer.
@@ -391,7 +391,7 @@ private final class HardwareDisposal {
     /// Main-thread callbacks drained after native camera disposal finishes.
     var callbacks: [() -> Void] = []
 }
-extension ScannerHardware: CameraPreviewDelegate {
+extension Scanner: CameraPreviewDelegate {
     /// Rejects late publications from a released or replaced camera.
     func onPreviewChanged(_ camera: CameraPreviewing, description: CameraPreviewDescription?) {
         guard self.camera === camera, !isReleased else { return }

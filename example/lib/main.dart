@@ -6,10 +6,11 @@ import 'package:mlkit_scanner/mlkit_scanner.dart';
 
 void main() => runApp(const MyApp());
 
-/// Formats camera failures without discarding their structured operation details.
+/// Formats camera failures with their description and optional native cause.
 String _describeError(Object error) {
-  if (error is CameraControlException) {
-    return '${error.operation.wireValue}: ${error.cause ?? error.message ?? error}';
+  if (error is CameraException) {
+    final message = error.message ?? 'Camera failed';
+    return error.cause == null ? message : '$message: ${error.cause}';
   }
   return error.toString();
 }

@@ -3,37 +3,41 @@ import XCTest
 @testable import mlkit_scanner
 
 final class SetZoomRatioCommandTests: XCTestCase {
-    func testAppliesArgumentsWithoutViewOrSubscriptionIdentifiers() {
-        let device = RecordingScannerHardware()
+    func testAppliesArgumentsWithoutViewOrSubscriptionIdentifiers() throws {
+        let device = try ScannerCommandFixture()
+        defer { device.scanner.release() }
         var replies = 0
-        SetZoomRatioCommand(scannerDevice: device).execute(
+        SetZoomRatioCommand(scanner: device.scanner).execute(
             FlutterMethodCall(methodName: "setZoomRatio", arguments: ["value": 2.5])
         ) {
             XCTAssertNil($0)
             replies += 1
         }
         XCTAssertEqual(replies, 1)
-        XCTAssertEqual(device.zoomRatio, 2.5)
+        XCTAssertEqual(device.camera.zoomRatio, 2.5)
     }
 
-    func testMalformedArgumentsDoNotReachScanner() {
-        let device = RecordingScannerHardware()
+    func testMalformedArgumentsDoNotReachScanner() throws {
+        let device = try ScannerCommandFixture()
+        defer { device.scanner.release() }
         var result: Any?
-        SetZoomRatioCommand(scannerDevice: device).execute(
+        SetZoomRatioCommand(scanner: device.scanner).execute(
             FlutterMethodCall(methodName: "setZoomRatio", arguments: ["value": "bad"])
         ) { result = $0 }
         XCTAssertEqual((result as? FlutterError)?.code, MlKitPluginError.invalidArguments.rawValue)
-        XCTAssertNil(device.zoomRatio)
+        XCTAssertNil(device.camera.zoomRatio)
     }
 
-    func testMapsPointControlFailure() {
-        let device = RecordingScannerHardware()
-        device.thrownError = CameraControlError(operation: .zoom, viewId: 42)
+    func testMapsPointControlFailure() throws {
+        let device = try ScannerCommandFixture()
+        defer { device.scanner.release() }
+        device.camera.error = CameraError(message: "Failed to set camera zoom ratio to 2.5", viewId: 42)
         var result: Any?
-        SetZoomRatioCommand(scannerDevice: device).execute(
+        SetZoomRatioCommand(scanner: device.scanner).execute(
             FlutterMethodCall(methodName: "setZoomRatio", arguments: ["value": 2.5])
         ) { result = $0 }
         XCTAssertEqual((result as? FlutterError)?.code, "9")
-        XCTAssertNil(device.zoomRatio)
+        XCTAssertEqual((result as? FlutterError)?.message, "Failed to set camera zoom ratio to 2.5")
+        XCTAssertNil(device.camera.zoomRatio)
     }
 }

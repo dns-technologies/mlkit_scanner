@@ -248,8 +248,8 @@ final class CameraPreview: NSObject, CameraPreviewing {
                 self.updateGeometry(geometry)
                 self.setCropArea(settings.cropRect)
                 self.resetFocus()
-                try self.apply(.zoom) { try self.setZoomRatio(settings.zoomRatio) }
-                try self.apply(.torch) { try self.setFlash(settings.torchEnabled) }
+                try self.setZoomRatio(settings.zoomRatio)
+                try self.setFlash(settings.torchEnabled)
             } catch { failure = error }
             DispatchQueue.main.async {
                 guard request.active, !self.closed, self.preparation === request else { return }
@@ -257,13 +257,6 @@ final class CameraPreview: NSObject, CameraPreviewing {
                 request.finish(failure)
             }
         }
-    }
-
-    /// Adds operation context while preserving the unsupported-flash error contract.
-    private func apply(_ operation: CameraControlOperation, action: () throws -> Void) throws {
-        do { try action() }
-        catch MlKitPluginError.deviceHasNotFlash { throw MlKitPluginError.deviceHasNotFlash }
-        catch { throw CameraControlError(operation: operation, underlyingError: error) }
     }
 
     /// Stops capture while retaining the most recent texture frame.
@@ -282,7 +275,7 @@ final class CameraPreview: NSObject, CameraPreviewing {
 
     /// Applies the requested torch state or reports unsupported hardware.
     func setFlash(_ enabled: Bool) throws {
-        try withCamera { camera in
+        try withCamera(message: "Failed to set camera torch to \(enabled)") { camera in
             guard camera.hasTorch else {
                 if enabled {
                     throw MlKitPluginError.deviceHasNotFlash
@@ -297,7 +290,7 @@ final class CameraPreview: NSObject, CameraPreviewing {
 
     /// Applies an absolute zoom factor to the selected camera.
     func setZoomRatio(_ value: Double) throws {
-        try withCamera { camera in
+        try withCamera(message: "Failed to set camera zoom ratio to \(value)") { camera in
             let zoom = CGFloat(value)
             guard zoom.isFinite, zoom >= camera.minAvailableVideoZoomFactor, zoom <= camera.maxAvailableVideoZoomFactor else { throw MlKitPluginError.invalidArguments }
             camera.videoZoomFactor = zoom
@@ -311,7 +304,7 @@ final class CameraPreview: NSObject, CameraPreviewing {
 
     /// Applies autofocus and exposure modes at the recognition-area center.
     func focus(locked: Bool) throws {
-        try withCamera { camera in
+        try withCamera(message: locked ? "Failed to lock camera focus" : "Failed to restore continuous camera focus") { camera in
             let dimensions = receiver?.latestSize ?? CGSize(width: 720, height: 1280)
             let geometry = CameraFrameGeometry(source: dimensions, viewport: viewport)
             var point = geometry.normalizedPoint(CGPoint(x: (1 + crop.offsetX) / 2, y: (1 + crop.offsetY) / 2))
@@ -348,12 +341,18 @@ final class CameraPreview: NSObject, CameraPreviewing {
     }
 
     /// Provides exclusive access to the active camera for configuration changes.
-    private func withCamera(_ action: (AVCaptureDevice) throws -> Void) throws {
-        try sync {
-            guard !closed, let camera = camera else { throw MlKitPluginError.cameraIsNotInitialized }
-            try camera.lockForConfiguration()
-            defer { camera.unlockForConfiguration() }
-            try action(camera)
+    private func withCamera(message: String, _ action: (AVCaptureDevice) throws -> Void) throws {
+        do {
+            try sync {
+                guard !closed, let camera = camera else { throw MlKitPluginError.cameraIsNotInitialized }
+                try camera.lockForConfiguration()
+                defer { camera.unlockForConfiguration() }
+                try action(camera)
+            }
+        } catch MlKitPluginError.deviceHasNotFlash {
+            throw MlKitPluginError.deviceHasNotFlash
+        } catch {
+            throw CameraError(message: message, underlyingError: error)
         }
     }
 

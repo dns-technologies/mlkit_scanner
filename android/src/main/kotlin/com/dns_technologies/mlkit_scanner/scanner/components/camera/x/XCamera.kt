@@ -32,7 +32,6 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.Observer
-import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.*
@@ -261,11 +260,12 @@ internal class XCamera(
         return builder.build().also { it.setSurfaceProvider(output) }
     }
 
-    override fun resetFocus() =
-        requireCamera()
-            .cameraControl
-            .cancelFocusAndMetering()
-            .asCameraControlDeferred(CameraControlOperation.FOCUS)
+    override fun resetFocus(): Deferred<Unit> {
+        val camera = requireCamera()
+        return cameraCall("Failed to reset camera focus") {
+            camera.cameraControl.cancelFocusAndMetering()
+        }
+    }
 
     override fun focus(resetDelayMs: Long, x: Float, y: Float): Deferred<Unit> {
         val current = binding ?: throw PluginError.CameraIsNotInitialized
@@ -296,9 +296,9 @@ internal class XCamera(
                     else disableAutoCancel()
                 }
                 .build()
-        return current.camera.cameraControl
-            .startFocusAndMetering(action)
-            .asCameraControlDeferred(CameraControlOperation.FOCUS)
+        return cameraCall("Failed to focus camera at ($x, $y)") {
+            current.camera.cameraControl.startFocusAndMetering(action)
+        }
     }
 
     override fun setZoomRatio(ratio: Float): Deferred<Unit> {
@@ -306,9 +306,9 @@ internal class XCamera(
         val zoom = camera.cameraInfo.zoomState.value ?: throw PluginError.CameraIsNotInitialized
         if (!ratio.isFinite() || ratio !in zoom.minZoomRatio..zoom.maxZoomRatio)
             throw PluginError.InvalidArguments
-        return camera.cameraControl
-            .setZoomRatio(ratio)
-            .asCameraControlDeferred(CameraControlOperation.ZOOM)
+        return cameraCall("Failed to set camera zoom ratio to $ratio") {
+            camera.cameraControl.setZoomRatio(ratio)
+        }
     }
 
     override fun setTorch(enabled: Boolean): Deferred<Unit> {
@@ -317,9 +317,9 @@ internal class XCamera(
             if (enabled) throw PluginError.DeviceHasNotFlash
             return CompletableDeferred(Unit)
         }
-        return camera.cameraControl
-            .enableTorch(enabled)
-            .asCameraControlDeferred(CameraControlOperation.TORCH)
+        return cameraCall("Failed to set camera torch to $enabled") {
+            camera.cameraControl.enableTorch(enabled)
+        }
     }
 
     /** Returns the active SDK camera or reports an uninitialized scanner. */
@@ -435,23 +435,27 @@ internal class XCamera(
         }
 
         /** Bridges SDK completion and cancellation while preserving native failure causes. */
-        fun ListenableFuture<*>.asCameraControlDeferred(
-            operation: CameraControlOperation
-        ): Deferred<Unit> {
+        fun cameraCall(message: String, call: () -> ListenableFuture<*>): Deferred<Unit> {
             val result = CompletableDeferred<Unit>()
             fun fail(error: Exception) {
                 val cause = if (error is ExecutionException) error.cause ?: error else error
                 result.completeExceptionally(
-                    PluginError.CameraControlError(operation, cause = cause)
+                    PluginError.CameraError(message, cause = cause)
                 )
             }
-            result.invokeOnCompletion { cause -> if (cause is CancellationException) cancel(false) }
+            val future = try {
+                call()
+            } catch (error: Exception) {
+                fail(error)
+                return result
+            }
+            result.invokeOnCompletion { cause -> if (cause is CancellationException) future.cancel(false) }
             try {
-                addListener(
+                future.addListener(
                     {
                         if (result.isCompleted) return@addListener
                         try {
-                            get()
+                            future.get()
                             result.complete(Unit)
                         } catch (error: Exception) {
                             fail(error)

@@ -3,21 +3,23 @@ import XCTest
 @testable import mlkit_scanner
 
 final class CaptureCameraCommandTests: XCTestCase {
-    func testExecuteCompletesAfterSessionCapture() {
-        let session = RecordingScannerHardware()
-        let command = CaptureCameraCommand(scannerDevice: session)
+    func testExecuteCompletesAfterSessionCapture() throws {
+        let session = try ScannerCommandFixture(activate: false)
+        defer { session.scanner.release() }
+        let command = CaptureCameraCommand(scanner: session.scanner)
         var resultValue: Any? = true
 
         command.execute(call(viewId: 42)) { resultValue = $0 }
 
-        XCTAssertEqual(session.captureViewId, 42)
+        XCTAssertEqual(session.camera.captureViewId, 42)
         XCTAssertNil(resultValue)
     }
 
-    func testExecuteReturnsCaptureFailureToFlutter() {
-        let session = RecordingScannerHardware()
-        session.completionError = MlKitPluginError.initCameraError
-        let command = CaptureCameraCommand(scannerDevice: session)
+    func testExecuteReturnsCaptureFailureToFlutter() throws {
+        let session = try ScannerCommandFixture(activate: false)
+        defer { session.scanner.release() }
+        session.camera.initializationError = MlKitPluginError.initCameraError
+        let command = CaptureCameraCommand(scanner: session.scanner)
         var resultValue: Any?
 
         command.execute(call(viewId: 42)) { resultValue = $0 }
@@ -25,14 +27,15 @@ final class CaptureCameraCommandTests: XCTestCase {
         XCTAssertEqual((resultValue as? FlutterError)?.code, "1")
     }
 
-    func testExecuteRejectsMalformedViewIdWithoutCallingSession() {
-        let session = RecordingScannerHardware()
-        let command = CaptureCameraCommand(scannerDevice: session)
+    func testExecuteRejectsMalformedViewIdWithoutCallingSession() throws {
+        let session = try ScannerCommandFixture(activate: false)
+        defer { session.scanner.release() }
+        let command = CaptureCameraCommand(scanner: session.scanner)
         var resultValue: Any?
 
         command.execute(call(viewId: -1)) { resultValue = $0 }
 
-        XCTAssertNil(session.captureViewId)
+        XCTAssertNil(session.camera.captureViewId)
         XCTAssertEqual((resultValue as? FlutterError)?.code, "5")
     }
 

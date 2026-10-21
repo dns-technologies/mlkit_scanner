@@ -3,7 +3,6 @@ package com.dns_technologies.mlkit_scanner.scanner.components.camera
 import android.util.Size
 import androidx.annotation.MainThread
 import androidx.lifecycle.LifecycleOwner
-import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import java.util.concurrent.ExecutorService
 import kotlin.coroutines.resume
@@ -108,19 +107,19 @@ internal class CameraConnector(private val camera: Camera) {
 
     /** Clears metering regions on the ready camera. */
     suspend fun resetFocus(viewId: Int) =
-        control(viewId, CameraControlOperation.FOCUS, camera::resetFocus)
+        control(viewId, camera::resetFocus)
 
     /** Focuses at a point expressed in preview viewport pixels. */
     suspend fun focus(viewId: Int, resetDelayMs: Long, x: Float, y: Float) =
-        control(viewId, CameraControlOperation.FOCUS) { camera.focus(resetDelayMs, x, y) }
+        control(viewId) { camera.focus(resetDelayMs, x, y) }
 
     /** Applies an absolute zoom ratio to the ready camera. */
     suspend fun setZoomRatio(viewId: Int, ratio: Float) =
-        control(viewId, CameraControlOperation.ZOOM) { camera.setZoomRatio(ratio) }
+        control(viewId) { camera.setZoomRatio(ratio) }
 
     /** Applies an absolute torch state to the ready camera. */
     suspend fun setTorch(viewId: Int, enabled: Boolean) =
-        control(viewId, CameraControlOperation.TORCH) { camera.setTorch(enabled) }
+        control(viewId) { camera.setTorch(enabled) }
 
     /** Updates readiness or reports an opening failure with the supplied consumer identifier. */
     private fun updateAvailability(availability: CameraAvailability, viewId: Int?) {
@@ -133,8 +132,8 @@ internal class CameraConnector(private val camera: Camera) {
             val closed = availability as CameraAvailability.Closed
             if (closed.errorCode != null)
                 ready.completeExceptionally(
-                    PluginError.CameraControlError(
-                        CameraControlOperation.AWAIT_OPEN,
+                    PluginError.CameraError(
+                        "Camera failed to open",
                         viewId,
                         closed.cause,
                         closed.errorCode,
@@ -144,10 +143,10 @@ internal class CameraConnector(private val camera: Camera) {
     }
 
     /** Cancelling the caller also cancels the pending camera completion it is awaiting. */
-    private suspend fun control(viewId: Int, kind: CameraControlOperation, call: () -> Deferred<Unit>) {
+    private suspend fun control(viewId: Int, call: () -> Deferred<Unit>) {
         val context = currentCoroutineContext()
         context.ensureActive()
-        if (!isReady) throw PluginError.CameraControlError(kind, viewId)
+        if (!isReady) throw PluginError.CameraError("Camera is not ready", viewId)
         try {
             // Carry failures as data to preserve the original camera exception across dispatchers.
             val failure =
@@ -164,9 +163,9 @@ internal class CameraConnector(private val camera: Camera) {
         } catch (error: Exception) {
             if (error is CancellationException && !context.isActive) throw error
             throw when (error) {
-                is PluginError.CameraControlError -> error.contextualize(kind, viewId)
+                is PluginError.CameraError -> error.contextualize(viewId)
                 is PluginError -> error
-                else -> PluginError.CameraControlError(kind, viewId, error)
+                else -> PluginError.CameraError("Camera operation failed", viewId, error)
             }
         }
     }

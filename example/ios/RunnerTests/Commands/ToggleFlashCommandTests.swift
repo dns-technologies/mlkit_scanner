@@ -3,26 +3,28 @@ import XCTest
 @testable import mlkit_scanner
 
 final class ToggleFlashCommandTests: XCTestCase {
-    func testAppliesArgumentsWithoutViewOrSubscriptionIdentifiers() {
-        let device = RecordingScannerHardware()
+    func testAppliesArgumentsWithoutViewOrSubscriptionIdentifiers() throws {
+        let device = try ScannerCommandFixture()
+        defer { device.scanner.release() }
         var replies = 0
-        ToggleFlashCommand(scannerDevice: device).execute(
+        ToggleFlashCommand(scanner: device.scanner).execute(
             FlutterMethodCall(methodName: "toggleFlash", arguments: ["value": true])
         ) {
             XCTAssertNil($0)
             replies += 1
         }
         XCTAssertEqual(replies, 1)
-        XCTAssertEqual(device.torchEnabled, true)
+        XCTAssertEqual(device.camera.torchEnabled, true)
     }
 
-    func testMalformedArgumentsDoNotReachScanner() {
-        let device = RecordingScannerHardware()
+    func testMalformedArgumentsDoNotReachScanner() throws {
+        let device = try ScannerCommandFixture()
+        defer { device.scanner.release() }
         var result: Any?
-        ToggleFlashCommand(scannerDevice: device).execute(
+        ToggleFlashCommand(scanner: device.scanner).execute(
             FlutterMethodCall(methodName: "toggleFlash", arguments: ["value": 1])
         ) { result = $0 }
         XCTAssertEqual((result as? FlutterError)?.code, MlKitPluginError.invalidArguments.rawValue)
-        XCTAssertNil(device.torchEnabled)
+        XCTAssertNil(device.camera.torchEnabled)
     }
 }

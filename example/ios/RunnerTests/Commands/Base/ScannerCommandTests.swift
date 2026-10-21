@@ -4,11 +4,14 @@ import XCTest
 
 final class ScannerCommandTests: XCTestCase {
     private final class TestScannerCommand: ScannerCommand {
+        private let fixture: ScannerCommandFixture
         private let error: Error?
 
-        init(error: Error?) {
+        init(error: Error?) throws {
+            let fixture = try ScannerCommandFixture(activate: false)
+            self.fixture = fixture
             self.error = error
-            super.init(scannerDevice: RecordingScannerHardware())
+            super.init(scanner: fixture.scanner)
         }
 
         override func executeCommand(
@@ -22,8 +25,8 @@ final class ScannerCommandTests: XCTestCase {
         }
     }
 
-    func testExecuteReturnsSuccessfulCommandValue() {
-        let command = TestScannerCommand(error: nil)
+    func testExecuteReturnsSuccessfulCommandValue() throws {
+        let command = try TestScannerCommand(error: nil)
         var value: Any? = true
 
         command.execute(FlutterMethodCall(methodName: "test", arguments: nil)) {
@@ -33,8 +36,8 @@ final class ScannerCommandTests: XCTestCase {
         XCTAssertNil(value)
     }
 
-    func testExecuteMapsThrownCommandError() {
-        let command = TestScannerCommand(error: MlKitPluginError.invalidArguments)
+    func testExecuteMapsThrownCommandError() throws {
+        let command = try TestScannerCommand(error: MlKitPluginError.invalidArguments)
         var value: Any?
 
         command.execute(FlutterMethodCall(methodName: "test", arguments: nil)) {

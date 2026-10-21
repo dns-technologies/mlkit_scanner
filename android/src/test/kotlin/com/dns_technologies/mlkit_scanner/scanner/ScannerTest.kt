@@ -6,7 +6,6 @@ import android.view.View
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
-import com.dns_technologies.mlkit_scanner.CameraControlOperation
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
@@ -29,6 +28,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -147,7 +147,7 @@ internal class ScannerTest {
 
         val error = runCatching { fixture.scanner.setZoomRatio(2.0F) }.exceptionOrNull()
 
-        assertTrue(error is PluginError.CameraControlError)
+        assertTrue(error is PluginError.CameraError)
         assertEquals(emptyList<Float>(), fixture.camera.zoomRatioValues)
     }
 
@@ -509,7 +509,7 @@ internal class ScannerCaptureTest {
             val first = f.capture()
             f.initialized()
             f.availability(CameraAvailability.Closed(errorCode = 3))
-            assertTrue(runCatching { first.await() }.exceptionOrNull() is PluginError.CameraControlError)
+            assertTrue(runCatching { first.await() }.exceptionOrNull() is PluginError.CameraError)
             f.availability(CameraAvailability.Open)
             f.capture().await()
         } finally { f.close() }
@@ -523,7 +523,7 @@ internal class ScannerCaptureTest {
             f.availability(CameraAvailability.Closed(errorCode = 3))
             assertTrue(capture.isCompleted)
             val failure = runCatching { capture.await() }.exceptionOrNull()
-            assertTrue(failure is PluginError.CameraControlError)
+            assertTrue(failure is PluginError.CameraError)
             f.initialized()
             f.availability(CameraAvailability.Open)
             f.capture().await()
@@ -800,15 +800,15 @@ internal class ScannerCaptureTest {
     }
 
     @Test
-    fun `control failure carries operation and current view address`() = runBlocking<Unit> {
+    fun `camera failure carries its cause and current view address`() = runBlocking<Unit> {
         val f = Fixture()
         try {
             f.activate()
             f.zoom += CompletableDeferred<Unit>().apply { completeExceptionally(IllegalStateException("zoom")) }
             val error = runCatching { f.scanner.setZoomRatio(2F) }.exceptionOrNull()
-            assertTrue(error is PluginError.CameraControlError)
-            error as PluginError.CameraControlError
-            assertEquals(CameraControlOperation.ZOOM, error.operation)
+            assertTrue(error is PluginError.CameraError)
+            error as PluginError.CameraError
+            assertEquals("zoom", error.cause?.message)
             assertEquals(42, error.viewId)
         } finally { f.close() }
     }
@@ -874,9 +874,9 @@ internal class ScannerCaptureTest {
             f.zoom += pending
             val result = f.calls.async { runCatching { f.scanner.setZoomRatio(2F) }.exceptionOrNull() }
             withContext(Dispatchers.Default) { pending.completeExceptionally(failure) }
-            val error = result.await() as PluginError.CameraControlError
+            val error = result.await() as PluginError.CameraError
             assertSame(failure, error.cause)
-            assertEquals(CameraControlOperation.ZOOM, error.operation)
+            assertEquals(42, error.viewId)
         } finally { f.close() }
     }
 
@@ -887,8 +887,8 @@ internal class ScannerCaptureTest {
             f.activate()
             f.zoom += CompletableDeferred<Unit>().apply { cancel() }
             val error = runCatching { f.scanner.setZoomRatio(2F) }.exceptionOrNull()
-            assertTrue(error is PluginError.CameraControlError)
-            assertEquals(CameraControlOperation.ZOOM, (error as PluginError.CameraControlError).operation)
+            assertTrue(error is PluginError.CameraError)
+            assertTrue((error as PluginError.CameraError).cause is CancellationException)
         } finally { f.close() }
     }
 

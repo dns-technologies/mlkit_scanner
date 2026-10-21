@@ -50,28 +50,13 @@ enum MlKitPluginError: String, Error, LocalizedError {
     }
 }
 
-/// Camera operation attached to method-channel error code 9.
-enum CameraControlOperation: String {
-    /// Awaiting the first usable frame from the selected camera.
-    case awaitOpen
-    /// Applying an absolute zoom factor.
-    case zoom
-    /// Applying the desired torch state.
-    case torch
-    /// Applying focus and exposure controls.
-    case focus
-}
-
-/// Adds view and operation context to an underlying camera-control failure.
-struct CameraControlError: Error, LocalizedError {
-    /// Stable platform-channel code for camera-control failures.
+/// Camera failure described where it occurs, with optional native diagnostic context.
+struct CameraError: Error, LocalizedError {
+    /// Stable platform-channel code for camera failures.
     static let errorCode = "9"
 
-    /// Shared platform-channel message for camera-control failures.
-    static let errorMessage = "Camera control operation failed"
-
-    /// Camera operation that failed.
-    let operation: CameraControlOperation
+    /// Description of the camera failure.
+    let message: String
 
     /// Camera consumer identifier associated with the failure, when available.
     let viewId: Int64?
@@ -79,17 +64,20 @@ struct CameraControlError: Error, LocalizedError {
     /// Original native failure retained for diagnostics.
     let underlyingError: Error?
 
+    /// Native stack captured when this failure is reported.
+    let stackTrace: String
+
     /// Optional native camera-state code included in channel diagnostics.
     let cameraStateErrorCode: Int?
 
     /// Human-readable description exposed through native error reporting.
     var errorDescription: String? {
-        Self.errorMessage
+        message
     }
 
     /// StandardMessageCodec-compatible diagnostic context.
     var channelDetails: [String: Any] {
-        var details: [String: Any] = ["operation": operation.rawValue]
+        var details: [String: Any] = [:]
         if let viewId = viewId {
             details["viewId"] = viewId
         }
@@ -100,20 +88,29 @@ struct CameraControlError: Error, LocalizedError {
             details["cause"] = [
                 "type": String(reflecting: type(of: underlyingError)),
                 "message": underlyingError.localizedDescription,
+                "stackTrace": stackTrace,
             ]
         }
         return details
     }
 
     init(
-        operation: CameraControlOperation,
+        message: String,
         viewId: Int64? = nil,
         underlyingError: Error? = nil,
-        cameraStateErrorCode: Int? = nil
+        cameraStateErrorCode: Int? = nil,
+        stackTrace: String = Thread.callStackSymbols.joined(separator: "\n")
     ) {
-        self.operation = operation
+        self.message = message
         self.viewId = viewId
         self.underlyingError = underlyingError
         self.cameraStateErrorCode = cameraStateErrorCode
+        self.stackTrace = stackTrace
+    }
+
+    /// Adds consumer context without replacing the original description or native failure.
+    func contextualize(viewId: Int64?) -> CameraError {
+        CameraError(message: message, viewId: viewId, underlyingError: underlyingError,
+            cameraStateErrorCode: cameraStateErrorCode, stackTrace: stackTrace)
     }
 }

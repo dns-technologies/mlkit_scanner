@@ -12,7 +12,7 @@ test suffix:
 | --- | --- |
 | `scanner_preview.dart` | `scanner_preview_test.dart` |
 | `Scanner.kt` | `ScannerTest.kt` |
-| `ScannerHardware.swift` | `ScannerHardwareTests.swift` |
+| `Scanner.swift` | `ScannerTests.swift` |
 
 The source filename determines the test filename, even when the primary class
 has a different name. Mirror the source directory structure where practical.

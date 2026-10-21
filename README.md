@@ -4,6 +4,9 @@ A Flutter barcode scanner for Android and iOS, using Google ML Kit with CameraX
 on Android and AVFoundation on iOS. Scanner widgets share one camera texture per
 Flutter engine and retain independent settings.
 
+This package exposes barcode recognition. It does not expose text, face or object
+recognition, or support web and desktop platforms.
+
 ## Features
 
 - Camera preview with Flutter crop and focus overlays.
@@ -17,6 +20,8 @@ Flutter engine and retain independent settings.
 Requires Flutter 3.29 / Dart 3.7 or newer. Add `mlkit_scanner` to your
 `pubspec.yaml` dependencies.
 
+For migration from 0.6.0, see [Migration from the controller API](#migration-from-the-controller-api).
+
 ### iOS
 
 Requires iOS 12.0 or newer. Add a camera usage description to
@@ -27,6 +32,10 @@ Requires iOS 12.0 or newer. Add a camera usage description to
 <string>Scan barcodes with the camera.</string>
 ```
 
+Set your application's iOS deployment target to at least 12.0 as well.
+The scanner requests camera permission when it starts. If permission was denied,
+the user must grant it in system settings before retrying.
+
 ### Android
 
 Set the minimum Android SDK version to 21 or higher in
@@ -35,6 +44,10 @@ Set the minimum Android SDK version to 21 or higher in
 ```groovy
 minSdkVersion 21
 ```
+
+The plugin compiles against Android SDK 34 and targets Java 17. Use a compatible
+Android build toolchain. Its manifest declares the camera permission, and the
+plugin requests runtime permission when capture starts.
 
 ## Declarative usage
 
@@ -64,7 +77,7 @@ class ScannerPage extends StatefulWidget {
 
 /// Retains scanner settings across ordinary rebuilds.
 class _ScannerPageState extends State<ScannerPage> {
-  /// Whether preview and recognition are paused while the camera stays warm.
+  /// Whether preview and recognition are paused.
   bool _paused = false;
 
   /// Whether the user requests barcode recognition.
@@ -92,8 +105,8 @@ class _ScannerPageState extends State<ScannerPage> {
   @override
   Widget build(BuildContext context) {
     final error = _error;
-    final message = error is CameraControlException
-        ? '${error.operation.wireValue}: ${error.cause ?? error.message}'
+    final message = error is CameraException
+        ? '${error.message ?? 'Camera failed'}${error.cause == null ? '' : ': ${error.cause}'}'
         : error?.toString();
     return Scaffold(
       appBar: AppBar(title: const Text('Barcode scanner')),
@@ -150,6 +163,17 @@ place the scanner in a Flutter `Stack` with an `IgnorePointer` overlay.
 | `scanning` | `false` | Enables barcode recognition when the scanner can capture. |
 | `scanDelay` | `0` | Milliseconds of cooldown after a successful recognition. |
 
+A valid `zoomRatio` is finite and greater than zero. The native camera also
+checks its supported minimum and maximum; an unsupported ratio produces an error
+instead of being clamped. The public API does not expose zoom-range discovery.
+Enabling the torch on a camera without one also produces an error.
+
+`scanDelay` must be an integer from `0` to `2147483647`. Crop scales must be finite
+and positive; offsets must be finite. Invalid configuration is reported through
+`onError` without replacing the last accepted settings. Correct the properties
+and rebuild to apply a valid configuration. Passing a non-null `camera` on Android
+reports `UnsupportedError`; Android uses the default back camera.
+
 A scanner displays its preview without recognizing barcodes until `scanning` is
 `true`. Set `scanning: false` to stop recognition while keeping the preview active.
 A manual pause retains the image and settings. Resuming before the shutdown
@@ -157,8 +181,11 @@ deadline reuses the camera; resuming later initializes it again. Camera controls
 apply immediately while the paused capture remains warm. After expiry, settings
 are retained for resume and focus is unavailable. Recognition requires both `scanning: true` and
 `cameraPaused: false`. Changes to `scanDelay` are retained until recognition resumes.
-`scanDelay: 0` removes the successful-result cooldown; failed attempts still
-follow native frame sampling and throttling.
+`scanDelay: 0` removes the successful-result cooldown. Both platforms wait
+**1000 ms after an attempt without a barcode**, measured from completion.
+There is no initial recognition cooldown. Analysis duration and frame availability
+also affect the interval between results, so `scanDelay` is not a fixed scan rate.
+Changing it affects future successful-result cooldowns, not a deadline already scheduled.
 
 Zoom, flash and crop changes from the same widget update share one native
 `updateCameraSettings` call containing only changed fields. The reply waits for
@@ -172,18 +199,73 @@ Call it only on iOS and handle its future's errors independently. The single-scr
 [example](example/lib/main.dart) demonstrates discovery, null resets, zoom, crop,
 torch, recognition delay and per-scanner retry.
 
+`IosCamera` selects by `IosCameraType` and `IosCameraPosition`, not by a device ID.
+Selection depends on available hardware. Changing the camera may restart capture;
+choose zoom and torch settings supported by the new camera.
+
 `onChangeFlashState` reports actual torch changes on iOS. Keep observed torch state
 separate from `flashEnabled` when the UI needs to distinguish desired and actual
 state. A black cover hides missing, starting or stopped camera output until the
 native stream is live. A live shared texture appears immediately during capture
 handoff, without waiting for settings or recognition; zoom changes may be visible.
 
+### Recognition area and focus
+
+`CropRect` uses normalized coordinates relative to the visible preview:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `scaleWidth` | `1` | Recognition width divided by preview width. |
+| `scaleHeight` | `1` | Recognition height divided by preview height. |
+| `offsetX` | `0` | Horizontal center displacement divided by half the preview width. |
+| `offsetY` | `0` | Vertical center displacement divided by half the preview height. |
+
+For example, `CropRect(scaleWidth: .8, scaleHeight: .5, offsetX: .2)` selects an
+area 80% as wide and 50% as tall as the preview. Its center is at 60% of the preview
+width and 50% of its height. Rectangles may extend outside the preview; recognition
+uses their intersection with the visible frame. An empty intersection produces no result.
+
+The preview uses centered `BoxFit.cover`, including rotation and front-camera
+mirroring. Tap anywhere on the scanner to request continuous autofocus at the
+**crop center**, or long press to request locked focus there. The touch position
+does not select the focus point. Focus depends on camera capabilities and is
+available only to the current camera owner after startup, including during a warm
+manual pause. It is unavailable after the shutdown deadline.
+
+### Barcode results
+
+`onScan` receives one `Barcode` per successful recognition attempt, rather than a
+list of every visible barcode. It contains `rawValue` (a non-null string), nullable
+`displayValue`, `format` and `valueType`. Results without a raw value are not delivered.
+The same barcode can be delivered repeatedly; set `scanning: false` after accepting
+a result or deduplicate values in your application.
+
+Supported formats are Code 128, Code 39, Code 93, Codabar, Data Matrix, EAN-13,
+EAN-8, ITF, QR Code, UPC-A, UPC-E, PDF417 and Aztec. The public API does not accept
+a format filter. `BarcodeFormat.unknown` and `BarcodeValueType.unknown` represent
+unrecognized native classification codes.
+
 ### Error handling
 
-`onError` is an optional `ValueChanged<Object>`. It receives scanner initialization,
-capture and control failures with their original runtime types, including
-`CameraControlException` and its operation/cause details. Do not narrow the
-callback argument to `PlatformException` or stringify errors before storing them.
+`onError` is an optional `ValueChanged<Object>`. It receives configuration,
+initialization, capture, control and preview-image retention failures with their
+original runtime types. These include `ArgumentError`, `RangeError`,
+`UnsupportedError`, `PlatformException` and `CameraException`.
+Do not narrow the callback argument to `PlatformException` or stringify errors
+before storing them.
+
+`CameraException` extends `PlatformException`. Its `message` describes the failed
+camera action; `viewId`, `cause` and `cameraStateErrorCode` provide optional
+diagnostic context. Native cause and camera-state details
+may be absent. Not every platform error is a `CameraException`.
+Messages are intended for display and logging, rather than programmatic matching.
+The native cause includes its type, message and an optional stack trace.
+On iOS, the stack records where the failure was reported.
+Without `onError`, errors are reported through `FlutterError.reportError`.
+Asynchronous disposal failures also use Flutter's error handler.
+
+Recognition attempts that find no barcode and native per-frame recognition errors
+do not invoke `onError`; they use the unsuccessful-attempt cooldown.
 
 Error callbacks are delivered outside build and are suppressed after their
 scanner is disposed. They may safely call `setState`, remove the scanner, or
@@ -192,27 +274,72 @@ new `UniqueKey` only when you intend to replace that scanner's lifetime, such as
 explicit retry after an error. Errors from an old disposed scanner cannot affect
 its replacement.
 
+An unchanged rebuild does not automatically retry failed startup. Replace the
+scanner's key for an explicit retry. Fix invalid properties before retrying;
+recreating the widget cannot make unsupported hardware settings valid.
+
 ### Migration from the controller API
 
-`BarcodeScannerController` is internal and is no longer exported or exposed by
-`BarcodeScanner`. Replace imperative commands with widget properties backed by
-application state:
+Replace `initialArguments` and controller commands with widget properties backed
+by application state. `BarcodeScannerController` is internal and is no longer
+exported or exposed by `BarcodeScanner`. Use `setState` or your existing state
+management solution to change settings.
 
-| Previous API | Declarative replacement |
+When upgrading from 0.6.0 to 0.7.0, replace the previous API as follows:
+
+| Previous API in 0.6.0 | Replacement in 0.7.0 |
 | --- | --- |
-| `initialZoomRatio`, `setZoomRatio(value)` | `zoomRatio: value` |
-| `initialFlashEnabled`, `toggleFlash()` | `flashEnabled: enabled`; toggle your state variable |
-| `initialCropRect`, `setCropArea(value)` | `cropRect: value`; `null` restores the full preview |
-| `initialCamera`, `setIosCamera(...)` | `camera: selectedCamera`; `null` restores the default |
-| `pauseCamera()` / `resumeCamera()` | `cameraPaused: true` / `false` |
-| `startScan(delay)` | `scanning: true, scanDelay: delay` |
-| `cancelScan()` | `scanning: false` |
-| `setDelay(milliseconds)` | `scanDelay: milliseconds` |
-| `onScannerInitialized` | Remove it; pass desired settings directly |
-| `onCameraInitializeError` | `onError: (Object error) { ... }` |
+| `initialArguments: AndroidScannerParameters(...)` | Pass `zoomRatio` and `cropRect` directly. |
+| `initialArguments: IosScannerParameters(...)` | Pass `zoomRatio`, `cropRect` and `camera` directly. |
+| `ScannerParameters.cropRect` / `setCropArea(rect)` | `cropRect: rect`; `null` restores the full visible preview. |
+| `AndroidScannerParameters.zoom`, `IosScannerParameters.zoom` / `setZoom(value)` | `zoomRatio: ratio`; convert the zoom scale as described below. |
+| `IosScannerParameters.camera` / `setIosCamera(position: ..., type: ...)` | `camera: IosCamera(position: ..., type: ...)`; `null` selects the default. |
+| `toggleFlash()` | Toggle your boolean state and pass `flashEnabled: enabled`. |
+| `pauseCamera()` / `resumeCamera()` | Set `cameraPaused` to `true` / `false`. |
+| `startScan(delay)` | Set `scanning: true` and `scanDelay: delay`. |
+| `cancelScan()` | Set `scanning: false`. |
+| `setDelay(milliseconds)` | Update `scanDelay`. |
+| `onScannerInitialized(controller)` | Remove it; provide desired settings from the first build. |
+| `onCameraInitializeError` | Use `onError: (Object error) { ... }`. |
 
-Use `setState` or your existing state-management solution to change these values.
-A repeated build with unchanged settings does not require an initialization hook.
+The public `BarcodeScannerController`, `BarcodeScannerInitializeCallback`,
+`ScannerParameters`, `AndroidScannerParameters` and `IosScannerParameters` are
+removed. The `CameraInitilizeError` typedef from `widgets/camera_preview.dart` is
+also removed. Remove imports of the deleted parameter files and use
+`package:mlkit_scanner/mlkit_scanner.dart` for the public scanner API.
+
+There is no public initialization-completion callback or command future;
+an error callback reports failures rather than readiness. Rebuild with the latest
+desired state. Updates made while an operation is pending are coalesced, so
+intermediate values may never reach the hardware. Recognition remains disabled
+until you request it with `scanning: true`.
+
+The old `setZoom(value)` and initialization `zoom` used normalized values from `0`
+to `1`. `zoomRatio` now expresses absolute magnification. Do not copy normalized
+values directly: `0` is invalid, and `0.5` requests a ratio of `0.5`, not halfway
+through the zoom range. Start with `1.0` or choose supported absolute ratios.
+On iOS, the old implementation used
+`min(1 + value * 5, camera.maxAvailableVideoZoomFactor)`. Android followed the
+previous backend's scale; there is no universal conversion for both platforms.
+
+Review [Settings and defaults](#settings-and-defaults) for validation and timing
+changes. `scanDelay` no longer imposes an initial delay or controls attempts without
+a barcode. Use `scanning: false` to postpone recognition. Use
+[Error handling](#error-handling) to migrate typed callbacks and startup retry.
+Manual pause can now release camera resources; see
+[Navigation and resource lifetime](#navigation-and-resource-lifetime) before
+relying on a camera staying warm.
+
+If you imported `widgets/camera_preview.dart` directly, its previous standalone
+camera lifecycle is removed. `CameraPreview` now renders supplied texture metadata;
+it does not initialize or own the camera. Use
+`BarcodeScanner(scanning: false, onScan: ...)` for a managed preview without recognition.
+
+Direct integrations with `platform/ml_kit_channel.dart` also require changes.
+`MlKitChannel` is now final, and capture, event and preview contracts use ownership
+handles and subscriptions. Prefer the exported widget and `MLKitUtils` APIs.
+`MLKitUtils.getIosAvailableCameras()` remains available without a controller;
+call it only on iOS and handle errors through its returned future.
 
 ## Navigation and resource lifetime
 
@@ -220,6 +347,8 @@ Each widget retains its own zoom, torch, crop, camera and recognition settings.
 Visible scanners share a camera stream and texture; the selected scanner supplies
 current settings and receives results. Switching routes reuses that output,
 and each screen can show the live stream while its own capture is still being configured.
+Only one scanner owns camera controls and recognition at a time. Multiple visible
+widgets do not provide independent camera streams or simultaneous recognition.
 
 Opening a dropdown, dialog or modal bottom sheet above the scanner suspends
 recognition while keeping its camera session and live preview. Closing the modal
@@ -266,6 +395,8 @@ behind a page without a scanner. Returning to that widget keeps its image visibl
 through a cold startup, until a live stream is available. A newly created widget
 has no saved image: it immediately shows a warm live stream, or a black cover while
 waiting for cold startup. It never uses a stopped shared texture as its snapshot.
+If no camera frame has been painted yet, there is no image to retain. Retention
+failures are reported through `onError`; a saved image is not guaranteed in that case.
 Camera handoff and resource disposal wait for pending image copies. Saved images
 are released when live preview resumes or their widget is disposed.
 
@@ -276,9 +407,6 @@ release remain internal operations, separate from `cameraPaused`.
 Cold startup, camera switching, permission dialogs and renderer behavior still
 take time. Capture completion does not measure Flutter's first rendered frame.
 Measure visual latency and transitions on target devices.
-
-Crop and focus coordinates are relative to the widget's centered `BoxFit.cover`
-image, including rotation and front-camera mirroring.
 
 ## Contributing
 

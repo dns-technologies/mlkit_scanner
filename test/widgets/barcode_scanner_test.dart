@@ -427,7 +427,7 @@ void main() {
       await tester.pump();
       harness.handler = (call) async {
         if (call.method == 'updateCameraSettings') {
-          throw PlatformException(code: '9', details: {'operation': 'zoom'});
+          throw PlatformException(code: '9', message: 'Failed to set camera zoom ratio to 2.0');
         }
         return null;
       };
@@ -435,7 +435,8 @@ void main() {
       await tester.pump();
       expect(first, isEmpty);
       expect(latest, hasLength(1));
-      expect(latest.single, isA<CameraControlException>());
+      expect(latest.single, isA<CameraException>());
+      expect((latest.single as CameraException).message, contains('zoom'));
       expect(harness.errors, isEmpty);
       await close(tester);
     });
@@ -702,10 +703,10 @@ void main() {
       await tester.pump();
       await tester.tap(find.byType(ScannerOverlay));
       await tester.pump();
-      zoom.completeError(PlatformException(code: '9', details: {'operation': 'zoom'}));
+      zoom.completeError(PlatformException(code: '9', message: 'Failed to set camera zoom ratio to 2.0'));
       await tester.pump();
       expect(errors, hasLength(1));
-      expect(errors.single, isA<CameraControlException>());
+      expect(errors.single, isA<CameraException>());
       expect(harness.errors, isEmpty);
       await close(tester);
     });

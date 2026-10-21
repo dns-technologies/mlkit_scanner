@@ -1,10 +1,25 @@
 import Flutter
+import CoreGraphics
+import CoreMedia
+import Foundation
 import XCTest
 @testable import mlkit_scanner
 
 final class BaseScannerCommandTests: XCTestCase {
+    private var fixture: ScannerCommandFixture!
+
+    override func setUpWithError() throws {
+        fixture = try ScannerCommandFixture(activate: false)
+    }
+
+    override func tearDown() {
+        fixture?.scanner.release()
+        fixture = nil
+        super.tearDown()
+    }
+
     func testSuccessCompletesFlutterResultWithNil() {
-        let command = BaseScannerCommand(scannerDevice: RecordingScannerHardware())
+        let command = BaseScannerCommand(scanner: fixture.scanner)
         var invocationCount = 0
         var channelValue: Any? = true
 
@@ -18,7 +33,7 @@ final class BaseScannerCommandTests: XCTestCase {
     }
 
     func testCompleteMapsOptionalErrorToSuccessOrFailure() {
-        let command = BaseScannerCommand(scannerDevice: RecordingScannerHardware())
+        let command = BaseScannerCommand(scanner: fixture.scanner)
         var successValue: Any? = true
         var failureValue: Any?
 
@@ -35,9 +50,9 @@ final class BaseScannerCommandTests: XCTestCase {
     }
 
     func testCameraControlFailureUsesStableCodeAndStructuredDetails() {
-        let command = BaseScannerCommand(scannerDevice: RecordingScannerHardware())
-        let error = CameraControlError(
-            operation: .zoom,
+        let command = BaseScannerCommand(scanner: fixture.scanner)
+        let error = CameraError(
+            message: "Failed to set camera zoom ratio to 2.0",
             viewId: 42,
             underlyingError: BaseScannerCommandTestError.rejected
         )
@@ -47,15 +62,15 @@ final class BaseScannerCommandTests: XCTestCase {
 
         let flutterError = channelValue as? FlutterError
         XCTAssertEqual(flutterError?.code, "9")
-        XCTAssertEqual(flutterError?.message, "Camera control operation failed")
+        XCTAssertEqual(flutterError?.message, "Failed to set camera zoom ratio to 2.0")
         let details = flutterError?.details as? [String: Any]
-        XCTAssertEqual(details?["operation"] as? String, "zoom")
+        XCTAssertNil(details?["operation"])
         XCTAssertEqual(details?["viewId"] as? Int64, 42)
         XCTAssertNotNil(details?["cause"])
     }
 
     func testUnknownFailureKeepsItsLocalizedDescription() {
-        let command = BaseScannerCommand(scannerDevice: RecordingScannerHardware())
+        let command = BaseScannerCommand(scanner: fixture.scanner)
         var channelValue: Any?
 
         command.reportError(
@@ -77,68 +92,115 @@ private enum BaseScannerCommandTestError: Error {
     case rejected
 }
 
-final class RecordingScannerHardware: ScannerDevice {
-    var captureViewId: Int64?
-    var releasedCamera = false
-    var torchEnabled: Bool?
-    var startArguments: (type: RecognitionType, delay: Int)?
-    var cancelledScan = false
-    var scanDelay: Int?
-    var zoomRatio: Double?
-    var cropRect: CropRect?
-    var completionError: Error?
-    var thrownError: Error?
-    var releaseCount = 0
+/// Exercises concrete scanner commands with observable camera and analyzer boundaries.
+final class ScannerCommandFixture {
+    final class Camera: CameraPreviewing {
+        var isInitialized = false
+        var isTorchActive = false
+        var recognitionHandler: RecognitionHandler?
+        weak var cameraPreviewDelegate: CameraPreviewDelegate?
+        var captureViewId: Int64?
+        var torchEnabled: Bool?
+        var zoomRatio: Double?
+        var cropRect: CropRect?
+        var initializationError: Error?
+        var error: Error?
 
-
-    func captureCamera(viewId: Int64, configuration: ScannerConfiguration, completion: @escaping ScannerCompletion) {
-        captureViewId = viewId
-        completion(completionError)
-    }
-
-    func releaseCamera( completion: @escaping () -> Void) {
-        releasedCamera = true
-        completion()
-    }
-
-    func setTorch(enabled: Bool) throws {
-        try throwConfiguredError()
-        torchEnabled = enabled
-    }
-
-    func setZoomRatio(value: Double) throws {
-        try throwConfiguredError()
-        zoomRatio = value
-    }
-
-    func setCropArea(cropRect: CropRect) throws {
-        try throwConfiguredError()
-        self.cropRect = cropRect
-    }
-
-    func updateScanPeriod(delay: Int) throws {
-        try throwConfiguredError()
-        scanDelay = delay
-    }
-
-    func startScan(type: RecognitionType, delay: Int) throws {
-        try throwConfiguredError()
-        startArguments = (type, delay)
-    }
-
-    func cancelScan() throws {
-        try throwConfiguredError()
-        cancelledScan = true
-    }
-
-
-    func release() {
-        releaseCount += 1
-    }
-
-    private func throwConfiguredError() throws {
-        if let thrownError = thrownError {
-            throw thrownError
+        func initCamera(completion: @escaping (Error?) -> Void) {
+            isInitialized = initializationError == nil
+            completion(initializationError)
         }
+
+        func prepare(_ settings: ScannerConfiguration, geometry: CGSize, completion: @escaping (Error?) -> Void) {
+            isTorchActive = settings.torchEnabled
+            completion(nil)
+        }
+
+        func cancelPendingStart(completion: @escaping () -> Void) { completion() }
+        func setCamera(_ cameraData: CameraData) throws {}
+
+        func setFlash(_ enabled: Bool) throws {
+            if let error = error { throw error }
+            torchEnabled = enabled
+            isTorchActive = enabled
+        }
+
+        func resetFocus() {}
+        func focus(locked: Bool) throws {}
+        func resumeCamera(completion: @escaping (Error?) -> Void) { completion(nil) }
+        func pauseCamera(completion: @escaping () -> Void) { completion() }
+
+        func setZoomRatio(_ value: Double) throws {
+            if let error = error { throw error }
+            zoomRatio = value
+        }
+
+        func setCropArea(_ cropRect: CropRect) { self.cropRect = cropRect }
+        func updateGeometry(_ size: CGSize) {}
+
+        func dispose(completion: @escaping () -> Void) {
+            isInitialized = false
+            completion()
+        }
+    }
+
+    final class Analyzer: BarcodeAnalyzing, RecognitionHandler {
+        let type = RecognitionType.barcodeRecognition
+        var scanDelay: Int?
+        var subscription: ScanResultSubscription?
+
+        func setDelay(delay: Int) { scanDelay = delay }
+        func updateCropRect(cropRect: CropRect) {}
+
+        func subscribe(_ onResult: @escaping (ScannerBarcode) -> Void) -> ScanResultSubscription {
+            unsubscribe()
+            let listener = ScanResultSubscription(onResult)
+            subscription = listener
+            return listener
+        }
+
+        func input(for listener: ScanResultSubscription) -> RecognitionHandler { self }
+
+        func unsubscribe() {
+            subscription?.cancel()
+            subscription = nil
+        }
+
+        func processVideoOutput(sampleBuffer: CMSampleBuffer, viewport: CGSize) {}
+    }
+
+    let camera: Camera
+    let analyzer: Analyzer
+    let scanner: mlkit_scanner.Scanner
+
+    init(activate: Bool = true) throws {
+        let camera = Camera()
+        let analyzer = Analyzer()
+        self.camera = camera
+        self.analyzer = analyzer
+        scanner = mlkit_scanner.Scanner(
+            onScanResult: { _, _ in },
+            onTorchChanged: { viewId, _ in camera.captureViewId = viewId },
+            notificationCenter: NotificationCenter(),
+            cameraFactory: { camera },
+            analyzerFactory: { analyzer },
+            requestPermission: { $0(true) }
+        )
+        scanner.register(viewId: 42)
+        if activate {
+            var completed = false
+            var failure: Error?
+            let configuration = try ScannerConfiguration(arguments: ["zoomRatio": 1.0, "torchEnabled": false])
+            scanner.captureCamera(viewId: 42, configuration: configuration) {
+                failure = $0
+                completed = true
+            }
+            if let failure = failure { throw failure }
+            XCTAssertTrue(completed, "Fixture capture must complete synchronously")
+        }
+    }
+
+    deinit {
+        scanner.release()
     }
 }

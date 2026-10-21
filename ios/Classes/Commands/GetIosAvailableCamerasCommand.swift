@@ -6,11 +6,11 @@ final class GetIosAvailableCamerasCommand: ScannerCommand {
     private let cameraUtil: CameraUtil
 
     init(
-        scannerDevice: ScannerDevice,
+        scanner: Scanner,
         cameraUtil: CameraUtil = CameraUtil()
     ) {
         self.cameraUtil = cameraUtil
-        super.init(scannerDevice: scannerDevice)
+        super.init(scanner: scanner)
     }
 
     override func executeCommand(

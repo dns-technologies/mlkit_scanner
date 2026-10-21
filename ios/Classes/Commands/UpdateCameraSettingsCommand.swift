@@ -13,9 +13,9 @@ final class UpdateCameraSettingsCommand: ScannerCommand {
             try ScannerMethodArguments.cropRect([PluginConstants.cropRectArgument: $0])
         }
 
-        if let crop = crop { try scannerDevice.setCropArea(cropRect: crop) }
-        if let zoom = zoom { try scannerDevice.setZoomRatio(value: zoom) }
-        if let torch = torch { try scannerDevice.setTorch(enabled: torch) }
+        if let crop = crop { try scanner.setCropArea(cropRect: crop) }
+        if let zoom = zoom { try scanner.setZoomRatio(value: zoom) }
+        if let torch = torch { try scanner.setTorch(enabled: torch) }
         success(result)
     }
 }

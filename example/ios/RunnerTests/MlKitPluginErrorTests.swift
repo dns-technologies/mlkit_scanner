@@ -20,28 +20,28 @@ final class MlKitPluginErrorTests: XCTestCase {
         }
     }
 
-    func testCameraControlErrorSerializesAvailableDiagnosticContext() {
-        let error = CameraControlError(
-            operation: .awaitOpen,
+    func testCameraErrorSerializesAvailableDiagnosticContext() {
+        let error = CameraError(
+            message: "Camera failed to open",
             viewId: 12,
             underlyingError: PluginErrorTestCause.rejected,
             cameraStateErrorCode: 3
         )
 
-        XCTAssertEqual(error.localizedDescription, CameraControlError.errorMessage)
-        XCTAssertEqual(error.channelDetails["operation"] as? String, "awaitOpen")
+        XCTAssertEqual(error.localizedDescription, "Camera failed to open")
+        XCTAssertNil(error.channelDetails["operation"])
         XCTAssertEqual(error.channelDetails["viewId"] as? Int64, 12)
         XCTAssertEqual(error.channelDetails["cameraStateErrorCode"] as? Int, 3)
         let cause = error.channelDetails["cause"] as? [String: String]
         XCTAssertTrue(cause?["type"]?.contains("PluginErrorTestCause") == true)
         XCTAssertNotNil(cause?["message"])
+        XCTAssertNotNil(cause?["stackTrace"])
     }
 
-    func testCameraControlErrorOmitsUnavailableOptionalContext() {
-        let details = CameraControlError(operation: .torch).channelDetails
+    func testCameraErrorOmitsUnavailableOptionalContext() {
+        let details = CameraError(message: "Failed to enable camera torch").channelDetails
 
-        XCTAssertEqual(details.count, 1)
-        XCTAssertEqual(details["operation"] as? String, "torch")
+        XCTAssertTrue(details.isEmpty)
     }
 }
 

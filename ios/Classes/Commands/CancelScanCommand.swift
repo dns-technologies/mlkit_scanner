@@ -4,7 +4,7 @@ import Flutter
 final class CancelScanCommand: ScannerCommand {
 
     override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
-        try scannerDevice.cancelScan()
+        try scanner.cancelScan()
         success(result)
     }
 }

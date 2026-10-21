@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:mlkit_scanner/exceptions/camera_control_exception.dart';
+import 'package:mlkit_scanner/exceptions/camera_exception.dart';
 import 'package:mlkit_scanner/models/barcode.dart';
 import 'package:mlkit_scanner/models/crop_rect.dart';
 import 'package:mlkit_scanner/models/ios_camera.dart';
@@ -34,7 +34,7 @@ class BarcodeScanner extends StatefulWidget {
 
   /// Receives configuration, initialization and camera operation failures.
   ///
-  /// Native control failures retain their [CameraControlException] type. The
+  /// Native control failures retain their [CameraException] type. The
   /// callback may rebuild or replace this scanner; use a new key to restart it.
   /// Without a callback, Flutter reports the error.
   /// Errors from superseded captures and disposed widgets are not delivered.

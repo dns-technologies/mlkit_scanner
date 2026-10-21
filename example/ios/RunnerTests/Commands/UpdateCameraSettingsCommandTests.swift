@@ -3,10 +3,11 @@ import XCTest
 @testable import mlkit_scanner
 
 final class UpdateCameraSettingsCommandTests: XCTestCase {
-    func testAppliesAllSuppliedSettingsWithOneReply() {
-        let device = RecordingScannerHardware()
+    func testAppliesAllSuppliedSettingsWithOneReply() throws {
+        let device = try ScannerCommandFixture()
+        defer { device.scanner.release() }
         var replies = 0
-        UpdateCameraSettingsCommand(scannerDevice: device).execute(
+        UpdateCameraSettingsCommand(scanner: device.scanner).execute(
             FlutterMethodCall(methodName: "updateCameraSettings", arguments: [
                 "zoomRatio": 2.5, "torchEnabled": true, "cropRect": ["scaleWidth": 0.5],
             ])
@@ -15,22 +16,23 @@ final class UpdateCameraSettingsCommandTests: XCTestCase {
             replies += 1
         }
         XCTAssertEqual(replies, 1)
-        XCTAssertEqual(device.zoomRatio, 2.5)
-        XCTAssertEqual(device.torchEnabled, true)
-        XCTAssertEqual(device.cropRect?.scaleWidth, 0.5)
+        XCTAssertEqual(device.camera.zoomRatio, 2.5)
+        XCTAssertEqual(device.camera.torchEnabled, true)
+        XCTAssertEqual(device.camera.cropRect?.scaleWidth, 0.5)
     }
 
-    func testOmittedFieldsAreUntouchedAndFalseTorchIsApplied() {
-        let device = RecordingScannerHardware()
-        UpdateCameraSettingsCommand(scannerDevice: device).execute(
+    func testOmittedFieldsAreUntouchedAndFalseTorchIsApplied() throws {
+        let device = try ScannerCommandFixture()
+        defer { device.scanner.release() }
+        UpdateCameraSettingsCommand(scanner: device.scanner).execute(
             FlutterMethodCall(methodName: "updateCameraSettings", arguments: ["torchEnabled": false])
         ) { XCTAssertNil($0) }
-        XCTAssertEqual(device.torchEnabled, false)
-        XCTAssertNil(device.zoomRatio)
-        XCTAssertNil(device.cropRect)
+        XCTAssertEqual(device.camera.torchEnabled, false)
+        XCTAssertNil(device.camera.zoomRatio)
+        XCTAssertNil(device.camera.cropRect)
     }
 
-    func testMalformedBatchDoesNotApplyAnySettings() {
+    func testMalformedBatchDoesNotApplyAnySettings() throws {
         let invalid: [Any?] = [
             nil,
             ["zoomRatio": 2.0, "torchEnabled": 1],
@@ -42,33 +44,36 @@ final class UpdateCameraSettingsCommandTests: XCTestCase {
             ["cropRect": NSNull()],
         ]
         for arguments in invalid {
-            let device = RecordingScannerHardware()
+            let device = try ScannerCommandFixture()
+            defer { device.scanner.release() }
             var replies = 0
-            UpdateCameraSettingsCommand(scannerDevice: device).execute(
+            UpdateCameraSettingsCommand(scanner: device.scanner).execute(
                 FlutterMethodCall(methodName: "updateCameraSettings", arguments: arguments)
             ) {
                 XCTAssertEqual(($0 as? FlutterError)?.code, MlKitPluginError.invalidArguments.rawValue)
                 replies += 1
             }
             XCTAssertEqual(replies, 1)
-            XCTAssertNil(device.zoomRatio)
-            XCTAssertNil(device.torchEnabled)
-            XCTAssertNil(device.cropRect)
+            XCTAssertNil(device.camera.zoomRatio)
+            XCTAssertNil(device.camera.torchEnabled)
+            XCTAssertNil(device.camera.cropRect)
         }
     }
 
-    func testControlFailureStopsTheBatchAndPreservesTypedError() {
-        let device = RecordingScannerHardware()
-        device.thrownError = CameraControlError(operation: .zoom, viewId: 42)
+    func testControlFailureStopsTheBatchAndPreservesTypedError() throws {
+        let device = try ScannerCommandFixture()
+        defer { device.scanner.release() }
+        device.camera.error = CameraError(message: "Failed to set camera zoom ratio to 2.0", viewId: 42)
         var replies = 0
-        UpdateCameraSettingsCommand(scannerDevice: device).execute(
+        UpdateCameraSettingsCommand(scanner: device.scanner).execute(
             FlutterMethodCall(methodName: "updateCameraSettings", arguments: ["zoomRatio": 2.0, "torchEnabled": true])
         ) {
             XCTAssertEqual(($0 as? FlutterError)?.code, "9")
+            XCTAssertEqual(($0 as? FlutterError)?.message, "Failed to set camera zoom ratio to 2.0")
             replies += 1
         }
         XCTAssertEqual(replies, 1)
-        XCTAssertNil(device.zoomRatio)
-        XCTAssertNil(device.torchEnabled)
+        XCTAssertNil(device.camera.zoomRatio)
+        XCTAssertNil(device.camera.torchEnabled)
     }
 }

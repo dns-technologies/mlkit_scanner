@@ -34,10 +34,9 @@ internal sealed class PluginError(
     /** The scanner session was released before the requested operation completed. */
     object CameraSessionDisposed : PluginError("8", "Camera session has been disposed")
 
-    /** An asynchronous camera control operation failed. */
-    class CameraControlError(
-        /** Camera operation whose asynchronous completion failed. */
-        val operation: CameraControlOperation,
+    /** Camera failure described at the point where it occurred. */
+    class CameraError(
+        message: String,
         /** Consumer identifier associated with the failed operation, when known. */
         val viewId: Int? = null,
         cause: Throwable? = null,
@@ -46,48 +45,29 @@ internal sealed class PluginError(
     ) :
         PluginError(
             errorCode = ERROR_CODE,
-            message = ERROR_MESSAGE,
+            message = message,
             cause = cause,
             details =
                 mapOf(
-                    "operation" to operation.wireValue,
                     "viewId" to viewId,
                     "cause" to cause?.toChannelDetails(),
                     "cameraStateErrorCode" to cameraStateErrorCode,
                 ),
         ) {
         /** Adds session context without losing the original native failure. */
-        fun contextualize(operation: CameraControlOperation, viewId: Int): CameraControlError =
-            CameraControlError(
-                operation = operation,
+        fun contextualize(viewId: Int): CameraError =
+            CameraError(
+                message = message,
                 viewId = viewId,
                 cause = cause,
                 cameraStateErrorCode = cameraStateErrorCode,
             )
 
         internal companion object {
-            /** Stable channel code identifying camera-control failures. */
+            /** Stable channel code identifying camera failures. */
             const val ERROR_CODE = "9"
-            /** Shared public message for contextualized camera-control failures. */
-            const val ERROR_MESSAGE = "Camera control operation failed"
         }
     }
-}
-
-/**
- * Camera operation associated with a camera-control failure.
- *
- * @property wireValue Stable operation name serialized in channel error details.
- */
-internal enum class CameraControlOperation(val wireValue: String) {
-    /** Waiting for the camera device to become ready. */
-    AWAIT_OPEN("awaitOpen"),
-    /** Applying an absolute zoom ratio. */
-    ZOOM("zoom"),
-    /** Applying the desired flash illumination state. */
-    TORCH("torch"),
-    /** Updating or resetting camera focus metering. */
-    FOCUS("focus"),
 }
 
 /** Converts an original native failure to StandardMessageCodec-compatible details. */
