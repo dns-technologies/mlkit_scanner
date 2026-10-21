@@ -5,21 +5,18 @@ import androidx.lifecycle.LifecycleOwner
 import java.util.concurrent.ExecutorService
 import kotlinx.coroutines.Deferred
 
-/** Callback invoked after camera initialization succeeds. */
-typealias OnInit = () -> Unit
-
 /** Callback invoked when camera initialization fails. */
 typealias OnError = (e: Exception) -> Unit
 
 /** Callback invoked with a frame scoped to the duration of the callback. */
 typealias OnCameraFrame = (frame: CameraFrame) -> Unit
 
-/** Callback invoked when the camera preview becomes ready or stops streaming. */
+/** Callback invoked when the camera device opens or becomes unavailable. */
 typealias OnCameraAvailabilityChanged = (availability: CameraAvailability) -> Unit
 
 /** Camera device availability and optional opening failure. */
 sealed interface CameraAvailability {
-    /** The camera is open and the preview has started delivering frames. */
+    /** The camera device is open; preview-frame delivery is tracked separately. */
     data object Open : CameraAvailability
 
     /**
@@ -35,11 +32,14 @@ sealed interface CameraAvailability {
 /**
  * Camera binding, preview delivery and asynchronous device controls.
  *
- * Lifecycle and control calls run on the main thread. Controls act on the current binding and
- * return their asynchronous completion. Calls must be ordered externally; cancelling a returned
- * result does not guarantee cancellation of hardware work.
+ * Lifecycle calls, control calls and state callbacks run on the main thread. Controls act on the
+ * current binding and return their asynchronous completion. Calls must be ordered externally;
+ * cancelling a returned result does not guarantee cancellation of hardware work.
  */
 interface Camera {
+    /** Whether the current binding has opened and can accept device controls. */
+    val isReady: Boolean
+
     /** Reports current preview metadata, or null when output is withdrawn. */
     var onPreviewChanged: (CameraPreviewDescription?) -> Unit
 
@@ -49,15 +49,17 @@ interface Camera {
     /** Updates the preview viewport used to map recognition crops and focus coordinates. */
     fun updateGeometry(size: Size)
 
-    /** Binds preview and frame analysis to the supplied lifecycle and callbacks. */
+    /**
+     * Binds preview and analysis, completing after the device opens. Concurrent starts share
+     * the same completion. Cancelling a waiter does not unbind the shared camera.
+     */
     fun bind(
         lifecycleOwner: LifecycleOwner,
         analysisExecutor: ExecutorService,
         onFrame: OnCameraFrame,
         onAvailabilityChanged: OnCameraAvailabilityChanged,
-        onInit: OnInit,
         onError: OnError,
-    )
+    ): Deferred<Unit>
 
     /** Returns true when the camera has an active lifecycle binding. */
     fun isBound(): Boolean

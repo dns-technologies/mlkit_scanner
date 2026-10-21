@@ -22,6 +22,7 @@ import androidx.lifecycle.Observer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
 import java.util.concurrent.ExecutorService
+import kotlinx.coroutines.Deferred
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doReturn
@@ -51,6 +52,8 @@ internal class XCameraFixture {
     var onFrame: OnCameraFrame = {}
     var bindAction: () -> Camera = { nativeCamera }
     val camera: XCamera
+    private var acknowledged: Deferred<Unit>? = null
+    lateinit var readiness: Deferred<Unit>
 
     init {
         doReturn(cameraInfo).`when`(nativeCamera).cameraInfo
@@ -68,13 +71,16 @@ internal class XCameraFixture {
     }
 
     fun start(completeProvider: Boolean = true) {
-        camera.bind(lifecycleOwner, executor, { onFrame(it) }, {
+        readiness = camera.bind(lifecycleOwner, executor, { onFrame(it) }, {
             availability += it
             onAvailability(it)
-        }, {
-            initialized++
-            onInit()
         }, errors::add)
+        if (acknowledged !== readiness) {
+            acknowledged = readiness
+            readiness.invokeOnCompletion { error ->
+                if (error == null) { initialized++; onInit() }
+            }
+        }
         if (completeProvider) future.complete(provider)
         ShadowLooper.idleMainLooper()
     }

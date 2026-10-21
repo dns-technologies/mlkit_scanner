@@ -121,6 +121,215 @@ internal class XCameraTest {
 @Config(sdk = [34])
 internal class XCameraBindingTest {
     @Test
+    fun `binding completion waits until the device opens`() = withCameraFixture { f ->
+        f.deviceState.value = CameraState.create(CameraState.Type.CLOSED)
+        f.start()
+
+        assertTrue(f.camera.isBound())
+        assertFalse(f.camera.isReady)
+        assertFalse(f.readiness.isCompleted)
+
+        f.deviceState.value = CameraState.create(CameraState.Type.OPEN)
+
+        assertTrue(f.camera.isReady)
+        assertTrue(f.readiness.isCompleted)
+        assertFalse(f.readiness.isCancelled)
+    }
+
+    @Test
+    fun `open callbacks observe readiness on initial binding and surface restoration`() = withCameraFixture { f ->
+        val observed = mutableListOf<Boolean>()
+        f.onAvailability = { if (it == CameraAvailability.Open) observed += f.camera.isReady }
+
+        f.start()
+        f.surfaceCallback.onSurfaceCleanup()
+        f.surfaceCallback.onSurfaceAvailable()
+        ShadowLooper.idleMainLooper()
+
+        assertEquals(listOf(true, true), observed)
+    }
+
+    @Test
+    fun `concurrent starts share one binding completion`() = withCameraFixture { f ->
+        f.start(completeProvider = false)
+        val first = f.readiness
+        f.start(completeProvider = false)
+
+        assertSame(first, f.readiness)
+        f.future.complete(f.provider)
+        ShadowLooper.idleMainLooper()
+
+        assertTrue(first.isCompleted)
+        assertTrue(f.camera.isReady)
+        assertEquals(1, f.groups.size)
+    }
+
+    @Test
+    fun `surface restoration completes the original pending start`() = withCameraFixture { f ->
+        f.deviceState.value = CameraState.create(CameraState.Type.CLOSED)
+        f.start()
+        val waiting = f.readiness
+
+        f.surfaceCallback.onSurfaceCleanup()
+        assertFalse(waiting.isCompleted)
+        f.surfaceCallback.onSurfaceAvailable()
+        ShadowLooper.idleMainLooper()
+        f.deviceState.value = CameraState.create(CameraState.Type.OPEN)
+
+        assertTrue(waiting.isCompleted)
+        assertFalse(waiting.isCancelled)
+        assertTrue(f.camera.isReady)
+        assertEquals(2, f.groups.size)
+    }
+
+    @Test
+    fun `pause from a surface-loss callback prevents automatic restart`() = withCameraFixture { f ->
+        f.start()
+        f.onAvailability = { if (it is CameraAvailability.Closed) f.camera.unbind() }
+
+        f.surfaceCallback.onSurfaceCleanup()
+        f.surfaceCallback.onSurfaceAvailable()
+        ShadowLooper.idleMainLooper()
+
+        assertFalse(f.camera.isBound())
+        assertFalse(f.camera.isReady)
+        assertEquals(1, f.groups.size)
+    }
+
+    @Test
+    fun `unbind cancels the previous wait without affecting a replacement start`() = withCameraFixture { f ->
+        f.start(completeProvider = false)
+        val previous = f.readiness
+        f.camera.unbind()
+        f.start(completeProvider = false)
+
+        assertTrue(previous.isCancelled)
+        assertNotSame(previous, f.readiness)
+        assertFalse(f.readiness.isCompleted)
+        f.future.complete(f.provider)
+        ShadowLooper.idleMainLooper()
+
+        assertTrue(f.camera.isReady)
+        assertFalse(f.readiness.isCancelled)
+        assertEquals(1, f.groups.size)
+    }
+
+    @Test
+    fun `failure from a replaced binding cannot fail the current camera`() = withCameraFixture { f ->
+        val obsoleteFailure = IllegalStateException("Old binding failed")
+        var replace = true
+        f.bindAction = {
+            if (replace) {
+                replace = false
+                f.camera.unbind()
+                f.start(completeProvider = false)
+                throw obsoleteFailure
+            }
+            f.nativeCamera
+        }
+
+        f.start()
+
+        assertTrue(f.camera.isReady)
+        assertTrue(f.errors.isEmpty())
+        assertFalse(f.readiness.isCancelled)
+    }
+
+    @Test
+    fun `obsolete failure cannot complete the wait shared with surface restoration`() = withCameraFixture { f ->
+        var replace = true
+        f.bindAction = {
+            if (replace) {
+                replace = false
+                f.surfaceCallback.onSurfaceCleanup()
+                f.surfaceCallback.onSurfaceAvailable()
+                error("Obsolete surface binding")
+            }
+            f.nativeCamera
+        }
+
+        f.start()
+
+        assertTrue(f.camera.isReady)
+        assertFalse(f.readiness.isCancelled)
+        assertTrue(f.errors.isEmpty())
+    }
+
+    @Test
+    fun `replacement started by cleanup does not receive the old startup failure`() = withCameraFixture { f ->
+        var failFirst = true
+        var replace = true
+        f.onAvailability = {
+            if (it == CameraAvailability.Open && failFirst) {
+                failFirst = false
+                error("Old availability publication")
+            }
+            if (it is CameraAvailability.Closed && replace) {
+                replace = false
+                f.start(completeProvider = false)
+            }
+        }
+
+        f.start()
+
+        assertTrue(f.camera.isReady)
+        assertFalse(f.readiness.isCancelled)
+        assertTrue(f.errors.isEmpty())
+    }
+
+    @Test
+    fun `opening failure preserves native state diagnostics without a consumer`() = withCameraFixture { f ->
+        val cause = IllegalStateException("Device disconnected")
+        val stateError = CameraState.StateError.create(CameraState.ERROR_CAMERA_FATAL_ERROR, cause)
+        f.deviceState.value = CameraState.create(CameraState.Type.CLOSED, stateError)
+        f.start()
+
+        val failure = runBlocking { runCatching { f.readiness.await() }.exceptionOrNull() } as PluginError.CameraError
+
+        assertEquals("Camera failed to open", failure.message)
+        assertEquals(stateError.code, failure.cameraStateErrorCode)
+        assertSame(cause, failure.cause)
+        assertNull(failure.viewId)
+        assertFalse(f.camera.isReady)
+    }
+
+    @Test
+    fun `reopening after an error creates a fresh successful completion`() = withCameraFixture { f ->
+        f.start()
+        val previous = f.readiness
+        val error = CameraState.StateError.create(CameraState.ERROR_CAMERA_FATAL_ERROR)
+        f.deviceState.value = CameraState.create(CameraState.Type.CLOSED, error)
+        f.start(completeProvider = false)
+
+        assertNotSame(previous, f.readiness)
+        assertTrue(f.readiness.isCancelled)
+        f.deviceState.value = CameraState.create(CameraState.Type.OPEN)
+        f.start(completeProvider = false)
+
+        assertTrue(f.camera.isReady)
+        assertTrue(f.readiness.isCompleted)
+        assertFalse(f.readiness.isCancelled)
+        assertEquals(1, f.groups.size)
+    }
+
+    @Test
+    fun `cancelling one waiter leaves shared camera startup active`() = withCameraFixture { f ->
+        runBlocking {
+            f.deviceState.value = CameraState.create(CameraState.Type.CLOSED)
+            f.start()
+            val waiting = launch(start = CoroutineStart.UNDISPATCHED) { f.readiness.await() }
+
+            waiting.cancel()
+            waiting.join()
+
+            assertFalse(f.readiness.isCancelled)
+            f.deviceState.value = CameraState.create(CameraState.Type.OPEN)
+            assertTrue(f.camera.isReady)
+            f.readiness.await()
+        }
+    }
+
+    @Test
     fun `late provider completion after disposal does not bind or report error`() = withCameraFixture { f ->
         f.start(completeProvider = false)
         f.camera.dispose()
@@ -203,10 +412,9 @@ internal class XCameraBindingTest {
     }
 
     @Test
-    fun `throwing initialization callback cannot revive a disposed camera`() = withCameraFixture { f ->
+    fun `disposal from startup completion cannot revive the camera`() = withCameraFixture { f ->
         f.onInit = {
             f.camera.dispose()
-            error("Caller failed after disposal")
         }
         f.start()
 

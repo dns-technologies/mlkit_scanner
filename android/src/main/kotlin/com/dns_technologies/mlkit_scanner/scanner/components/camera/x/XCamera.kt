@@ -45,7 +45,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 
-/** CameraX binding with persistent texture output and frame analysis. */
+/** Owns CameraX binding readiness, device controls and persistent preview output. */
 @MainThread
 @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
 internal class XCamera(
@@ -79,6 +79,12 @@ internal class XCamera(
     private var pending: Start? = null
     /** Terminal flag rejecting new bindings and late callbacks. */
     private var disposed = false
+    /** Completion shared by callers waiting for the current binding to open. */
+    private var readiness = CompletableDeferred<Unit>()
+    /** Current attempt identity, retained through cleanup to reject obsolete failures. */
+    private var currentStart: Start? = null
+    override val isReady: Boolean
+        get() = !disposed && binding?.initialized == true && binding?.availability == CameraAvailability.Open
     /** Startup context retained only while Flutter's surface is unavailable. */
     private var suspended: Start? = null
     /** Current default-display rotation. */
@@ -104,9 +110,10 @@ internal class XCamera(
     init {
         displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
         output.onSurfaceLost = {
+            currentStart = null
             val start = binding?.start ?: pending
-            unbind()
             suspended = start
+            detachBinding()
         }
         output.onSurfaceRestored = {
             val start = suspended
@@ -117,7 +124,6 @@ internal class XCamera(
                     start.executor,
                     start.onFrame,
                     start.onAvailability,
-                    start.onInit,
                     start.onError,
                 )
         }
@@ -134,13 +140,22 @@ internal class XCamera(
         analysisExecutor: ExecutorService,
         onFrame: OnCameraFrame,
         onAvailabilityChanged: OnCameraAvailabilityChanged,
-        onInit: OnInit,
         onError: OnError,
-    ) {
+    ): Deferred<Unit> {
         if (disposed) throw PluginError.CameraSessionDisposed
-        if (binding != null || pending != null) return
+        if (binding != null || pending != null || suspended != null) return readiness
+        if (readiness.isCompleted) readiness = CompletableDeferred()
+        val completion = readiness
         val start =
-            Start(lifecycleOwner, analysisExecutor, onFrame, onAvailabilityChanged, onInit, onError)
+            Start(lifecycleOwner, analysisExecutor, onFrame, onAvailabilityChanged, onError)
+        startBinding(start)
+        return completion
+    }
+
+    /** Installs one SDK binding while keeping the completion independent of its waiters. */
+    private fun startBinding(start: Start) {
+        currentStart = start
+        val completion = readiness
         pending = start
         val future = providerLoader()
         future.addListener(
@@ -199,16 +214,26 @@ internal class XCamera(
                     pending = null
                     binding = current
                     camera.cameraInfo.cameraState.observeForever(current.observer)
-                    if (binding === current && !disposed) start.onInit()
+                    if (binding === current && !disposed) {
+                        current.initialized = true
+                        current.publishAvailability()
+                    }
                 } catch (error: Exception) {
-                    pending = null
-                    if (binding?.start === start) unbind()
+                    if (pending === start) pending = null
+                    if (binding?.start === start) detachBinding()
                     else {
                         val cases = listOfNotNull(attemptedPreview, attemptedAnalysis)
                         if (cases.isNotEmpty()) provider?.unbind(*cases.toTypedArray())
                         attemptedAnalysis?.clearAnalyzer()
                     }
-                    if (!disposed) start.onError(error)
+                    if (currentStart === start && !disposed) {
+                        try {
+                            completion.completeExceptionally(error)
+                            if (currentStart === start && !disposed) start.onError(error)
+                        } finally {
+                            if (currentStart === start) currentStart = null
+                        }
+                    }
                 }
             },
             mainExecutor,
@@ -326,10 +351,19 @@ internal class XCamera(
     private fun requireCamera() = binding?.camera ?: throw PluginError.CameraIsNotInitialized
 
     override fun unbind() {
+        currentStart = null
         suspended = null
+        readiness.cancel()
+        readiness = CompletableDeferred()
+        detachBinding()
+    }
+
+    /** Detaches use cases, preserving pending starts across temporary surface loss. */
+    private fun detachBinding() {
         pending = null
         val previous = binding
         binding = null
+        if (readiness.isCompleted) readiness = CompletableDeferred()
         if (previous != null) {
             previous.camera.cameraInfo.cameraState.removeObserver(previous.observer)
             provider?.unbind(previous.preview, previous.analysis)
@@ -361,8 +395,6 @@ internal class XCamera(
         val onFrame: OnCameraFrame,
         /** Receives camera readiness transitions for this binding. */
         val onAvailability: OnCameraAvailabilityChanged,
-        /** Acknowledges successful use-case binding. */
-        val onInit: OnInit,
         /** Reports terminal startup failures to the scanner. */
         val onError: OnError,
     )
@@ -378,22 +410,46 @@ internal class XCamera(
         val analysis: ImageAnalysis,
     ) {
         /** Last delivered state used to suppress duplicate readiness notifications. */
-        private var lastAvailability: CameraAvailability? = null
+        var availability: CameraAvailability? = null
+            private set
+        /** Whether binding setup returned without disposal or callback failure. */
+        var initialized = false
         /** Converts CameraX state changes into deduplicated availability events. */
         val observer =
             Observer<AndroidXCameraState> { state ->
-                if (binding === this) {
-                    val next =
-                        if (state.type == AndroidXCameraState.Type.OPEN && state.error == null)
-                            CameraAvailability.Open
-                        else CameraAvailability.Closed(state.error?.code, state.error?.cause)
-                    if (next != lastAvailability) {
-                        lastAvailability = next
-                        output.cameraAvailable(next == CameraAvailability.Open)
-                        start.onAvailability(next)
-                    }
-                }
+                if (binding === this) updateAvailability(state)
             }
+
+        /** Converts SDK state without publishing duplicate device transitions. */
+        private fun updateAvailability(state: AndroidXCameraState) {
+            val next =
+                if (state.type == AndroidXCameraState.Type.OPEN && state.error == null)
+                    CameraAvailability.Open
+                else CameraAvailability.Closed(state.error?.code, state.error?.cause)
+            if (next == availability) return
+            availability = next
+            if (next == CameraAvailability.Open) {
+                if (readiness.isCancelled) readiness = CompletableDeferred()
+            } else {
+                if (readiness.isCompleted) readiness = CompletableDeferred()
+                val closed = next as CameraAvailability.Closed
+                if (closed.errorCode != null) readiness.completeExceptionally(
+                    PluginError.CameraError(
+                        "Camera failed to open", cause = closed.cause,
+                        cameraStateErrorCode = closed.errorCode,
+                    )
+                )
+            }
+            output.cameraAvailable(next == CameraAvailability.Open)
+            if (initialized) publishAvailability()
+        }
+
+        /** Publishes only after setup, so observers see the readiness being reported. */
+        fun publishAvailability() {
+            val state = availability ?: return
+            start.onAvailability(state)
+            if (binding === this && isReady) readiness.complete(Unit)
+        }
     }
 
     companion object {

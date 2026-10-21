@@ -10,14 +10,12 @@ import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnector
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraAvailabilityChanged
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnError
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnInit
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
@@ -327,6 +325,7 @@ internal class ScannerTest {
     }
 
     private class FakeCamera : Camera {
+        override val isReady: Boolean get() = isBound()
         override var onPreviewChanged: (CameraPreviewDescription?) -> Unit = {}
         override val disposal = CompletableDeferred<Unit>()
         val zoomRatioValues = mutableListOf<Float>()
@@ -339,12 +338,11 @@ internal class ScannerTest {
             analysisExecutor: ExecutorService,
             onFrame: OnCameraFrame,
             onAvailabilityChanged: OnCameraAvailabilityChanged,
-            onInit: OnInit,
             onError: OnError,
-        ) {
+        ): Deferred<Unit> {
             this.onFrame = onFrame
-            onInit()
             onAvailabilityChanged(com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability.Open)
+            return CompletableDeferred(Unit)
         }
 
         fun emitFrame(frame: CameraFrame) {
@@ -458,19 +456,19 @@ internal class ScannerCaptureTest {
     }
 
     @Test
-    fun `binding and OPEN may arrive in either order`() = runBlocking<Unit> {
-        for (openFirst in listOf(true, false)) {
-            val f = Fixture()
-            try {
-                val capture = f.capture()
-                if (openFirst) f.availability(CameraAvailability.Open) else f.initialized()
-                assertFalse(capture.isCompleted)
-                if (openFirst) f.initialized() else f.availability(CameraAvailability.Open)
-                capture.await()
-                verify(f.camera).setZoomRatio(1F)
-                verify(f.camera).setTorch(false)
-            } finally { f.close() }
-        }
+    fun `capture waits for the camera adapter before applying controls`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            val capture = f.capture()
+            assertFalse(capture.isCompleted)
+            verify(f.camera, never()).resetFocus()
+
+            f.open()
+            capture.await()
+
+            verify(f.camera).setZoomRatio(1F)
+            verify(f.camera).setTorch(false)
+        } finally { f.close() }
     }
 
     @Test
@@ -492,7 +490,7 @@ internal class ScannerCaptureTest {
         val f = Fixture()
         val failure = IllegalStateException("binding")
         val cleanup = IllegalStateException("dispose")
-        doThrow(failure).`when`(f.camera).bind(anyValue(), anyValue(), anyValue(), anyValue(), anyValue(), anyValue())
+        doThrow(failure).`when`(f.camera).bind(anyValue(), anyValue(), anyValue(), anyValue(), anyValue())
         doThrow(cleanup).`when`(f.camera).dispose()
         val result = f.capture()
         val error = runCatching { result.await() }.exceptionOrNull()
@@ -507,7 +505,6 @@ internal class ScannerCaptureTest {
         val f = Fixture()
         try {
             val first = f.capture()
-            f.initialized()
             f.availability(CameraAvailability.Closed(errorCode = 3))
             assertTrue(runCatching { first.await() }.exceptionOrNull() is PluginError.CameraError)
             f.availability(CameraAvailability.Open)
@@ -516,7 +513,7 @@ internal class ScannerCaptureTest {
     }
 
     @Test
-    fun `OPEN failure before binding acknowledgement completes capture`() = runBlocking<Unit> {
+    fun `camera opening failure completes capture before readiness`() = runBlocking<Unit> {
         val f = Fixture()
         try {
             val capture = f.capture()
@@ -524,7 +521,6 @@ internal class ScannerCaptureTest {
             assertTrue(capture.isCompleted)
             val failure = runCatching { capture.await() }.exceptionOrNull()
             assertTrue(failure is PluginError.CameraError)
-            f.initialized()
             f.availability(CameraAvailability.Open)
             f.capture().await()
         } finally { f.close() }
@@ -585,13 +581,10 @@ internal class ScannerCaptureTest {
     }
 
     @Test
-    fun `next Dart capture rebinds replacement Activity and ignores old binding callbacks`() = runBlocking<Unit> {
+    fun `next Dart capture waits for the replacement Activity binding`() = runBlocking<Unit> {
         val f = Fixture()
         try {
             val oldCapture = f.capture()
-            val oldInit = f.initialized
-            val oldAvailability = f.availability
-            val oldFailure = f.failed
             f.scanner.detachActivity()
             oldCapture.await()
             val replacement = mock(Lifecycle::class.java)
@@ -605,13 +598,8 @@ internal class ScannerCaptureTest {
             assertEquals(2, f.boundOwners.size)
             assertSame(replacement, f.boundOwners.last().lifecycle)
 
-            oldInit()
-            oldAvailability(CameraAvailability.Open)
-            oldFailure(IllegalStateException("old Activity"))
             assertFalse(capture.isCompleted)
             assertFalse(f.scanner.isDisposed)
-            f.initialized()
-            assertFalse(capture.isCompleted)
             f.availability(CameraAvailability.Open)
             capture.await()
 
@@ -631,7 +619,6 @@ internal class ScannerCaptureTest {
             f.scanner.attachActivity(mock(Lifecycle::class.java))
             val capture = f.capture()
             assertEquals(2, f.boundOwners.size)
-            f.initialized()
             assertFalse(capture.isCompleted)
             f.availability(CameraAvailability.Open)
             capture.await()
@@ -810,6 +797,37 @@ internal class ScannerCaptureTest {
             error as PluginError.CameraError
             assertEquals("zoom", error.cause?.message)
             assertEquals(42, error.viewId)
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `camera failure preserves its local description and original native cause`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            f.activate()
+            val cause = IllegalStateException("Device disconnected")
+            val failure = PluginError.CameraError("Failed to set camera zoom ratio to 2.0", cause = cause)
+            f.zoom += CompletableDeferred<Unit>().apply { completeExceptionally(failure) }
+
+            val error = runCatching { f.scanner.setZoomRatio(2F) }.exceptionOrNull() as PluginError.CameraError
+
+            assertEquals(failure.message, error.message)
+            assertSame(cause, error.cause)
+            assertEquals(42, error.viewId)
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `controls before camera readiness identify the selected consumer`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            f.scanner.select(f.first)
+
+            val error = runCatching { f.scanner.setZoomRatio(2F) }.exceptionOrNull() as PluginError.CameraError
+
+            assertEquals("Camera is not ready", error.message)
+            assertEquals(42, error.viewId)
+            verify(f.camera, never()).setZoomRatio(anyFloat())
         } finally { f.close() }
     }
 
@@ -998,11 +1016,13 @@ internal class ScannerCaptureTest {
         val results = mutableListOf<Pair<Int, Barcode>>()
         val released = mutableListOf<Throwable>()
         lateinit var onFrame: OnCameraFrame
-        lateinit var initialized: () -> Unit
         lateinit var availability: (CameraAvailability) -> Unit
         lateinit var failed: (Exception) -> Unit
         lateinit var previewReady: () -> Unit
         val scanner: Scanner
+        private var readiness = CompletableDeferred<Unit>()
+        private var cameraReady = false
+        private var bound = false
 
         init {
             doAnswer { posts += it.getArgument<Runnable>(0); true }.`when`(handler).post(anyValue())
@@ -1013,14 +1033,36 @@ internal class ScannerCaptureTest {
             doReturn(CompletableDeferred(Unit)).`when`(camera).resetFocus()
             doReturn(CompletableDeferred(Unit)).`when`(camera).setTorch(anyBoolean())
             doAnswer { zoom.removeFirstOrNull() ?: CompletableDeferred(Unit) }.`when`(camera).setZoomRatio(anyFloat())
+            doAnswer { cameraReady }.`when`(camera).isReady
             doAnswer {
-                boundOwners += it.getArgument<LifecycleOwner>(0)
-                onFrame = it.getArgument(2); availability = it.getArgument(3); initialized = it.getArgument(4); failed = it.getArgument(5)
+                bound = false
+                cameraReady = false
+                readiness.cancel()
+                readiness = CompletableDeferred<Unit>()
                 null
-            }.`when`(camera).bind(anyValue(), anyValue(), anyValue(), anyValue(), anyValue(), anyValue())
+            }.`when`(camera).unbind()
+            doAnswer {
+                if (!bound) {
+                    bound = true
+                    boundOwners += it.getArgument<LifecycleOwner>(0)
+                    onFrame = it.getArgument(2)
+                    val notify = it.getArgument<OnCameraAvailabilityChanged>(3)
+                    availability = { state ->
+                        cameraReady = state == CameraAvailability.Open
+                        if (readiness.isCompleted && !cameraReady || readiness.isCancelled) readiness = CompletableDeferred()
+                        if (cameraReady) readiness.complete(Unit)
+                        else if (state is CameraAvailability.Closed && state.errorCode != null)
+                            readiness.completeExceptionally(PluginError.CameraError("Camera failed to open",
+                                cause = state.cause, cameraStateErrorCode = state.errorCode))
+                        notify(state)
+                    }
+                    failed = it.getArgument(4)
+                }
+                readiness
+            }.`when`(camera).bind(anyValue(), anyValue(), anyValue(), anyValue(), anyValue())
             doReturn(BARCODE).`when`(analyzer).analyze(anyValue(), anyValue())
 
-            scanner = Scanner(CameraConnector(camera), analyzer, handler, { _, cause -> released += cause },
+            scanner = Scanner(camera, analyzer, handler, { _, cause -> released += cause },
                 { id, barcode -> results += id to barcode }, CoroutineScope(SupervisorJob() + dispatcher))
             scanner.attachActivity(host.lifecycle)
         }
@@ -1041,7 +1083,7 @@ internal class ScannerCaptureTest {
             doReturn(Rect(0, 0, 100, 100)).`when`(frame).cropRect
             onFrame(frame)
         }
-        fun open() { initialized(); availability(CameraAvailability.Open) }
+        fun open() { availability(CameraAvailability.Open) }
         fun drain() { while (posts.isNotEmpty()) posts.removeFirst().run() }
         fun close() { scanner.dispose(); calls.cancel() }
 
@@ -1065,7 +1107,7 @@ internal class ScannerExpiryTest {
     @Test fun `release preserves resources beyond the former native grace period`() {
         val camera = mock(Camera::class.java)
         val analyzer = mock(ImageBarcodeAnalyzer::class.java)
-        val scanner = Scanner(CameraConnector(camera), analyzer, Handler(Looper.getMainLooper()), { _, _ -> })
+        val scanner = Scanner(camera, analyzer, Handler(Looper.getMainLooper()), { _, _ -> })
         scanner.select(ScannerConsumer(42))
         scanner.releaseCamera()
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
@@ -1078,7 +1120,7 @@ internal class ScannerExpiryTest {
     }
     @Test fun `manual pause unbinds immediately without destroying the texture owner`() {
         val camera = mock(Camera::class.java)
-        val scanner = Scanner(CameraConnector(camera), mock(ImageBarcodeAnalyzer::class.java), Handler(Looper.getMainLooper()), { _, _ -> })
+        val scanner = Scanner(camera, mock(ImageBarcodeAnalyzer::class.java), Handler(Looper.getMainLooper()), { _, _ -> })
         scanner.select(ScannerConsumer(42))
         scanner.pauseCamera()
         verify(camera).unbind()
@@ -1199,7 +1241,7 @@ internal class ScannerLifetimeTest {
         f.startCamera()
 
         assertSame(executor, f.executor)
-        assertEquals(1, f.bindCount)
+        assertEquals(2, f.bindCount)
     }
 
     @Test
@@ -1293,11 +1335,11 @@ internal class ScannerLifetimeTest {
                 bindCount++
                 executor = it.getArgument(1)
                 onFrame = it.getArgument(2)
-                it.getArgument<() -> Unit>(4)()
+                doReturn(true).`when`(camera).isReady
                 it.getArgument<com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraAvailabilityChanged>(3)(
                     com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability.Open)
-                null
-            }.`when`(camera).bind(anyValue(), anyValue(), anyValue(), anyValue(), anyValue(), anyValue())
+                CompletableDeferred(Unit)
+            }.`when`(camera).bind(anyValue(), anyValue(), anyValue(), anyValue(), anyValue())
             startCamera()
             scanner.startScan(0)
         }
@@ -1324,7 +1366,7 @@ internal class ScannerOwnershipTest {
         lateinit var publish: (CameraPreviewDescription?) -> Unit
         doAnswer { publish = it.getArgument(0); null }.`when`(camera).onPreviewChanged = anyValue()
         val descriptions = mutableListOf<CameraPreviewDescription?>()
-        val scanner = Scanner(CameraConnector(camera), analyzer, mock(Handler::class.java), { _, _ -> },
+        val scanner = Scanner(camera, analyzer, mock(Handler::class.java), { _, _ -> },
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             onPreviewChanged = { _, description -> descriptions += description })
 
@@ -1352,7 +1394,7 @@ internal class ScannerOwnershipTest {
         doThrow(cleanup).`when`(camera).dispose()
 
         val error = runCatching {
-            Scanner.create({ CameraConnector(camera) }, { throw failure }, mock(Handler::class.java),
+            Scanner.create({ camera }, { throw failure }, mock(Handler::class.java),
                 { _, _ -> }, { _, _ -> }, { _, _ -> })
         }.exceptionOrNull()
 

@@ -8,7 +8,7 @@ import androidx.lifecycle.LifecycleOwner
 import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraConnector
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
@@ -18,6 +18,7 @@ import com.dns_technologies.mlkit_scanner.utils.ExceptionCollector
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -33,14 +34,16 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /** Coordinates camera capture, controls, recognition and resource lifetime. */
 @MainThread
 internal class Scanner(
-    /** Camera connector owned by this scanner until terminal disposal. */
-    private val camera: CameraConnector,
+    /** Camera adapter owned by this scanner until terminal disposal. */
+    private val camera: Camera,
     /** Recognition backend whose resources outlive individual capture leases. */
     private val analyzer: ImageBarcodeAnalyzer,
     /** Dispatcher used to deliver analysis results on the main thread. */
@@ -112,10 +115,10 @@ internal class Scanner(
         runOperation { id ->
             currentCoroutineContext().ensureActive()
             awaitCameraReady()
-            camera.resetFocus(id)
+            control(id, camera::resetFocus)
             cropArea = configuration.cropArea
-            camera.setZoomRatio(id, configuration.zoomRatio)
-            camera.setTorch(id, configuration.torchEnabled)
+            control(id) { camera.setZoomRatio(configuration.zoomRatio) }
+            control(id) { camera.setTorch(configuration.torchEnabled) }
 
             currentCoroutineContext().ensureActive()
             // Analysis remains disabled until a result endpoint is installed.
@@ -123,12 +126,12 @@ internal class Scanner(
 
     /** Applies the requested camera zoom ratio. */
     suspend fun setZoomRatio(value: Float) = runOperation { id ->
-        camera.setZoomRatio(id, value)
+        control(id) { camera.setZoomRatio(value) }
     }
 
     /** Applies the requested torch state. */
     suspend fun setTorch(enabled: Boolean) = runOperation { id ->
-        camera.setTorch(id, enabled)
+        control(id) { camera.setTorch(enabled) }
     }
 
     /** A new gesture replaces transient focus while pending control operations finish. */
@@ -138,12 +141,9 @@ internal class Scanner(
             try {
                 runOperation(isFocus = true) { id ->
                     val size = view?.size ?: throw PluginError.CameraSessionDisposed
-                    camera.focus(
-                        id,
-                        resetDelayMs,
-                        size.width / 2F + offsetX,
-                        size.height / 2F + offsetY,
-                    )
+                    control(id) {
+                        camera.focus(resetDelayMs, size.width / 2F + offsetX, size.height / 2F + offsetY)
+                    }
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -252,7 +252,7 @@ internal class Scanner(
         failures.attempt(::cancelOperation)
         failures.attempt(::pauseScan)
 
-        failures.attempt { camera.dispose(cause) }
+        failures.attempt(camera::dispose)
         failures.attempt { executor?.shutdownNow() }
         failures.attempt(analyzer::dispose)
         failures.attempt { scope.cancel() }
@@ -260,23 +260,63 @@ internal class Scanner(
         failures.throwIfFailed()
     }
 
-    /** Starts the camera for the borrowed Activity and waits for its preview. */
+    /** Starts the camera for the borrowed Activity and waits until controls are available. */
     private suspend fun awaitCameraReady() {
-        camera.awaitReady(
-            lifecycleOwner = lifecycleOwner ?: throw PluginError.CameraSessionDisposed,
-            analysisExecutor = ::getOrCreateAnalysisExecutor,
-            onFrame = this::analyzeFrame,
-            scope = scope,
-            viewId = { viewId },
-            onAvailabilityChanged = { scan?.resumeIfReady() },
-            onError = { error -> dispose(error) },
-        )
+        try {
+            camera.bind(
+                lifecycleOwner = lifecycleOwner ?: throw PluginError.CameraSessionDisposed,
+                analysisExecutor = getOrCreateAnalysisExecutor(),
+                onFrame = this::analyzeFrame,
+                onAvailabilityChanged = { if (!isDisposed) scan?.resumeIfReady() },
+                onError = { error -> if (!isDisposed) dispose(error) },
+            ).await()
+        } catch (error: Exception) {
+            if (error is CancellationException || error is PluginError.CameraError) throw error
+            try {
+                dispose(error)
+            } catch (cleanup: Exception) {
+                if (cleanup !== error) error.addSuppressed(cleanup)
+            }
+            throw error
+        }
+    }
+
+    /** Cancelling a control also cancels its pending SDK completion. */
+    private suspend fun control(viewId: Int, call: () -> Deferred<Unit>) {
+        val context = currentCoroutineContext()
+        context.ensureActive()
+        if (!camera.isReady) throw PluginError.CameraError("Camera is not ready", viewId)
+        try {
+            // Carry failures as data to retain the original SDK exception across dispatchers.
+            val failure = suspendCancellableCoroutine<Throwable?> { completion ->
+                val pending = call()
+                val listener = pending.invokeOnCompletion { completion.resume(it) }
+                completion.invokeOnCancellation {
+                    listener.dispose()
+                    pending.cancel()
+                }
+            }
+            failure?.let { throw it }
+            context.ensureActive()
+        } catch (error: Exception) {
+            if (error is CancellationException && !context.isActive) throw error
+            throw when (error) {
+                is PluginError -> error
+                else -> PluginError.CameraError("Camera operation failed", viewId, error)
+            }
+        }
     }
 
     /** Tracks the current camera-control job and cancels a superseded operation. */
     private suspend fun runOperation(isFocus: Boolean = false, action: suspend (Int) -> Unit) {
         val id = viewId ?: return
-        val work = scope.async(start = CoroutineStart.LAZY) { action(id) }
+        val work = scope.async(start = CoroutineStart.LAZY) {
+            try {
+                action(id)
+            } catch (error: PluginError.CameraError) {
+                throw error.contextualize(id)
+            }
+        }
         val previous = operation
         operation = work
         operationIsFocus = isFocus
@@ -415,7 +455,7 @@ internal class Scanner(
     internal companion object {
         /** Builds owned resources and cleans up a camera if analyzer creation fails. */
         fun create(
-            cameraFactory: () -> CameraConnector,
+            cameraFactory: () -> Camera,
             analyzerFactory: () -> ImageBarcodeAnalyzer,
             mainHandler: Handler,
             onReleased: (Scanner, Throwable) -> Unit,
@@ -430,7 +470,7 @@ internal class Scanner(
                     onPreviewChanged = onPreviewChanged)
             } catch (error: Exception) {
                 val failures = ExceptionCollector(error)
-                failures.attempt { camera.dispose(error) }
+                failures.attempt(camera::dispose)
                 failures.attempt { analyzer?.dispose() }
                 failures.throwIfFailed()
                 throw error

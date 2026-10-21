@@ -13,9 +13,9 @@ protocol CameraPreviewDelegate: AnyObject {
     func canApplyFocus() -> Bool
 }
 
-/// Camera session, controls and preview-stream operations.
+/// Owns session initialization, device controls and preview startup responses.
 protocol CameraPreviewing: AnyObject {
-    /// Whether native session initialization has completed.
+    /// Whether the session is configured; first-frame readiness is reported by resumeCamera.
     var isInitialized: Bool { get }
     /// Whether the selected camera currently reports its torch as active.
     var isTorchActive: Bool { get }
@@ -24,7 +24,7 @@ protocol CameraPreviewing: AnyObject {
     /// Receives changes from the active native camera.
     var cameraPreviewDelegate: CameraPreviewDelegate? { get set }
 
-    /// Initializes the native camera session and reports completion on main.
+    /// Configures the session before capture settings are applied; reports completion on main.
     func initCamera(completion: @escaping (Error?) -> Void)
 
     /// Applies capture settings and viewport geometry before starting the stream.
