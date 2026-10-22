@@ -10,6 +10,7 @@ internal class PluginErrorTest {
     @Test
     fun `stable errors expose their documented channel codes and messages`() {
         val errors = listOf(
+            PluginError.InitCameraError to "1",
             PluginError.AuthorizationCameraError to "2",
             PluginError.CameraIsNotInitialized to "3",
             PluginError.DeviceHasNotFlash to "4",
@@ -35,16 +36,12 @@ internal class PluginErrorTest {
             cameraStateErrorCode = 3,
         )
         val details = error.details as Map<*, *>
-        val causeDetails = details["cause"] as Map<*, *>
 
         assertEquals("9", error.errorCode)
         assertEquals("Camera failed to open", error.message)
         assertFalse(details.containsKey("operation"))
-        assertEquals(4, details["viewId"])
-        assertEquals(3, details["cameraStateErrorCode"])
-        assertEquals(IllegalStateException::class.java.name, causeDetails["type"])
-        assertEquals("camera disconnected", causeDetails["message"])
-        assertNotNull(causeDetails["stackTrace"])
+        assertEquals(setOf("stacktrace"), details.keys)
+        assertEquals(cause.stackTraceToString(), details["stacktrace"])
         assertSame(cause, error.cause)
     }
 
@@ -63,5 +60,21 @@ internal class PluginErrorTest {
         assertEquals(12, contextualized.viewId)
         assertEquals(5, contextualized.cameraStateErrorCode)
         assertSame(cause, contextualized.cause)
+    }
+
+    @Test
+    fun `contextualize preserves the source stack without an SDK cause`() {
+        val original = PluginError.CameraError("Camera failed to open")
+
+        val contextualized = original.contextualize(12)
+
+        assertEquals(original.details, contextualized.details)
+    }
+
+    @Test
+    fun `channel message avoids repeating an identical SDK description`() {
+        val error = PluginError.CameraError("Camera closed", cause = IllegalStateException("Camera closed"))
+
+        assertEquals("Camera closed", error.channelMessage)
     }
 }

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:mlkit_scanner/platform/scanner_configuration.dart';
 
-import '../exceptions/camera_exception.dart';
+import '../exceptions/scanner_exception.dart';
 import '../models/barcode.dart';
 import '../models/crop_rect.dart';
 import '../models/ios_camera.dart';
@@ -109,17 +109,17 @@ final class MlKitChannel {
     }
   }
 
-  /// Preserves typed camera-control failures when a native command fails.
-  Future<void> _invokeVoidMethod(String method, Object? arguments) async {
+  /// Converts native failures consistently for commands with any return type.
+  Future<T?> _invokeMethod<T>(String method, [Object? arguments]) async {
     try {
-      await _channel.invokeMethod<void>(method, arguments);
+      return await _channel.invokeMethod<T>(method, arguments);
     } on PlatformException catch (error, stackTrace) {
-      if (error.code == CameraException.errorCode) {
-        Error.throwWithStackTrace(CameraException.fromPlatformException(error), stackTrace);
-      }
-      rethrow;
+      Error.throwWithStackTrace(ScannerException.fromPlatformException(error), stackTrace);
     }
   }
+
+  /// Executes a native command without a return value.
+  Future<void> _invokeVoidMethod(String method, Object? arguments) => _invokeMethod<void>(method, arguments);
 
   /// Requests a physical camera stop for the specified capture lease.
   Future<void> stopCamera({required String captureId}) => _invokeVoidMethod('pauseCameraMethod', {'captureId': captureId});
@@ -161,7 +161,7 @@ final class MlKitChannel {
   Future<void> unregisterScanner(int viewId) => _invokeVoidMethod('unregisterScanner', {'viewId': viewId});
 
   /// Acquires exclusive camera ownership without starting the camera.
-  Future<String> openCapture(int viewId) async => (await _channel.invokeMethod<String>('openCapture', {'viewId': viewId}))!;
+  Future<String> openCapture(int viewId) async => (await _invokeMethod<String>('openCapture', {'viewId': viewId}))!;
 
   /// Revokes a native lease while keeping the shared camera output warm.
   Future<void> closeCapture(String id) => _invokeVoidMethod('closeCapture', {'captureId': id});
@@ -172,7 +172,7 @@ final class MlKitChannel {
   /// Subscribes to preview changes and returns the current metadata.
   /// A failed subscription leaves no active endpoint.
   Future<PreviewEvent> subscribePreview() async {
-    final reply = await _channel.invokeMethod<Map>('subscribePreview');
+    final reply = await _invokeMethod<Map>('subscribePreview');
     try {
       return _decodePreview(reply);
     } catch (_) {
@@ -186,7 +186,7 @@ final class MlKitChannel {
   Future<void> unsubscribePreview(String id) => _invokeVoidMethod('unsubscribePreview', {'subscriptionId': id});
 
   /// Allocates a disabled recognition endpoint for the selected lease.
-  Future<String> subscribeScan(String id) async => (await _channel.invokeMethod<String>('subscribeScan', {'captureId': id}))!;
+  Future<String> subscribeScan(String id) async => (await _invokeMethod<String>('subscribeScan', {'captureId': id}))!;
 
   /// Updates viewport mapping without reallocating the shared texture.
   Future<void> updatePreviewGeometry(String id, Size size) =>
@@ -197,7 +197,7 @@ final class MlKitChannel {
 
   /// Returns all iOS cameras supported by the native implementation.
   Future<List<IosCamera>> getIosAvailableCameras() async {
-    final availableCameras = (await _channel.invokeListMethod<dynamic>('getIosAvailableCameras'))!;
+    final availableCameras = (await _invokeMethod<List<dynamic>>('getIosAvailableCameras'))!;
     return availableCameras.map((json) => IosCamera.fromJson(Map<String, dynamic>.from(json))).toList();
   }
 }

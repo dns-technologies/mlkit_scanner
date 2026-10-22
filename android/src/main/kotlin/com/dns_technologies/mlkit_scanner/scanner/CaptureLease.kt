@@ -1,7 +1,7 @@
 package com.dns_technologies.mlkit_scanner.scanner
 
 import com.dns_technologies.mlkit_scanner.PluginError
-import com.dns_technologies.mlkit_scanner.commands.base.reportScannerError
+import com.dns_technologies.mlkit_scanner.commands.base.BaseScannerCommand
 import io.flutter.plugin.common.MethodChannel
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -39,7 +39,7 @@ internal class CaptureLease(val consumer: ScannerConsumer) {
         scanSubscription?.close()
         scanSubscription = null
         scope.cancel()
-        replies.toList().forEach { reportScannerError(it, PluginError.CameraSessionDisposed) }
+        replies.toList().forEach { BaseScannerCommand.reportScannerError(it, PluginError.CameraSessionDisposed) }
     }
 }
 

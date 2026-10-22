@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner.commands
 
+import com.dns_technologies.mlkit_scanner.commands.base.verifyError
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.scanner.models.RecognizeVisorCropRect
@@ -58,7 +59,7 @@ internal class UpdateCameraSettingsCommandTest {
         for (arguments in invalid) {
             val reply = mock(MethodChannel.Result::class.java)
             command.execute(MethodCall("updateCameraSettings", arguments), reply)
-            verify(reply).error(PluginError.InvalidArguments.errorCode, PluginError.InvalidArguments.message, null)
+            verifyError(reply, PluginError.InvalidArguments)
             verifyNoMoreInteractions(reply)
         }
         verifyNoInteractions(scanner)
@@ -101,7 +102,7 @@ internal class UpdateCameraSettingsCommandTest {
         selected = false
         zoom.resume(Unit)
         verify(scanner, never()).setTorch(true)
-        verify(reply).error(PluginError.CameraSessionDisposed.errorCode, PluginError.CameraSessionDisposed.message, null)
+        verifyError(reply, PluginError.CameraSessionDisposed)
         verifyNoMoreInteractions(reply)
     }
 
@@ -114,7 +115,7 @@ internal class UpdateCameraSettingsCommandTest {
         )), reply)
         verify(scanner).setCropArea(RecognizeVisorCropRect(scaleWidth = 0.5))
         verify(scanner, never()).setTorch(true)
-        verify(reply).error(PluginError.CameraIsNotInitialized.errorCode, PluginError.CameraIsNotInitialized.message, null)
+        verifyError(reply, PluginError.CameraIsNotInitialized)
         verifyNoMoreInteractions(reply)
     }
 }

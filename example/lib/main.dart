@@ -6,15 +6,6 @@ import 'package:mlkit_scanner/mlkit_scanner.dart';
 
 void main() => runApp(const MyApp());
 
-/// Formats camera failures with their description and optional native cause.
-String _describeError(Object error) {
-  if (error is CameraException) {
-    final message = error.message ?? 'Camera failed';
-    return error.cause == null ? message : '$message: ${error.cause}';
-  }
-  return error.toString();
-}
-
 /// Demonstrates recognition and declarative camera controls.
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -33,6 +24,14 @@ class _ScannerPage extends StatefulWidget {
 
 /// Keeps desired scanner settings in Flutter state.
 class _ScannerPageState extends State<_ScannerPage> {
+  /// Formats native scanner failures using their diagnostic message.
+  String _describeError(Object error) {
+    if (error is ScannerException) {
+      return error.message ?? 'Scanner failed';
+    }
+    return error.toString();
+  }
+
   /// Magnifications cycled by the zoom button.
   static const _zoomRatios = [1.0, 2.0, 3.0];
 

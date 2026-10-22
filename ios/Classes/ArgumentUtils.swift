@@ -2,10 +2,13 @@ import CoreFoundation
 import CoreGraphics
 import Foundation
 
-/// Requires a string-keyed codec map.
-func requireMap(_ value: Any?) throws -> [String: Any] {
-    guard let values = value as? [String: Any] else { throw MlKitPluginError.invalidArguments }
-    return values
+/// Decodes the outer platform-channel argument payload.
+enum ArgumentUtils {
+    /// Requires a string-keyed codec map.
+    static func requireMap(_ value: Any?) throws -> [String: Any] {
+        guard let values = value as? [String: Any] else { throw MlKitPluginError.invalidArguments }
+        return values
+    }
 }
 
 /// Typed access to codec arguments without coercing strings or Boolean values to numbers.
@@ -62,13 +65,13 @@ extension Dictionary where Key == String, Value == Any {
         guard width > 0, height > 0 else { throw MlKitPluginError.invalidArguments }
         return CGSize(width: width, height: height)
     }
-}
 
-/// Rejects codec Boolean values and non-finite numbers before numeric conversion.
-private func requireNumber(_ value: Any?) throws -> NSNumber {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else {
-        throw MlKitPluginError.invalidArguments
+    /// Rejects codec Boolean values and non-finite numbers before numeric conversion.
+    private func requireNumber(_ value: Any?) throws -> NSNumber {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite else {
+            throw MlKitPluginError.invalidArguments
+        }
+        return number
     }
-    return number
 }

@@ -26,6 +26,8 @@ enum MlKitPluginError: String, Error, LocalizedError {
     case unknownError = "7"
     /// The scanner session was released before an operation completed.
     case cameraSessionDisposed = "8"
+    /// A camera operation failed; CameraError carries its diagnostic context.
+    case cameraError = "9"
 
     /// Human-readable description exposed through native error reporting.
     var errorDescription: String? {
@@ -46,6 +48,8 @@ enum MlKitPluginError: String, Error, LocalizedError {
             return "Unknown scanner error"
         case .cameraSessionDisposed:
             return "Camera session has been disposed"
+        case .cameraError:
+            return "Camera operation failed"
         }
     }
 }
@@ -53,7 +57,7 @@ enum MlKitPluginError: String, Error, LocalizedError {
 /// Camera failure described where it occurs, with optional native diagnostic context.
 struct CameraError: Error, LocalizedError {
     /// Stable platform-channel code for camera failures.
-    static let errorCode = "9"
+    static let errorCode = MlKitPluginError.cameraError.rawValue
 
     /// Description of the camera failure.
     let message: String
@@ -67,7 +71,7 @@ struct CameraError: Error, LocalizedError {
     /// Native stack captured when this failure is reported.
     let stackTrace: String
 
-    /// Optional native camera-state code included in channel diagnostics.
+    /// Optional native camera-state code retained internally.
     let cameraStateErrorCode: Int?
 
     /// Human-readable description exposed through native error reporting.
@@ -75,23 +79,16 @@ struct CameraError: Error, LocalizedError {
         message
     }
 
-    /// StandardMessageCodec-compatible diagnostic context.
-    var channelDetails: [String: Any] {
-        var details: [String: Any] = [:]
-        if let viewId = viewId {
-            details["viewId"] = viewId
-        }
-        if let cameraStateErrorCode = cameraStateErrorCode {
-            details["cameraStateErrorCode"] = cameraStateErrorCode
-        }
-        if let underlyingError = underlyingError {
-            details["cause"] = [
-                "type": String(reflecting: type(of: underlyingError)),
-                "message": underlyingError.localizedDescription,
-                "stackTrace": stackTrace,
-            ]
-        }
-        return details
+    /// Operation context followed by the original SDK description, when present.
+    var channelMessage: String {
+        guard let original = underlyingError?.localizedDescription,
+            !original.isEmpty, original != message else { return message }
+        return "\(message): \(original)"
+    }
+
+    /// Only the native stack crosses the channel alongside the code and message.
+    var channelDetails: [String: String] {
+        ["stacktrace": stackTrace]
     }
 
     init(

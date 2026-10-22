@@ -16,26 +16,23 @@ internal sealed class BaseScannerCommand(private val scannerProvider: () -> Scan
     /** Current scanner, or null when camera resources are unavailable. */
     protected fun scanner(): Scanner? = scannerProvider()
 
-    /** Sends a typed plugin error response. */
-    protected fun reportError(result: Result, error: PluginError, details: Any? = error.details) {
-        result.error(error.errorCode, error.message, details)
-    }
-
     /** Maps internal exceptions to typed plugin errors. */
     protected fun reportError(result: Result, error: Exception) {
         reportScannerError(result, error)
     }
-}
 
-/** Completes a channel response with a stable error code and diagnostic details. */
-internal fun reportScannerError(result: Result, error: Exception) {
-    val pluginError = error as? PluginError ?: PluginError.UnknownError
-    val details =
-        if (error is PluginError) error.details
-        else
-            mapOf(
-                "message" to (error.message ?: error::class.simpleName),
-                "stackTrace" to error.stackTraceToString(),
-            )
-    result.error(pluginError.errorCode, pluginError.message, details)
+    internal companion object {
+        /** Completes a channel response with a stable error code and diagnostic details. */
+        fun reportScannerError(result: Result, error: Exception) {
+            if (error is PluginError) {
+                result.error(error.errorCode, error.channelMessage, error.details)
+            } else {
+                result.error(
+                    PluginError.UnknownError.errorCode,
+                    error.message ?: PluginError.UnknownError.message,
+                    mapOf("stacktrace" to error.stackTraceToString()),
+                )
+            }
+        }
+    }
 }

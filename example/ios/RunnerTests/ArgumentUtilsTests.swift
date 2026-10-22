@@ -4,11 +4,11 @@ import XCTest
 
 final class ArgumentUtilsTests: XCTestCase {
     func testRequireMapAcceptsStringKeysAndRejectsMalformedArguments() throws {
-        XCTAssertEqual(try requireMap(["value": 42])["value"] as? Int, 42)
-        XCTAssertTrue(try requireMap([String: Any]()).isEmpty)
+        XCTAssertEqual(try ArgumentUtils.requireMap(["value": 42])["value"] as? Int, 42)
+        XCTAssertTrue(try ArgumentUtils.requireMap([String: Any]()).isEmpty)
 
         for value: Any? in [nil, NSNull(), "arguments", [42], [1: "value"]] {
-            assertInvalid { _ = try requireMap(value) }
+            assertInvalid { _ = try ArgumentUtils.requireMap(value) }
         }
     }
 
@@ -98,20 +98,20 @@ final class ArgumentUtilsTests: XCTestCase {
     }
 
     func testSizePreservesFractionalAndSubpixelDimensions() throws {
-        let size = try requireMap(["width": 320.5, "height": 240.25]).requireSize()
+        let size = try ArgumentUtils.requireMap(["width": 320.5, "height": 240.25]).requireSize()
         XCTAssertEqual(size.width, 320.5)
         XCTAssertEqual(size.height, 240.25)
-        XCTAssertEqual(try requireMap(["width": 0.01, "height": 0.5]).requireSize().width, 0.01)
+        XCTAssertEqual(try ArgumentUtils.requireMap(["width": 0.01, "height": 0.5]).requireSize().width, 0.01)
     }
 
     func testSizeRejectsMalformedAndNonPositiveDimensions() {
         let invalidArguments: [Any?] = [nil, "size", [String: Any](), ["width": 320], ["height": 240]]
         for arguments in invalidArguments {
-            assertInvalid { _ = try requireMap(arguments).requireSize() }
+            assertInvalid { _ = try ArgumentUtils.requireMap(arguments).requireSize() }
         }
         for invalid: Any in [true, "320", 0, -1, Double.nan, Double.infinity, -Double.infinity] {
-            assertInvalid { _ = try requireMap(["width": invalid, "height": 240]).requireSize() }
-            assertInvalid { _ = try requireMap(["width": 320, "height": invalid]).requireSize() }
+            assertInvalid { _ = try ArgumentUtils.requireMap(["width": invalid, "height": 240]).requireSize() }
+            assertInvalid { _ = try ArgumentUtils.requireMap(["width": 320, "height": invalid]).requireSize() }
         }
     }
 

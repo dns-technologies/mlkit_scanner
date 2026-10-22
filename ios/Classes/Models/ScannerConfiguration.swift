@@ -13,7 +13,7 @@ struct ScannerConfiguration {
     let camera: CameraData
 
     init(arguments: Any?) throws {
-        let values = try requireMap(arguments)
+        let values = try ArgumentUtils.requireMap(arguments)
         zoomRatio = try values.requireFiniteDouble("zoomRatio")
         torchEnabled = try values.requireBoolean("torchEnabled")
         cropRect = try CropRect(arguments: values.optionalMap("cropRect") ?? [:])

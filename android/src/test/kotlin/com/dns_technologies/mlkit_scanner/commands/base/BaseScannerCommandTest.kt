@@ -31,11 +31,8 @@ internal class BaseScannerCommandTest {
 
         TestCommand().completeWith(result, PluginError.InvalidArguments)
 
-        verify(result).error(
-            PluginError.InvalidArguments.errorCode,
-            PluginError.InvalidArguments.message,
-            null,
-        )
+        val stack = verifyError(result, PluginError.InvalidArguments)
+        assertTrue(stack.contains("completeWith"))
     }
 
     @Test
@@ -47,11 +44,32 @@ internal class BaseScannerCommandTest {
 
         verify(result).error(
             eq(PluginError.UnknownError.errorCode),
-            eq(PluginError.UnknownError.message),
+            eq("broken"),
             details.capture(),
         )
-        assertEquals("broken", details.value["message"])
-        assertTrue((details.value["stackTrace"] as String).isNotBlank())
+        assertEquals(setOf("stacktrace"), details.value.keys)
+        assertTrue((details.value["stacktrace"] as String).contains("BaseScannerCommandTest"))
+    }
+
+    @Test
+    fun `camera failures include the operation and original message with the source stack`() {
+        val result = mock(MethodChannel.Result::class.java)
+        val cause = IllegalStateException("camera disconnected")
+        val error = PluginError.CameraError("Failed to focus camera", viewId = 42, cause = cause)
+
+        TestCommand().completeWith(result, error)
+
+        verify(result).error("9", "Failed to focus camera: camera disconnected", mapOf("stacktrace" to cause.stackTraceToString()))
+    }
+
+    @Test
+    fun `unknown failure without a message uses the generic description`() {
+        val result = mock(MethodChannel.Result::class.java)
+        val error = Exception()
+
+        TestCommand().completeWith(result, error)
+
+        verify(result).error("7", PluginError.UnknownError.message, mapOf("stacktrace" to error.stackTraceToString()))
     }
 
     private class TestCommand : ScannerCommand({ null }) {

@@ -4,7 +4,7 @@ import Flutter
 final class StartScanCommand: ScannerCommand {
 
     override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
-        try scanner.startScan(delay: requireMap(call.arguments).requireInt(PluginConstants.delayArgument))
+        try scanner.startScan(delay: ArgumentUtils.requireMap(call.arguments).requireInt(PluginConstants.delayArgument))
         success(result)
     }
 }

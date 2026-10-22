@@ -10,9 +10,25 @@ internal sealed class PluginError(
     val errorCode: String,
     override val message: String,
     cause: Throwable? = null,
-    /** Optional diagnostic payload containing codec-compatible values. */
-    val details: Any? = null,
 ) : Exception(message, cause) {
+    /** Operation context followed by the original SDK description, when present. */
+    val channelMessage: String
+        get() {
+            val original = cause?.message
+            return if (original.isNullOrBlank() || original == message) message else "$message: $original"
+        }
+
+    /** Only the native stack crosses the channel alongside the code and message. */
+    val details: Map<String, String>
+        get() {
+            // Singleton categories have no per-failure stack; capture their reporting path.
+            val failure = cause ?: if (this is CameraError) this else Throwable(message)
+            return mapOf("stacktrace" to failure.stackTraceToString())
+        }
+
+    /** Camera initialization could not complete (shared with the iOS error contract). */
+    object InitCameraError : PluginError("1", "Internal camera initialisation error")
+
     /** The app has no granted camera permission. */
     object AuthorizationCameraError : PluginError("2", "The app does not have camera permission")
 
@@ -47,12 +63,6 @@ internal sealed class PluginError(
             errorCode = ERROR_CODE,
             message = message,
             cause = cause,
-            details =
-                mapOf(
-                    "viewId" to viewId,
-                    "cause" to cause?.toChannelDetails(),
-                    "cameraStateErrorCode" to cameraStateErrorCode,
-                ),
         ) {
         /** Adds session context without losing the original native failure. */
         fun contextualize(viewId: Int): CameraError =
@@ -61,7 +71,7 @@ internal sealed class PluginError(
                 viewId = viewId,
                 cause = cause,
                 cameraStateErrorCode = cameraStateErrorCode,
-            )
+            ).also { it.stackTrace = stackTrace }
 
         internal companion object {
             /** Stable channel code identifying camera failures. */
@@ -69,7 +79,3 @@ internal sealed class PluginError(
         }
     }
 }
-
-/** Converts an original native failure to StandardMessageCodec-compatible details. */
-private fun Throwable.toChannelDetails(): Map<String, String?> =
-    mapOf("type" to javaClass.name, "message" to message, "stackTrace" to stackTraceToString())

@@ -5,7 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.lifecycle.Lifecycle
 import com.dns_technologies.mlkit_scanner.commands.*
-import com.dns_technologies.mlkit_scanner.commands.base.reportScannerError
+import com.dns_technologies.mlkit_scanner.commands.base.BaseScannerCommand
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.*
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.mlkit.MlkitImageBarcodeAnalyzer
@@ -119,7 +119,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
 
     override fun onMethodCall(call: MethodCall, result: Result) {
         if (channel == null) {
-            reportScannerError(result, PluginError.CameraSessionDisposed)
+            BaseScannerCommand.reportScannerError(result, PluginError.CameraSessionDisposed)
             return
         }
         try {
@@ -161,7 +161,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                 else -> executeScoped(call, result)
             }
         } catch (error: Exception) {
-            reportScannerError(result, error)
+            BaseScannerCommand.reportScannerError(result, error)
         }
     }
 
@@ -227,7 +227,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                 else -> reply.notImplemented()
             }
         } catch (error: Exception) {
-            reportScannerError(reply, error)
+            BaseScannerCommand.reportScannerError(reply, error)
         }
     }
 
@@ -240,7 +240,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         if (device == null) {
             if (cleanupError == null) result.success(null)
             else
-                reportScannerError(
+                BaseScannerCommand.reportScannerError(
                     result,
                     cleanupError as? Exception ?: RuntimeException(cleanupError),
                 )
@@ -250,7 +250,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                     val failure = cleanupError ?: error
                     if (failure == null) result.success(null)
                     else
-                        reportScannerError(
+                        BaseScannerCommand.reportScannerError(
                             result,
                             failure as? Exception ?: RuntimeException(failure),
                         )
@@ -287,7 +287,7 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                 device.capture(configuration)
                 reply.success(null)
             } catch (error: Exception) {
-                reportScannerError(
+                BaseScannerCommand.reportScannerError(
                     reply,
                     if (error is CancellationException) PluginError.CameraSessionDisposed else error,
                 )

@@ -25,11 +25,7 @@ internal class ScannerCommandTest {
 
         command.execute(MethodCall("test", null), result)
 
-        verify(result).error(
-            PluginError.InvalidArguments.errorCode,
-            PluginError.InvalidArguments.message,
-            null,
-        )
+        verifyError(result, PluginError.InvalidArguments)
     }
 
     private class TestScannerCommand(

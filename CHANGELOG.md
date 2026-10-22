@@ -9,9 +9,11 @@ See [Migration from the controller API](README.md#migration-from-the-controller-
 - **Breaking:** Require Flutter 3.29, Dart 3.7 and iOS 12.0 or newer.
 - Replace the Android CameraView backend with CameraX 1.4.2.
 - Replace per-widget native Platform Views with one shared Flutter camera texture per engine; render crop and animated focus overlays in Flutter, including reduced-motion support.
+- Unify focus-overlay dimensions, easing and timing on Android and iOS; retain immediate feedback when animations are disabled.
 - Retain independent settings for each scanner and apply the latest desired state after pending operations. Batch changed zoom, flash and crop settings into one native call.
 - Keep recognition disabled by default (`scanning: false`); setting `cropRect` or iOS `camera` to `null` resets it to the default.
-- Add `CameraException` with descriptive messages, camera-state and native cause details. Deliver initialization, capture and control errors outside build, suppress stale errors after disposal, and demonstrate retrying a scanner with a new key in the example.
+- Add `CameraException` with descriptive messages and native stack traces. Deliver initialization, capture and control errors outside build, suppress stale errors after disposal, and demonstrate retrying a scanner with a new key in the example.
+- Map all native failures to `ScannerException` subtypes on Android and iOS, including methods returning values. Preserve unknown codes in `UnknownScannerException`, expose diagnostics through `message` and `stacktrace` without a separate native cause API, and retain known iOS error categories during camera controls and startup.
 - Validate zoom, crop and scan delay before applying settings; report invalid configuration through `onError` and allow corrected settings on the same widget.
 - Keep the camera session alive beneath dropdowns and dialogs while suspending recognition; transfer ownership when a modal contains another scanner.
 - Add `MLKitUtils.cameraShutdownDelay` (300 ms by default): release camera, analyzer and texture resources after capture is released or manually paused. Keep streaming without recognition during the grace period; resume cancels shutdown, while hidden registrations and paused control updates do not extend it. Backgrounding the app stops camera work immediately.

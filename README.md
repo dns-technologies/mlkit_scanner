@@ -105,8 +105,8 @@ class _ScannerPageState extends State<ScannerPage> {
   @override
   Widget build(BuildContext context) {
     final error = _error;
-    final message = error is CameraException
-        ? '${error.message ?? 'Camera failed'}${error.cause == null ? '' : ': ${error.cause}'}'
+    final message = error is ScannerException
+        ? error.message ?? 'Scanner failed'
         : error?.toString();
     return Scaffold(
       appBar: AppBar(title: const Text('Barcode scanner')),
@@ -232,6 +232,11 @@ does not select the focus point. Focus depends on camera capabilities and is
 available only to the current camera owner after startup, including during a warm
 manual pause. It is unavailable after the shutdown deadline.
 
+Focus feedback looks the same on Android and iOS: the focus circle pulses and
+fades away, while a long press reveals a lock that moves to the upper-left corner
+over 800 ms. Tapping restores autofocus and fades out the lock. With reduced
+motion enabled, the lock appears or disappears immediately.
+
 ### Barcode results
 
 `onScan` receives one `Barcode` per successful recognition attempt, rather than a
@@ -250,17 +255,32 @@ unrecognized native classification codes.
 `onError` is an optional `ValueChanged<Object>`. It receives configuration,
 initialization, capture, control and preview-image retention failures with their
 original runtime types. These include `ArgumentError`, `RangeError`,
-`UnsupportedError`, `PlatformException` and `CameraException`.
+`UnsupportedError` and the typed native failures below.
 Do not narrow the callback argument to `PlatformException` or stringify errors
 before storing them.
 
-`CameraException` extends `PlatformException`. Its `message` describes the failed
-camera action; `viewId`, `cause` and `cameraStateErrorCode` provide optional
-diagnostic context. Native cause and camera-state details
-may be absent. Not every platform error is a `CameraException`.
-Messages are intended for display and logging, rather than programmatic matching.
-The native cause includes its type, message and an optional stack trace.
-On iOS, the stack records where the failure was reported.
+Every native command failure is a `ScannerException`, which extends
+`PlatformException` so existing catches continue to work. Both platforms use
+the same codes and Dart types:
+
+| Native code | Dart exception | Meaning |
+| --- | --- | --- |
+| `1` | `CameraInitializationException` | Camera initialization failed. |
+| `2` | `CameraPermissionException` | Camera permission denied. |
+| `3` | `CameraNotInitializedException` | Camera is not initialized. |
+| `4` | `FlashUnavailableException` | Camera has no usable flash. |
+| `5` | `InvalidArgumentsException` | Missing or invalid native arguments. |
+| `6` | `ZoomUnavailableException` | Camera does not support zoom. |
+| `7` or unrecognized | `UnknownScannerException` | Unexpected native failure. |
+| `8` | `CameraSessionDisposedException` | Camera session was disposed. |
+| `9` | `CameraException` | Camera operation failed. |
+
+Match exception types instead of messages. `UnknownScannerException` retains the
+original code, including codes introduced by a newer native implementation.
+All types expose `message` and the native `stacktrace` directly. Camera messages
+include the failed operation and the underlying SDK description when available.
+Native class names and camera-state codes are not exposed as separate fields.
+On iOS, the stack records where the failure was captured or reported.
 Without `onError`, errors are reported through `FlutterError.reportError`.
 Asynchronous disposal failures also use Flutter's error handler.
 

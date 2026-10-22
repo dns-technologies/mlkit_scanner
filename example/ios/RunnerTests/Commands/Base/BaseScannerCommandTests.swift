@@ -47,14 +47,18 @@ final class BaseScannerCommandTests: XCTestCase {
         let flutterError = failureValue as? FlutterError
         XCTAssertEqual(flutterError?.code, "8")
         XCTAssertEqual(flutterError?.message, "Camera session has been disposed")
+        let details = flutterError?.details as? [String: String]
+        XCTAssertEqual(Set(details?.keys.map { $0 } ?? []), ["stacktrace"])
+        XCTAssertFalse(details?["stacktrace"]?.isEmpty ?? true)
     }
 
-    func testCameraControlFailureUsesStableCodeAndStructuredDetails() {
+    func testCameraControlFailureUsesStableCodeAndFlatDiagnostics() {
         let command = BaseScannerCommand(scanner: fixture.scanner)
         let error = CameraError(
             message: "Failed to set camera zoom ratio to 2.0",
             viewId: 42,
-            underlyingError: BaseScannerCommandTestError.rejected
+            underlyingError: BaseScannerCommandTestError.rejected,
+            stackTrace: "native trace"
         )
         var channelValue: Any?
 
@@ -62,11 +66,8 @@ final class BaseScannerCommandTests: XCTestCase {
 
         let flutterError = channelValue as? FlutterError
         XCTAssertEqual(flutterError?.code, "9")
-        XCTAssertEqual(flutterError?.message, "Failed to set camera zoom ratio to 2.0")
-        let details = flutterError?.details as? [String: Any]
-        XCTAssertNil(details?["operation"])
-        XCTAssertEqual(details?["viewId"] as? Int64, 42)
-        XCTAssertNotNil(details?["cause"])
+        XCTAssertEqual(flutterError?.message, "Failed to set camera zoom ratio to 2.0: camera disconnected")
+        XCTAssertEqual(flutterError?.details as? [String: String], ["stacktrace": "native trace"])
     }
 
     func testUnknownFailureKeepsItsLocalizedDescription() {
@@ -84,12 +85,17 @@ final class BaseScannerCommandTests: XCTestCase {
             flutterError?.message,
             BaseScannerCommandTestError.rejected.localizedDescription
         )
+        let details = flutterError?.details as? [String: Any]
+        XCTAssertEqual(Set(details?.keys.map { $0 } ?? []), ["stacktrace"])
+        XCTAssertFalse((details?["stacktrace"] as? String)?.isEmpty ?? true)
     }
 }
 
-private enum BaseScannerCommandTestError: Error {
+private enum BaseScannerCommandTestError: Error, LocalizedError {
     /// An operation was rejected.
     case rejected
+
+    var errorDescription: String? { "camera disconnected" }
 }
 
 /// Exercises concrete scanner commands with observable camera and analyzer boundaries.

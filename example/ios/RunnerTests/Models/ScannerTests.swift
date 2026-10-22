@@ -48,6 +48,7 @@ final class ScannerTests: XCTestCase {
         var zooms: [Double] = []; var pauses = 0; var disposals = 0
         var geometries: [CGSize] = []
         var preparationError: Error?
+        var resumeError: Error?
         var zoomError: Error?
         var holdDisposal = false; var finishDisposal: (() -> Void)?
         func initCamera(completion: @escaping (Error?) -> Void) { isInitialized = true; completion(nil) }
@@ -60,7 +61,7 @@ final class ScannerTests: XCTestCase {
         func setFlash(_ enabled: Bool) throws { isTorchActive = enabled }
         func resetFocus() {}
         func focus(locked: Bool) throws {}
-        func resumeCamera(completion: @escaping (Error?) -> Void) { completion(nil) }
+        func resumeCamera(completion: @escaping (Error?) -> Void) { completion(resumeError) }
         func pauseCamera(completion: @escaping () -> Void) { pauses += 1; completion() }
         func setZoomRatio(_ value: Double) throws {
             if let error = zoomError { throw error }
@@ -72,6 +73,35 @@ final class ScannerTests: XCTestCase {
             disposals += 1; isInitialized = false
             if holdDisposal { finishDisposal = completion } else { completion() }
         }
+    }
+
+    func testControlsPreserveKnownErrorCategories() throws {
+        let f = Fixture()
+        f.runtime.register(viewId: 42)
+        try f.capture(42)
+        defer { f.runtime.release() }
+
+        for failure in [MlKitPluginError.invalidArguments, .deviceHasNotZoom, .cameraIsNotInitialized, .deviceHasNotFlash] {
+            f.camera.zoomError = failure
+
+            XCTAssertThrowsError(try f.runtime.setZoomRatio(value: 2)) { error in
+                XCTAssertEqual(error as? MlKitPluginError, failure)
+            }
+        }
+    }
+
+    func testCameraStartPreservesKnownErrorCategory() throws {
+        let f = Fixture()
+        f.runtime.register(viewId: 42)
+        f.camera.resumeError = MlKitPluginError.initCameraError
+        var received: Error?
+        defer { f.runtime.release() }
+
+        f.runtime.captureCamera(viewId: 42, configuration: try ScannerConfiguration(arguments: [
+            "zoomRatio": 1.0, "torchEnabled": false])) { received = $0 }
+        f.permissions.removeFirst()(true)
+
+        XCTAssertEqual(received as? MlKitPluginError, .initCameraError)
     }
 
     func testCameraFailurePreservesDescriptionAndNativeCauseWhenAddingConsumer() throws {

@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner.commands
 
+import com.dns_technologies.mlkit_scanner.commands.base.verifyError
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import io.flutter.plugin.common.MethodCall
@@ -25,7 +26,7 @@ internal class SetCropAreaCommandTest {
         for (arguments in listOf(mapOf("cropRect" to "bad"))) {
             val reply = mock(MethodChannel.Result::class.java)
             command.execute(MethodCall("setCropAreaMethod", arguments), reply)
-            verify(reply).error(PluginError.InvalidArguments.errorCode, PluginError.InvalidArguments.message, null)
+            verifyError(reply, PluginError.InvalidArguments)
         }
         verifyNoInteractions(scanner)
     }

@@ -4,7 +4,7 @@ import Flutter
 final class ToggleFlashCommand: ScannerCommand {
 
     override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
-        let values = try requireMap(call.arguments)
+        let values = try ArgumentUtils.requireMap(call.arguments)
         let enabled = try values.requireBoolean(PluginConstants.valueArgument)
         try scanner.setTorch(enabled: enabled)
         success(result)

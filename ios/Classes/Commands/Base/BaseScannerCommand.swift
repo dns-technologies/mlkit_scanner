@@ -29,20 +29,20 @@ class BaseScannerCommand {
         if let cameraError = error as? CameraError {
             result(FlutterError(
                 code: CameraError.errorCode,
-                message: cameraError.message,
+                message: cameraError.channelMessage,
                 details: cameraError.channelDetails
             ))
         } else if let pluginError = error as? MlKitPluginError {
             result(FlutterError(
                 code: pluginError.rawValue,
                 message: pluginError.localizedDescription,
-                details: nil
+                details: ["stacktrace": Thread.callStackSymbols.joined(separator: "\n")]
             ))
         } else {
             result(FlutterError(
                 code: MlKitPluginError.unknownError.rawValue,
                 message: error.localizedDescription,
-                details: nil
+                details: ["stacktrace": Thread.callStackSymbols.joined(separator: "\n")]
             ))
         }
     }

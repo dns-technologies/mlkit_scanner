@@ -38,8 +38,8 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
   /// Transient focus feedback that fades away even while focus remains locked.
   late final _circleAnimation = AnimationController(vsync: this, duration: const Duration(seconds: 1));
 
-  /// Platform-specific timeline for the lock's appearance and corner flight.
-  late final _lockAnimation = AnimationController(vsync: this);
+  /// Shared timeline for the lock's appearance and corner flight.
+  late final _lockAnimation = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
 
   /// Fades the lock at its current position when autofocus is restored.
   late final _unlockAnimation = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
@@ -50,16 +50,12 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
   /// Keeps repeat long presses from restarting a settled lock's flight.
   bool _focusLocked = false;
 
-  /// Selects iOS timing, dimensions and corner placement.
-  bool get _usesIosAnimations => Theme.of(context).platform == TargetPlatform.iOS;
-
   /// Requests static feedback when the user disables animations.
   bool get _disableAnimations => MediaQuery.disableAnimationsOf(context);
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _lockAnimation.duration = Duration(milliseconds: _usesIosAnimations ? 1000 : 800);
     if (_disableAnimations) {
       _circleAnimation.value = 1;
       _lockAnimation.value = _focusLocked ? 1 : 0;
@@ -125,18 +121,14 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
 
   /// Converts animation progress into circle opacity, lock opacity and flight position.
   Widget _buildFeedback(BuildContext context, Widget? child) {
-    final ios = _usesIosAnimations;
-    final curve = ios ? Curves.linear : const _AndroidFocusCurve();
+    const curve = _FocusCurve();
     final pulse = _circleAnimation.value <= .5 ? _circleAnimation.value * 2 : (1 - _circleAnimation.value) * 2;
-    // iOS fades for 250/1000 ms; Android fades for 300/800 ms.
-    final fadeEnd = ios ? .25 : .375;
+    // The lock fades in for 300 ms, then flies to the corner for 500 ms.
+    const fadeEnd = .375;
     return CustomPaint(
       painter: _OverlayPainter(widget.crop, widget.scanning),
       foregroundPainter: _FocusPainter(
         crop: widget.crop,
-        radius: ios ? 40 : 35,
-        lockOffset: ios ? 20 : 19.2,
-        lockDistance: ios ? 64 : 30,
         circleOpacity: curve.transform(pulse),
         lockOpacity: Interval(0, fadeEnd, curve: curve).transform(_lockAnimation.value) * (1 - curve.transform(_unlockAnimation.value)),
         lockTravel: Interval(fadeEnd, 1, curve: curve).transform(_lockAnimation.value),
@@ -154,8 +146,8 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
 }
 
 /// Cosine easing with symmetric acceleration and deceleration.
-class _AndroidFocusCurve extends Curve {
-  const _AndroidFocusCurve();
+class _FocusCurve extends Curve {
+  const _FocusCurve();
 
   @override
   double transformInternal(double t) => t == .5 ? .5 : (1 - math.cos(math.pi * t)) / 2;
@@ -210,15 +202,16 @@ class _OverlayPainter extends CustomPainter {
 
 /// Paints one frame of focus feedback without changing its animation state.
 class _FocusPainter extends CustomPainter {
-  _FocusPainter({
-    required this.crop,
-    required this.radius,
-    required this.lockOffset,
-    required this.lockDistance,
-    required this.circleOpacity,
-    required this.lockOpacity,
-    required this.lockTravel,
-  });
+  _FocusPainter({required this.crop, required this.circleOpacity, required this.lockOpacity, required this.lockTravel});
+
+  /// Shared focus-circle radius in logical pixels.
+  static const _radius = 35.0;
+
+  /// Top and left inset of the settled lock icon, in logical pixels.
+  static const _lockOffset = 19.2;
+
+  /// Distance from focus center to the lock's initial center.
+  static const _lockDistance = 30.0;
 
   /// Lock outline in local icon coordinates, before placement in the preview.
   static final _lockPath =
@@ -242,15 +235,6 @@ class _FocusPainter extends CustomPainter {
   /// Recognition geometry whose center anchors the circle and initial lock.
   final CropRect crop;
 
-  /// Focus circle radius in logical pixels.
-  final double radius;
-
-  /// Top and left inset of the settled lock icon, in logical pixels.
-  final double lockOffset;
-
-  /// Horizontal distance from focus center to the lock's initial center.
-  final double lockDistance;
-
   /// Current circle alpha, independent of the focus lock state.
   final double circleOpacity;
 
@@ -268,7 +252,7 @@ class _FocusPainter extends CustomPainter {
     if (circleOpacity > 0) {
       canvas.drawCircle(
         center,
-        radius,
+        _radius,
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1
@@ -276,7 +260,7 @@ class _FocusPainter extends CustomPainter {
       );
     }
     if (lockOpacity > 0) {
-      final origin = Offset.lerp(center.translate(-lockDistance - 12, -12), Offset(lockOffset, lockOffset), lockTravel)!;
+      final origin = Offset.lerp(center.translate(-_lockDistance - 12, -12), const Offset(_lockOffset, _lockOffset), lockTravel)!;
       canvas.translate(origin.dx, origin.dy);
       canvas.drawPath(_lockPath, Paint()..color = Colors.white.withAlpha((255 * lockOpacity).round()));
     }
@@ -285,11 +269,5 @@ class _FocusPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_FocusPainter old) =>
-      old.crop != crop ||
-      old.radius != radius ||
-      old.lockOffset != lockOffset ||
-      old.lockDistance != lockDistance ||
-      old.circleOpacity != circleOpacity ||
-      old.lockOpacity != lockOpacity ||
-      old.lockTravel != lockTravel;
+      old.crop != crop || old.circleOpacity != circleOpacity || old.lockOpacity != lockOpacity || old.lockTravel != lockTravel;
 }

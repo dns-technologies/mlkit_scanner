@@ -316,7 +316,8 @@ final class Scanner {
             self.analyzer?.updateCropRect(cropRect: request.configuration.cropRect)
             camera.resumeCamera { [weak self, weak request, weak camera] error in
                 guard let self = self, let request = request, let camera = camera, self.isCurrent(request) else { return }
-                let failure = error.map { error -> CameraError in
+                let failure = error.map { error -> Error in
+                    if error is MlKitPluginError { return error }
                     if let cameraError = error as? CameraError {
                         return cameraError.contextualize(viewId: request.consumer.viewId)
                     }
@@ -349,7 +350,7 @@ final class Scanner {
     private func control(_ action: (CameraPreviewing) throws -> Void) throws {
         guard selected != nil, !isBackgrounded, let camera = camera else { throw MlKitPluginError.cameraIsNotInitialized }
         do { try action(camera) }
-        catch MlKitPluginError.deviceHasNotFlash { throw MlKitPluginError.deviceHasNotFlash }
+        catch let error as MlKitPluginError { throw error }
         catch let error as CameraError { throw error.contextualize(viewId: selected?.viewId) }
         catch { throw CameraError(message: "Camera operation failed", viewId: selected?.viewId, underlyingError: error) }
     }

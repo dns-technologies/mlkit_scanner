@@ -12,6 +12,7 @@ final class MlKitPluginErrorTests: XCTestCase {
             (.deviceHasNotZoom, "6", "Zoom is not supported on this device"),
             (.unknownError, "7", "Unknown scanner error"),
             (.cameraSessionDisposed, "8", "Camera session has been disposed"),
+            (.cameraError, "9", "Camera operation failed"),
         ]
 
         for (error, code, description) in expected {
@@ -29,23 +30,22 @@ final class MlKitPluginErrorTests: XCTestCase {
         )
 
         XCTAssertEqual(error.localizedDescription, "Camera failed to open")
-        XCTAssertNil(error.channelDetails["operation"])
-        XCTAssertEqual(error.channelDetails["viewId"] as? Int64, 12)
-        XCTAssertEqual(error.channelDetails["cameraStateErrorCode"] as? Int, 3)
-        let cause = error.channelDetails["cause"] as? [String: String]
-        XCTAssertTrue(cause?["type"]?.contains("PluginErrorTestCause") == true)
-        XCTAssertNotNil(cause?["message"])
-        XCTAssertNotNil(cause?["stackTrace"])
+        XCTAssertEqual(Set(error.channelDetails.keys), ["stacktrace"])
+        XCTAssertEqual(error.channelDetails["stacktrace"], error.stackTrace)
+        XCTAssertEqual(error.channelMessage, "Camera failed to open: camera disconnected")
     }
 
-    func testCameraErrorOmitsUnavailableOptionalContext() {
+    func testCameraErrorKeepsAStackWithoutAnUnderlyingError() {
         let details = CameraError(message: "Failed to enable camera torch").channelDetails
 
-        XCTAssertTrue(details.isEmpty)
+        XCTAssertEqual(Set(details.keys), ["stacktrace"])
+        XCTAssertFalse(details["stacktrace"]?.isEmpty ?? true)
     }
 }
 
-private enum PluginErrorTestCause: Error {
+private enum PluginErrorTestCause: Error, LocalizedError {
     /// An operation was rejected.
     case rejected
+
+    var errorDescription: String? { "camera disconnected" }
 }

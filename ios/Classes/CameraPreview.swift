@@ -349,8 +349,8 @@ final class CameraPreview: NSObject, CameraPreviewing {
                 defer { camera.unlockForConfiguration() }
                 try action(camera)
             }
-        } catch MlKitPluginError.deviceHasNotFlash {
-            throw MlKitPluginError.deviceHasNotFlash
+        } catch let error as MlKitPluginError {
+            throw error
         } catch {
             throw CameraError(message: message, underlyingError: error)
         }

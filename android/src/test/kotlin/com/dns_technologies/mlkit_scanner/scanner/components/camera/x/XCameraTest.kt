@@ -754,7 +754,7 @@ internal class XCameraControlCompletionTest {
             val error = runCatching { result.await() }.exceptionOrNull() as PluginError.CameraError
             assertSame(cause, error.cause)
             assertSame(cause, error.contextualize(42).cause)
-            assertEquals(setOf("viewId", "cause", "cameraStateErrorCode"), (error.details as Map<*, *>).keys)
+            assertEquals(setOf("stacktrace"), (error.details as Map<*, *>).keys)
         }
     }
 

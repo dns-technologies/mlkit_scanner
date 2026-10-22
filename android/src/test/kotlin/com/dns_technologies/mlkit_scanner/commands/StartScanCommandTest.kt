@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner.commands
 
+import com.dns_technologies.mlkit_scanner.commands.base.verifyError
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import io.flutter.plugin.common.MethodCall
@@ -25,7 +26,7 @@ internal class StartScanCommandTest {
         for (arguments in listOf(mapOf("type" to 0, "delay" to 0.5))) {
             val reply = mock(MethodChannel.Result::class.java)
             command.execute(MethodCall("startScan", arguments), reply)
-            verify(reply).error(PluginError.InvalidArguments.errorCode, PluginError.InvalidArguments.message, null)
+            verifyError(reply, PluginError.InvalidArguments)
         }
         verifyNoInteractions(scanner)
     }

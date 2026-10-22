@@ -1317,21 +1317,21 @@ void main() {
     for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
       testWidgets('$platform lock fades in before flying to the corner', (tester) async {
         await mount(tester, platform: platform);
-        final ios = platform == TargetPlatform.iOS;
-        final initialX = ios ? 74.0 : 108.0;
-        final target = ios ? 20.0 : 19.2;
+        const initialX = 108.0;
+        const target = 19.2;
         await tester.longPress(overlay);
         await tester.pump();
-        await tester.pump(Duration(milliseconds: ios ? 250 : 300));
+        await tester.pump(const Duration(milliseconds: 300));
         expect(
           painting(tester),
           paints
+            ..circle(radius: 35)
             ..translate(x: initialX, y: 148)
             ..path(color: Colors.white),
         );
-        await tester.pump(Duration(milliseconds: ios ? 375 : 250));
+        await tester.pump(const Duration(milliseconds: 250));
         expect(painting(tester), paints..translate(x: (initialX + target) / 2, y: (148 + target) / 2));
-        await tester.pump(Duration(milliseconds: ios ? 375 : 250));
+        await tester.pump(const Duration(milliseconds: 250));
         expect(painting(tester), paints..translate(x: target, y: target));
         await close(tester);
       });

@@ -40,11 +40,7 @@ internal class AsyncScannerCommandTest {
 
         command.execute(MethodCall("test", null), result)
 
-        verify(result).error(
-            PluginError.CameraSessionDisposed.errorCode,
-            PluginError.CameraSessionDisposed.message,
-            null,
-        )
+        verifyError(result, PluginError.CameraSessionDisposed)
     }
 
     @Test
@@ -57,7 +53,7 @@ internal class AsyncScannerCommandTest {
         command.execute(MethodCall("test", null), result)
 
         verify(result, never()).success(anyValue())
-        verify(result).error(PluginError.CameraSessionDisposed.errorCode, PluginError.CameraSessionDisposed.message, null)
+        verifyError(result, PluginError.CameraSessionDisposed)
     }
 
     private class TestAsyncScannerCommand(
