@@ -7,11 +7,8 @@
 import Foundation
 import AVFoundation
 
-/// Processes camera frames for the declared recognition mode.
+/// Processes camera frames for recognition.
 protocol RecognitionHandler: AnyObject {
-    /// Recognition mode implemented by this handler.
-    var type: RecognitionType { get }
-
     /// Processes one physically oriented camera frame using the preview viewport.
     func processVideoOutput(sampleBuffer: CMSampleBuffer, viewport: CGSize)
 

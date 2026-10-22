@@ -4,7 +4,7 @@ import Flutter
 final class SetZoomRatioCommand: ScannerCommand {
 
     override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
-        try scanner.setZoomRatio(value: ScannerMethodArguments.zoomRatio(call.arguments))
+        try scanner.setZoomRatio(value: requireMap(call.arguments).requireFiniteDouble(PluginConstants.valueArgument))
         success(result)
     }
 }

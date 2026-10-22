@@ -25,7 +25,6 @@ final class ScannerTests: XCTestCase {
     }
 
     private final class TestAnalyzer: BarcodeAnalyzing, RecognitionHandler {
-        var type: RecognitionType = .barcodeRecognition
         var subscription: ScanResultSubscription?
         var delay = 0
         var cropUpdates = 0
@@ -171,7 +170,7 @@ final class ScannerTests: XCTestCase {
         try f.capture(1)
         XCTAssertNil(f.camera.recognitionHandler)
         XCTAssertEqual(f.analyzer.cropUpdates, 1)
-        try f.runtime.startScan(type: .barcodeRecognition, delay: 100)
+        try f.runtime.startScan(delay: 100)
         let old = try XCTUnwrap(f.analyzer.subscription)
         let barcode = ScannerBarcode(rawValue: "test", displayValue: nil, format: 256, valueType: 7)
         old.deliver(barcode)
@@ -180,7 +179,7 @@ final class ScannerTests: XCTestCase {
         try f.capture(2)
         XCTAssertNil(f.camera.recognitionHandler)
         XCTAssertEqual(f.analyzer.cropUpdates, 2)
-        try f.runtime.startScan(type: .barcodeRecognition, delay: 500)
+        try f.runtime.startScan(delay: 500)
         old.deliver(barcode)
         XCTAssertEqual(f.resultOwners, [1])
         f.analyzer.subscription?.deliver(barcode)

@@ -4,7 +4,7 @@ import Flutter
 final class SetScanDelayCommand: ScannerCommand {
 
     override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
-        try scanner.updateScanPeriod(delay: ScannerMethodArguments.scanDelay(call.arguments))
+        try scanner.updateScanPeriod(delay: requireMap(call.arguments).requireInt(PluginConstants.delayArgument))
         success(result)
     }
 }

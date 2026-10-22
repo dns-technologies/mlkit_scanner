@@ -213,7 +213,7 @@ final class Scanner {
     }
 
     /// Enables barcode delivery with the requested recognition cooldown.
-    func startScan(type: RecognitionType, delay: Int) throws {
+    func startScan(delay: Int) throws {
         beginScan(delay: delay)
     }
 

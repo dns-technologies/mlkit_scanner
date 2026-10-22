@@ -13,20 +13,14 @@ struct ScannerConfiguration {
     let camera: CameraData
 
     init(arguments: Any?) throws {
-        let values = try ScannerMethodArguments.map(arguments)
-        zoomRatio = try PlatformChannelScalar.finiteDouble(from: values["zoomRatio"])
-        torchEnabled = try PlatformChannelScalar.bool(from: values["torchEnabled"])
-        cropRect = try CropRect(arguments: Self.map(values["cropRect"]) ?? [:])
-        if let cameraMap = try Self.map(values["iosCamera"]) {
+        let values = try requireMap(arguments)
+        zoomRatio = try values.requireFiniteDouble("zoomRatio")
+        torchEnabled = try values.requireBoolean("torchEnabled")
+        cropRect = try CropRect(arguments: values.optionalMap("cropRect") ?? [:])
+        if let cameraMap = try values.optionalMap("iosCamera") {
             camera = try CameraData(arguments: cameraMap)
         } else {
             camera = CameraData(type: .builtInWideAngleCamera, position: .back)
         }
-    }
-
-    /// Returns nil for absent values and requires a string-keyed map otherwise.
-    private static func map(_ value: Any?) throws -> [String: Any]? {
-        guard let value = value, !(value is NSNull) else { return nil }
-        return try ScannerMethodArguments.map(value)
     }
 }

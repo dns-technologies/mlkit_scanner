@@ -19,8 +19,8 @@ internal class CaptureLease(val consumer: ScannerConsumer) {
     val id = UUID.randomUUID().toString()
     /** Main-thread supervisor cancelled when capture ownership is revoked. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    /** Current recognition endpoint prepared for this capture lease. */
-    var subscription: ResultEndpoint? = null
+    /** Barcode subscription owned by this capture lease. */
+    var scanSubscription: ScanSubscription? = null
     /** Whether this lifetime has been permanently revoked. */
     var closed = false
         private set
@@ -36,24 +36,24 @@ internal class CaptureLease(val consumer: ScannerConsumer) {
     fun close() {
         if (closed) return
         closed = true
-        subscription?.close()
-        subscription = null
+        scanSubscription?.close()
+        scanSubscription = null
         scope.cancel()
         replies.toList().forEach { reportScannerError(it, PluginError.CameraSessionDisposed) }
     }
 }
 
-/** Cancellable result endpoint with an explicit delivery-enabled state. */
-internal class ResultEndpoint {
-    /** Unique identifier of this lifetime. */
+/** Barcode subscription with an identity and cancellable delivery state. */
+internal class ScanSubscription {
+    /** Unique identifier of this subscription lifetime. */
     val id = UUID.randomUUID().toString()
-    /** Whether result delivery is enabled for this endpoint. */
+    /** Whether barcode delivery is enabled for this subscription. */
     var enabled = false
-    /** Whether this lifetime has been permanently revoked. */
+    /** Whether this subscription has been permanently revoked. */
     var closed = false
         private set
 
-    /** Permanently revokes this lifetime and its outstanding work. */
+    /** Permanently disables barcode delivery for this subscription. */
     fun close() {
         closed = true
         enabled = false

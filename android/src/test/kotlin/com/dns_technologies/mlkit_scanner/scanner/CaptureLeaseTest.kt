@@ -25,6 +25,19 @@ internal class CaptureLeaseTest {
         reply.success(null); lease.close()
         assertEquals(1, result.replies)
     }
+    @Test fun `closing capture revokes its scan subscription`() {
+        val lease = CaptureLease(ScannerConsumer(1))
+        val subscription = ScanSubscription().apply { enabled = true }
+        lease.scanSubscription = subscription
+
+        lease.close()
+        lease.close()
+
+        assertTrue(subscription.closed)
+        assertFalse(subscription.enabled)
+        assertNull(lease.scanSubscription)
+    }
+
     @Test fun `same consumer receives distinct ownership leases`() {
         val consumer = ScannerConsumer(1)
         val a = CaptureLease(consumer); val b = CaptureLease(consumer)

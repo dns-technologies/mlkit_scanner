@@ -25,6 +25,29 @@ final class CropRectTests: XCTestCase {
         XCTAssertEqual(crop.offsetY, 0.4)
     }
 
+    func testCodecZeroAndOnePreserveFullPreviewGeometry() throws {
+        let crop = try CropRect(arguments: [
+            "scaleWidth": NSNumber(value: 1.0), "scaleHeight": NSNumber(value: 1.0),
+            "offsetX": NSNumber(value: 0.0), "offsetY": NSNumber(value: 0.0),
+        ])
+
+        XCTAssertEqual(crop.scaleWidth, 1)
+        XCTAssertEqual(crop.scaleHeight, 1)
+        XCTAssertEqual(crop.offsetX, 0)
+        XCTAssertEqual(crop.offsetY, 0)
+    }
+
+    func testNullCoordinatesUseFullPreviewDefaults() throws {
+        let crop = try CropRect(arguments: [
+            "scaleWidth": NSNull(), "scaleHeight": NSNull(), "offsetX": NSNull(), "offsetY": NSNull(),
+        ])
+
+        XCTAssertEqual(crop.scaleWidth, 1)
+        XCTAssertEqual(crop.scaleHeight, 1)
+        XCTAssertEqual(crop.offsetX, 0)
+        XCTAssertEqual(crop.offsetY, 0)
+    }
+
     func testInvalidGeometryIsRejected() {
         let invalidValues: [[String: Any]] = [
             ["scaleWidth": "bad"],
@@ -32,6 +55,8 @@ final class CropRectTests: XCTestCase {
             ["offsetX": Double.nan],
             ["offsetY": Double.infinity],
             ["scaleWidth": NSNumber(value: true)],
+            ["scaleHeight": Double.infinity],
+            ["offsetY": -Double.infinity],
         ]
 
         for value in invalidValues {

@@ -4,14 +4,11 @@ import Flutter
 final class UpdateCameraSettingsCommand: ScannerCommand {
 
     override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
-        let values = try ScannerMethodArguments.map(call.arguments)
-        let zoom = try values["zoomRatio"].map {
-            try PlatformChannelScalar.finiteDouble(from: $0)
-        }
-        let torch = try values["torchEnabled"].map { try PlatformChannelScalar.bool(from: $0) }
-        let crop = try values["cropRect"].map {
-            try ScannerMethodArguments.cropRect([PluginConstants.cropRectArgument: $0])
-        }
+        let values = try requireMap(call.arguments)
+        let zoom = values.keys.contains("zoomRatio") ? try values.requireFiniteDouble("zoomRatio") : nil
+        let torch = values.keys.contains("torchEnabled") ? try values.requireBoolean("torchEnabled") : nil
+        let crop = values.keys.contains("cropRect")
+            ? try CropRect(arguments: values.requireMap("cropRect")) : nil
 
         if let crop = crop { try scanner.setCropArea(cropRect: crop) }
         if let zoom = zoom { try scanner.setZoomRatio(value: zoom) }

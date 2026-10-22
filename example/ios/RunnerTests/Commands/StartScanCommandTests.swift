@@ -8,7 +8,7 @@ final class StartScanCommandTests: XCTestCase {
         defer { device.scanner.release() }
         var replies = 0
         StartScanCommand(scanner: device.scanner).execute(
-            FlutterMethodCall(methodName: "startScan", arguments: ["type": 0, "delay": 250])
+            FlutterMethodCall(methodName: "startScan", arguments: ["delay": 250])
         ) {
             XCTAssertNil($0)
             replies += 1
@@ -23,7 +23,7 @@ final class StartScanCommandTests: XCTestCase {
         defer { device.scanner.release() }
         var result: Any?
         StartScanCommand(scanner: device.scanner).execute(
-            FlutterMethodCall(methodName: "startScan", arguments: ["type": 1, "delay": 0])
+            FlutterMethodCall(methodName: "startScan", arguments: ["delay": 1.5])
         ) { result = $0 }
         XCTAssertEqual((result as? FlutterError)?.code, MlKitPluginError.invalidArguments.rawValue)
         XCTAssertNil(device.analyzer.scanDelay)

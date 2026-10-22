@@ -286,7 +286,7 @@ internal class ScannerPluginTransportTest {
         assertNull(f.call("setScanDelay", mapOf("captureId" to b, "delay" to 100)).error)
         verify(f.scanner).setScanPeriod(100)
     }
-    @Test fun `preview subscriptions return a snapshot and independent endpoint identities`() {
+    @Test fun `preview subscriptions return a snapshot and independent subscription identities`() {
         val f = TexturePluginFixture()
         val a = f.call("subscribePreview").value as Map<*, *>
         val b = f.call("subscribePreview").value as Map<*, *>
@@ -294,7 +294,57 @@ internal class ScannerPluginTransportTest {
         assertTrue(a.containsKey("description")); assertNull(a["description"])
         assertNull(f.call("unsubscribePreview", mapOf("subscriptionId" to a["subscriptionId"])).error)
     }
-    @Test fun `starting an obsolete scan endpoint is rejected`() {
+    @Test fun `unsubscribing preview stops delivery without removing other subscribers`() {
+        val f = TexturePluginFixture()
+        val channel = mock(MethodChannel::class.java)
+        f.set("channel", channel)
+        val removed = f.call("subscribePreview").value as Map<*, *>
+        val active = f.call("subscribePreview").value as Map<*, *>
+        val capture = f.open(1)
+        f.call("closeCapture", mapOf("captureId" to capture))
+
+        f.call("unsubscribePreview", mapOf("subscriptionId" to removed["subscriptionId"]))
+        f.call("disposeScanner")
+
+        verify(channel).invokeMethod("onPreviewState", mapOf(
+            "subscriptionId" to active["subscriptionId"], "description" to null,
+        ))
+        verifyNoMoreInteractions(channel)
+    }
+
+    @Test fun `preview unsubscribe during delivery suppresses remaining queued subscribers`() {
+        val f = TexturePluginFixture()
+        val channel = mock(MethodChannel::class.java)
+        f.set("channel", channel)
+        val subscriptions = List(2) { f.call("subscribePreview").value as Map<*, *> }
+        doAnswer {
+            subscriptions.forEach {
+                f.call("unsubscribePreview", mapOf("subscriptionId" to it["subscriptionId"]))
+            }
+            null
+        }.`when`(channel).invokeMethod(eq("onPreviewState"), any())
+
+        f.call("disposeScanner")
+
+        verify(channel, times(1)).invokeMethod(eq("onPreviewState"), any())
+    }
+
+    @Test fun `cancelled scan subscription cannot restart while its capture remains open`() {
+        val f = TexturePluginFixture()
+        val capture = f.open(1)
+        val subscription = f.call("subscribeScan", mapOf("captureId" to capture)).value
+        f.call("startScan", mapOf("captureId" to capture, "subscriptionId" to subscription, "type" to 0, "delay" to 0))
+
+        val cancellation = f.call("cancelScan", mapOf("captureId" to capture))
+        clearInvocations(f.scanner)
+        val restart = f.call("startScan", mapOf("captureId" to capture, "subscriptionId" to subscription, "type" to 0, "delay" to 0))
+
+        assertNull(cancellation.error)
+        assertEquals(PluginError.InvalidArguments.errorCode, restart.error)
+        verifyNoInteractions(f.scanner)
+    }
+
+    @Test fun `starting an obsolete scan subscription is rejected`() {
         val f = TexturePluginFixture(); val lease = f.open(1)
         val old = f.call("subscribeScan", mapOf("captureId" to lease)).value
         val current = f.call("subscribeScan", mapOf("captureId" to lease)).value

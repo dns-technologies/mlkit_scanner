@@ -4,7 +4,8 @@ import Flutter
 final class SetCropAreaCommand: ScannerCommand {
 
     override func executeCommand(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
-        try scanner.setCropArea(cropRect: ScannerMethodArguments.cropRect(call.arguments))
+        let values = try requireMap(call.arguments).requireMap(PluginConstants.cropRectArgument)
+        try scanner.setCropArea(cropRect: CropRect(arguments: values))
         success(result)
     }
 }

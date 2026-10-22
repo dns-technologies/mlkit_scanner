@@ -36,7 +36,6 @@ final class MlkitBarcodeScannerTests: XCTestCase {
         replacement.deliver(recognized)
         XCTAssertEqual(replacementCount, 1)
         replacement.cancel()
-        XCTAssertEqual(scanner.type, .barcodeRecognition)
     }
 
     private func qrCodeImage(containing value: String) throws -> UIImage {

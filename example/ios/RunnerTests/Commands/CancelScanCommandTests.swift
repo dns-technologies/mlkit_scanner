@@ -6,7 +6,7 @@ final class CancelScanCommandTests: XCTestCase {
     func testAppliesArgumentsWithoutViewOrSubscriptionIdentifiers() throws {
         let device = try ScannerCommandFixture()
         defer { device.scanner.release() }
-        try device.scanner.startScan(type: .barcodeRecognition, delay: 0)
+        try device.scanner.startScan(delay: 0)
         XCTAssertNotNil(device.analyzer.subscription)
         var replies = 0
         CancelScanCommand(scanner: device.scanner).execute(

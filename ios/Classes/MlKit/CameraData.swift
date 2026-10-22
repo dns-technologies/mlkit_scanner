@@ -17,13 +17,11 @@ struct CameraData {
     let position: AVCaptureDevice.Position
 
     init(arguments: [String: Any]) throws {
-        let typeNumber = try PlatformChannelScalar.number(from: arguments["type"])
-        let positionNumber = try PlatformChannelScalar.number(from: arguments["position"])
+        let typeCode = try arguments.requireInt("type")
+        let positionCode = try arguments.requireInt("position")
         guard
-            typeNumber.doubleValue == Double(typeNumber.intValue),
-            positionNumber.doubleValue == Double(positionNumber.intValue),
-            let type = AVCaptureDevice.DeviceType.fromCode(typeNumber.intValue),
-            let position = AVCaptureDevice.Position.fromCode(positionNumber.intValue)
+            let type = AVCaptureDevice.DeviceType.fromCode(typeCode),
+            let position = AVCaptureDevice.Position.fromCode(positionCode)
         else {
             throw MlKitPluginError.invalidArguments
         }

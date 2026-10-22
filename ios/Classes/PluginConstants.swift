@@ -21,8 +21,6 @@ class PluginConstants {
     static let delayArgument = "delay"
     /// Argument key containing a recognition area.
     static let cropRectArgument = "cropRect"
-    /// Argument key containing a recognition type.
-    static let typeArgument = "type"
     /// Method name for absolute zoom changes.
     static let setZoomRatioMethod = "setZoomRatio"
     /// Method name for desired torch state changes.

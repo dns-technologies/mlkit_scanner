@@ -1,7 +1,7 @@
 import Flutter
 import UIKit
 
-/// One plugin per engine; native replies and subscriptions belong to concrete capture leases.
+/// Routes scanner commands and events within engine and capture lifetimes.
 public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     /// Method channel for this Flutter engine.
     private let channel: FlutterMethodChannel
@@ -12,8 +12,8 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     /// Active capture lease, accessed on main.
     private var selected: CaptureLease?
 
-    /// Preview subscriptions keyed by their opaque identifiers on main.
-    private var subscriptions: [String: PreviewSubscription] = [:]
+    /// Preview subscription identifiers independent of capture ownership, accessed on main.
+    private var previewSubscriptions: Set<String> = []
 
     /// Latest shared preview description, cached on main.
     private var preview: [String: Any]?
@@ -25,9 +25,9 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     private lazy var scanner = Scanner(
         onScanResult: { [weak self] viewId, barcode in
             guard let self = self, let lease = self.selected, !lease.closed, lease.viewId == viewId,
-                  let endpoint = lease.scan, endpoint.enabled else { return }
+                  let subscription = lease.scanSubscription, !subscription.closed, subscription.enabled else { return }
             self.channel.invokeMethod(PluginConstants.scanResultMethod, arguments: [
-                "viewId": viewId, "captureId": lease.id, "subscriptionId": endpoint.id, "barcode": barcode.toJson()])
+                "viewId": viewId, "captureId": lease.id, "subscriptionId": subscription.id, "barcode": barcode.toJson()])
         }, onTorchChanged: { [weak self] viewId, enabled in
             guard let self = self, let lease = self.selected, !lease.closed, lease.viewId == viewId else { return }
             self.channel.invokeMethod(PluginConstants.changeTorchStateMethod,
@@ -70,7 +70,7 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
     public func detachFromEngine(for registrar: FlutterPluginRegistrar) {
         closeSelected()
         isDisposed = true
-        subscriptions.removeAll()
+        previewSubscriptions.removeAll()
         scanner.release()
     }
 
@@ -83,22 +83,26 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
             let values = call.arguments as? [String: Any] ?? [:]
             switch call.method {
             case "registerScanner":
-                scanner.register(viewId: try ScannerMethodArguments.viewId(values))
+                let viewId = try values.requireInt64(PluginConstants.viewIdArgument)
+                guard viewId >= 0 else { throw MlKitPluginError.invalidArguments }
+                scanner.register(viewId: viewId)
                 reply(preview)
             case "unregisterScanner":
-                let viewId = try ScannerMethodArguments.viewId(values)
+                let viewId = try values.requireInt64(PluginConstants.viewIdArgument)
+                guard viewId >= 0 else { throw MlKitPluginError.invalidArguments }
                 if selected?.viewId == viewId { closeSelected() }
                 scanner.unregister(viewId: viewId)
                 reply(nil)
             case "subscribePreview":
-                let subscription = PreviewSubscription()
-                subscriptions[subscription.id] = subscription
-                reply(["subscriptionId": subscription.id, "description": preview as Any? ?? NSNull()])
+                let subscriptionId = UUID().uuidString
+                previewSubscriptions.insert(subscriptionId)
+                reply(["subscriptionId": subscriptionId, "description": preview as Any? ?? NSNull()])
             case "unsubscribePreview":
-                if let id = values["subscriptionId"] as? String { subscriptions.removeValue(forKey: id) }
+                if let id = values["subscriptionId"] as? String { previewSubscriptions.remove(id) }
                 reply(nil)
             case "openCapture":
-                let viewId = try ScannerMethodArguments.viewId(values)
+                let viewId = try values.requireInt64(PluginConstants.viewIdArgument)
+                guard viewId >= 0 else { throw MlKitPluginError.invalidArguments }
                 guard scanner.contains(viewId: viewId) else { throw MlKitPluginError.invalidArguments }
                 closeSelected()
                 let lease = CaptureLease(viewId: viewId)
@@ -124,28 +128,30 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
                 do {
                     switch call.method {
                     case PluginConstants.resumeCameraMethod:
-                        try scanner.updateGeometry(viewId: lease.viewId, size: ScannerMethodArguments.geometry(values["geometry"]))
+                        try scanner.updateGeometry(viewId: lease.viewId, size: values.requireMap("geometry").requireSize())
                         let settings = try ScannerConfiguration(arguments: values["configuration"])
                         scanner.captureCamera(viewId: lease.viewId, configuration: settings) { error in command.complete(scoped, error: error) }
                     case PluginConstants.pauseCameraMethod:
                         scanner.pauseCamera { scoped(nil) }
                     case "updatePreviewGeometry":
-                        try scanner.updateGeometry(viewId: lease.viewId, size: ScannerMethodArguments.geometry(values))
+                        try scanner.updateGeometry(viewId: lease.viewId, size: values.requireSize())
                         scoped(nil)
                     case "focus":
-                        try scanner.focus(locked: PlatformChannelScalar.bool(from: values["locked"]))
+                        try scanner.focus(locked: values.requireBoolean("locked"))
                         scoped(nil)
                     case "subscribeScan":
+                        lease.scanSubscription?.close()
                         try scanner.cancelScan()
-                        let endpoint = ScanEndpoint()
-                        lease.scan = endpoint
-                        scoped(endpoint.id)
+                        let subscription = ScanSubscription()
+                        lease.scanSubscription = subscription
+                        scoped(subscription.id)
                     case PluginConstants.startScanMethod:
-                        guard let endpoint = lease.scan, endpoint.id == values["subscriptionId"] as? String else { throw MlKitPluginError.invalidArguments }
-                        endpoint.enabled = true
+                        guard let subscription = lease.scanSubscription, !subscription.closed, subscription.id == values["subscriptionId"] as? String else { throw MlKitPluginError.invalidArguments }
+                        subscription.enabled = true
                         StartScanCommand(scanner: scanner).execute(call, result: scoped)
                     case PluginConstants.cancelScanMethod:
-                        lease.scan = nil
+                        lease.scanSubscription?.close()
+                        lease.scanSubscription = nil
                         CancelScanCommand(scanner: scanner).execute(call, result: scoped)
                     case PluginConstants.setZoomRatioMethod:
                         SetZoomRatioCommand(scanner: scanner).execute(call, result: scoped)
@@ -177,20 +183,20 @@ public final class SwiftMlkitScannerPlugin: NSObject, FlutterPlugin {
         let description = metadata.map(Self.previewArguments)
         preview = description
         guard !isDisposed else { return }
-        for subscription in subscriptions.values {
-            channel.invokeMethod("onPreviewState", arguments: ["subscriptionId": subscription.id, "description": description as Any? ?? NSNull()])
+        for subscriptionId in Array(previewSubscriptions) where previewSubscriptions.contains(subscriptionId) {
+            channel.invokeMethod("onPreviewState", arguments: ["subscriptionId": subscriptionId, "description": description as Any? ?? NSNull()])
         }
     }
 }
 
 /// Main-thread ownership lifetime for camera commands and barcode delivery.
 private final class CaptureLease {
-    /// Unique identifier of this subscription or capture lifetime.
+    /// Unique identifier of this capture lifetime.
     let id = UUID().uuidString
     /// Identifier of the registered camera consumer.
     let viewId: Int64
-    /// Current barcode endpoint belonging to this capture lease.
-    var scan: ScanEndpoint?
+    /// Barcode subscription owned by this capture lease.
+    var scanSubscription: ScanSubscription?
     /// Whether this lease has been revoked on main.
     private(set) var closed = false
     /// Unfinished method replies keyed by object identity.
@@ -213,7 +219,8 @@ private final class CaptureLease {
             return
         }
         closed = true
-        scan = nil
+        scanSubscription?.close()
+        scanSubscription = nil
         let pending = Array(replies.values)
         replies.removeAll()
         for reply in pending { reply.complete(FlutterError(code: MlKitPluginError.cameraSessionDisposed.rawValue,
@@ -242,16 +249,18 @@ private final class PendingReply {
     }
 }
 
-/// Barcode result endpoint with an explicit delivery-enabled state.
-private final class ScanEndpoint {
-    /// Unique identifier of this subscription or capture lifetime.
+/// Barcode subscription with an identity and cancellable delivery state.
+private final class ScanSubscription {
+    /// Unique identifier of this subscription lifetime.
     let id = UUID().uuidString
-    /// Whether result delivery is enabled for this endpoint.
+    /// Whether barcode delivery is enabled for this subscription.
     var enabled = false
-}
+    /// Whether this subscription has been permanently revoked.
+    private(set) var closed = false
 
-/// Independent subscription identity for shared preview state.
-private final class PreviewSubscription {
-    /// Unique identifier of this subscription or capture lifetime.
-    let id = UUID().uuidString
+    /// Permanently disables barcode delivery for this subscription.
+    func close() {
+        closed = true
+        enabled = false
+    }
 }

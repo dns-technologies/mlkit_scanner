@@ -15,6 +15,17 @@ final class ScannerConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.camera.position, .back)
     }
 
+    func testNullOptionalSettingsUseDefaults() throws {
+        var arguments = validArguments
+        arguments["cropRect"] = NSNull()
+        arguments["iosCamera"] = NSNull()
+
+        let configuration = try ScannerConfiguration(arguments: arguments)
+
+        XCTAssertEqual(configuration.cropRect.scaleWidth, 1)
+        XCTAssertEqual(configuration.camera.position, .back)
+    }
+
     func testRejectsMissingOrMalformedFields() {
         for key in ["zoomRatio", "torchEnabled"] {
             var arguments = validArguments

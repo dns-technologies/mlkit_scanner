@@ -28,8 +28,6 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
     /// Protected with cropRectLock; frame submissions snapshot this actual subscription.
     private var subscription: ScanResultSubscription?
 
-    var type: RecognitionType = RecognitionType.barcodeRecognition
-
     init(delay: Int, cropRect: CropRect?) {
         scanner = BarcodeScanner.barcodeScanner()
         analysisGate = FrameAnalysisGate(successfulScanPeriodMilliseconds: delay)
@@ -133,7 +131,6 @@ private final class ScanInput: RecognitionHandler {
     private weak var scanner: MlkitBarcodeScanner?
     /// Concrete result subscription retained across analysis queue submission.
     private let listener: ScanResultSubscription
-    var type: RecognitionType = .barcodeRecognition
 
     init(scanner: MlkitBarcodeScanner, listener: ScanResultSubscription) {
         self.scanner = scanner

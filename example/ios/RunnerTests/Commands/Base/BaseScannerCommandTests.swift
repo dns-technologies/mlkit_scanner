@@ -145,7 +145,6 @@ final class ScannerCommandFixture {
     }
 
     final class Analyzer: BarcodeAnalyzing, RecognitionHandler {
-        let type = RecognitionType.barcodeRecognition
         var scanDelay: Int?
         var subscription: ScanResultSubscription?
 

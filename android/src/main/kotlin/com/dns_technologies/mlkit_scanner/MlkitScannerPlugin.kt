@@ -23,6 +23,7 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry
 import io.flutter.view.TextureRegistry
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.currentCoroutineContext
@@ -43,8 +44,8 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
     private var disposingScanner: Scanner? = null
     /** Registered camera consumers keyed by their logical identifiers. */
     private val consumers = mutableMapOf<Int, ScannerConsumer>()
-    /** Live preview event endpoints independent of capture ownership. */
-    private val previewSubscriptions = mutableMapOf<String, ResultEndpoint>()
+    /** Preview subscription identifiers independent of capture ownership. */
+    private val previewSubscriptions = mutableSetOf<String>()
     /** Latest texture description returned to new preview subscriptions. */
     private var preview: CameraPreviewDescription? = null
     /** Exclusive capture lease whose identity rejects stale commands and results. */
@@ -136,14 +137,12 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                     result.success(null)
                 }
                 "subscribePreview" -> {
-                    val endpoint = ResultEndpoint()
-                    previewSubscriptions[endpoint.id] = endpoint
-                    result.success(mapOf("subscriptionId" to endpoint.id, "description" to preview?.toMap()))
+                    val subscriptionId = UUID.randomUUID().toString()
+                    previewSubscriptions += subscriptionId
+                    result.success(mapOf("subscriptionId" to subscriptionId, "description" to preview?.toMap()))
                 }
                 "unsubscribePreview" -> {
-                    previewSubscriptions
-                        .remove(call.arguments.requireMap()["subscriptionId"] as? String)
-                        ?.close()
+                    previewSubscriptions.remove(call.arguments.requireMap()["subscriptionId"] as? String)
                     result.success(null)
                 }
                 "openCapture" -> {
@@ -196,23 +195,23 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                     reply.success(null)
                 }
                 "subscribeScan" -> {
-                    lease.subscription?.close()
+                    lease.scanSubscription?.close()
                     current().pauseScan()
-                    val endpoint = ResultEndpoint()
-                    lease.subscription = endpoint
-                    reply.success(endpoint.id)
+                    val subscription = ScanSubscription()
+                    lease.scanSubscription = subscription
+                    reply.success(subscription.id)
                 }
                 PluginConstants.startScanMethod -> {
-                    val endpoint =
-                        lease.subscription?.takeIf {
+                    val subscription =
+                        lease.scanSubscription?.takeIf {
                             !it.closed && it.id == values["subscriptionId"]
                         } ?: throw PluginError.InvalidArguments
-                    endpoint.enabled = true
+                    subscription.enabled = true
                     StartScanCommand(current).execute(call, reply)
                 }
                 PluginConstants.cancelScanMethod -> {
-                    lease.subscription?.close()
-                    lease.subscription = null
+                    lease.scanSubscription?.close()
+                    lease.scanSubscription = null
                     CancelScanCommand(current).execute(call, reply)
                 }
                 PluginConstants.setZoomRatioMethod ->
@@ -352,11 +351,11 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
     private fun publishPreview(description: CameraPreviewDescription?) {
         preview = description
         val payload = description?.toMap()
-        for (subscription in previewSubscriptions.values.toList()) {
-            if (!subscription.closed)
+        for (subscriptionId in previewSubscriptions.toList()) {
+            if (subscriptionId in previewSubscriptions)
                 channel?.invokeMethod(
                     "onPreviewState",
-                    mapOf("subscriptionId" to subscription.id, "description" to payload),
+                    mapOf("subscriptionId" to subscriptionId, "description" to payload),
                 )
         }
     }
@@ -379,16 +378,16 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         "cropHeight" to cropRect.height,
     )
 
-    /** Delivers a barcode only to the active capture's enabled event endpoint. */
+    /** Delivers a barcode only to the active capture's enabled scan subscription. */
     private fun emitResult(viewId: Int, barcode: Barcode) {
         val lease = selected?.takeIf { it.consumer.viewId == viewId && !it.closed } ?: return
-        val endpoint = lease.subscription?.takeIf { it.enabled && !it.closed } ?: return
+        val subscription = lease.scanSubscription?.takeIf { it.enabled && !it.closed } ?: return
         channel?.invokeMethod(
             PluginConstants.scanResultMethod,
             mapOf(
                 "viewId" to viewId,
                 "captureId" to lease.id,
-                "subscriptionId" to endpoint.id,
+                "subscriptionId" to subscription.id,
                 "barcode" to barcode.toMap(),
             ),
         )

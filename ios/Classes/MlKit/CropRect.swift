@@ -41,18 +41,9 @@ struct CropRect {
     }
 
     init(arguments: [String: Any]) throws {
-
-        /// Reads one finite numeric argument or its cross-platform default.
-        func finiteValue(_ key: String, default defaultValue: CGFloat) throws -> CGFloat {
-            guard let rawValue = arguments[key], !(rawValue is NSNull) else {
-                return defaultValue
-            }
-            return CGFloat(try PlatformChannelScalar.finiteDouble(from: rawValue))
-        }
-
-        scaleWidth = try finiteValue("scaleWidth", default: 1)
-        scaleHeight = try finiteValue("scaleHeight", default: 1)
-        self.offsetX = try finiteValue("offsetX", default: 0)
-        self.offsetY = try finiteValue("offsetY", default: 0)
+        scaleWidth = CGFloat(try arguments.optionalFiniteDouble("scaleWidth") ?? 1)
+        scaleHeight = CGFloat(try arguments.optionalFiniteDouble("scaleHeight") ?? 1)
+        offsetX = CGFloat(try arguments.optionalFiniteDouble("offsetX") ?? 0)
+        offsetY = CGFloat(try arguments.optionalFiniteDouble("offsetY") ?? 0)
     }
 }
