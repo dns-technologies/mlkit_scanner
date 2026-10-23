@@ -93,7 +93,7 @@ internal open class RecordingScanner {
     var zoomCompletion: CompletableDeferred<Unit>? = null
     var torchCompletion: CompletableDeferred<Unit>? = null
 
-    fun releaseCamera() { events += DeviceCall.ReleaseCamera(42) }
+    fun releaseCapture() { events += DeviceCall.ReleaseCapture(42) }
     fun startScan(period: Int) { events += DeviceCall.StartScan(42, period) }
     fun pauseScan() { events += DeviceCall.PauseScan(42) }
     fun setScanPeriod(period: Int) { events += DeviceCall.SetScanPeriod(42, period) }
@@ -114,7 +114,7 @@ internal open class RecordingScanner {
 internal sealed interface DeviceCall {
     val viewId: Int
     sealed interface Request : DeviceCall
-    data class ReleaseCamera(override val viewId: Int) : DeviceCall
+    data class ReleaseCapture(override val viewId: Int) : DeviceCall
     data class StartScan(override val viewId: Int, val periodMs: Int) : DeviceCall
     data class PauseScan(override val viewId: Int) : DeviceCall
     data class SetScanPeriod(override val viewId: Int, val periodMs: Int) : DeviceCall

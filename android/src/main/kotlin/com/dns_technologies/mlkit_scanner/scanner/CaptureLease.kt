@@ -3,7 +3,6 @@ package com.dns_technologies.mlkit_scanner.scanner
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.commands.base.BaseScannerCommand
 import io.flutter.plugin.common.MethodChannel
-import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -12,15 +11,13 @@ import kotlinx.coroutines.cancel
 /**
  * An actual camera-control lease and the work that is cancelled when it closes.
  *
- * @property consumer Registered consumer that exclusively owns this capture lifetime.
+ * @property consumer Consumer that exclusively owns this capture lifetime.
  */
-internal class CaptureLease(val consumer: ScannerConsumer) {
-    /** Unique identifier of this lifetime. */
-    val id = UUID.randomUUID().toString()
+internal class CaptureLease(val consumer: ScannerConsumer, val id: String) {
     /** Main-thread supervisor cancelled when capture ownership is revoked. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    /** Barcode subscription owned by this capture lease. */
-    var scanSubscription: ScanSubscription? = null
+    /** Child lease that owns recognition result delivery. */
+    var scanLease: ScanLease? = null
     /** Whether this lifetime has been permanently revoked. */
     var closed = false
         private set
@@ -32,21 +29,26 @@ internal class CaptureLease(val consumer: ScannerConsumer) {
     fun reply(result: MethodChannel.Result): PendingReply =
         PendingReply(result) { replies.remove(it) }.also { replies += it }
 
+    /** Replaces the result lease, permanently closing the previous endpoint. */
+    fun startScan(id: String): ScanLease {
+        if (id.isEmpty()) throw PluginError.InvalidArguments
+        scanLease?.close()
+        return ScanLease(id).also { scanLease = it }
+    }
+
     /** Permanently revokes this lifetime and its outstanding work. */
     fun close() {
         if (closed) return
         closed = true
-        scanSubscription?.close()
-        scanSubscription = null
+        scanLease?.close()
+        scanLease = null
         scope.cancel()
         replies.toList().forEach { BaseScannerCommand.reportScannerError(it, PluginError.CameraSessionDisposed) }
     }
 }
 
-/** Barcode subscription with an identity and cancellable delivery state. */
-internal class ScanSubscription {
-    /** Unique identifier of this subscription lifetime. */
-    val id = UUID.randomUUID().toString()
+/** Recognition result lease with permanent revocation of delivery. */
+internal class ScanLease(val id: String) {
     /** Whether barcode delivery is enabled for this subscription. */
     var enabled = false
     /** Whether this subscription has been permanently revoked. */

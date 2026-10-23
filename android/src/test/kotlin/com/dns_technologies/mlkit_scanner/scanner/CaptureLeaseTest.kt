@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 internal class CaptureLeaseTest {
     @Test fun `closing capture cancels pending operation and completes reply exactly once`() {
-        val lease = CaptureLease(ScannerConsumer(1))
+        val lease = CaptureLease(ScannerConsumer(1), "capture")
         val result = TexturePluginFixture.Reply()
         val reply = lease.reply(result)
         val permission = CompletableDeferred<Boolean>()
@@ -26,21 +26,21 @@ internal class CaptureLeaseTest {
         assertEquals(1, result.replies)
     }
     @Test fun `closing capture revokes its scan subscription`() {
-        val lease = CaptureLease(ScannerConsumer(1))
-        val subscription = ScanSubscription().apply { enabled = true }
-        lease.scanSubscription = subscription
+        val lease = CaptureLease(ScannerConsumer(1), "capture")
+        val subscription = ScanLease("1").apply { enabled = true }
+        lease.scanLease = subscription
 
         lease.close()
         lease.close()
 
         assertTrue(subscription.closed)
         assertFalse(subscription.enabled)
-        assertNull(lease.scanSubscription)
+        assertNull(lease.scanLease)
     }
 
     @Test fun `same consumer receives distinct ownership leases`() {
         val consumer = ScannerConsumer(1)
-        val a = CaptureLease(consumer); val b = CaptureLease(consumer)
+        val a = CaptureLease(consumer, "a"); val b = CaptureLease(consumer, "b")
         assertNotEquals(a.id, b.id)
         a.close(); assertFalse(b.closed); b.close()
     }

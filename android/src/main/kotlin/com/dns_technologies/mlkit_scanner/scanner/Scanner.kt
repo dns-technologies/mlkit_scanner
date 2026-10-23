@@ -9,6 +9,7 @@ import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Camera
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
@@ -80,6 +81,10 @@ internal class Scanner(
     private var scanJob: CompletableJob? = null
     /** Caches scan crop geometry on the single analysis worker. */
     private val scanAreaState = ScanAreaState()
+    /** Last acknowledged settings of the shared camera. */
+    private var appliedConfiguration: ScannerConfiguration? = null
+    /** Whether a gesture or uncertain camera state requires restoring autofocus. */
+    private var focusNeedsReset = true
     /** Latest recognition region, published from controls to the analysis worker. */
     @Volatile private var cropArea: RecognizeVisorCropRect? = null
     /** Synchronous result listeners guarded by [scanJobLock]. */
@@ -115,10 +120,15 @@ internal class Scanner(
         runOperation { id ->
             currentCoroutineContext().ensureActive()
             awaitCameraReady()
-            control(id, camera::resetFocus)
+            val previous = appliedConfiguration
+            if (focusNeedsReset) control(id, camera::resetFocus)
             cropArea = configuration.cropArea
-            control(id) { camera.setZoomRatio(configuration.zoomRatio) }
-            control(id) { camera.setTorch(configuration.torchEnabled) }
+            if (previous?.zoomRatio != configuration.zoomRatio)
+                control(id) { camera.setZoomRatio(configuration.zoomRatio) }
+            if (previous?.torchEnabled != configuration.torchEnabled || camera.torchEnabled != configuration.torchEnabled)
+                control(id) { camera.setTorch(configuration.torchEnabled) }
+            appliedConfiguration = configuration
+            focusNeedsReset = false
 
             currentCoroutineContext().ensureActive()
             // Analysis remains disabled until a result endpoint is installed.
@@ -126,12 +136,18 @@ internal class Scanner(
 
     /** Applies the requested camera zoom ratio. */
     suspend fun setZoomRatio(value: Float) = runOperation { id ->
-        control(id) { camera.setZoomRatio(value) }
+        if (appliedConfiguration?.zoomRatio != value) {
+            control(id) { camera.setZoomRatio(value) }
+            appliedConfiguration = appliedConfiguration?.copy(zoomRatio = value)
+        }
     }
 
     /** Applies the requested torch state. */
     suspend fun setTorch(enabled: Boolean) = runOperation { id ->
-        control(id) { camera.setTorch(enabled) }
+        if (appliedConfiguration?.torchEnabled != enabled || camera.torchEnabled != enabled) {
+            control(id) { camera.setTorch(enabled) }
+            appliedConfiguration = appliedConfiguration?.copy(torchEnabled = enabled)
+        }
     }
 
     /** A new gesture replaces transient focus while pending control operations finish. */
@@ -139,6 +155,7 @@ internal class Scanner(
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             if (operation != null && !operationIsFocus || !camera.isReady) return@launch
             try {
+                focusNeedsReset = true
                 runOperation(isFocus = true) { id ->
                     val size = view?.size ?: throw PluginError.CameraSessionDisposed
                     control(id) {
@@ -178,10 +195,11 @@ internal class Scanner(
     fun setCropArea(crop: RecognizeVisorCropRect) {
 
         cropArea = crop
+        appliedConfiguration = appliedConfiguration?.copy(cropArea = crop)
     }
 
     /** Revokes the consumer without stopping the shared camera stream. */
-    fun releaseCamera() {
+    fun releaseCapture() {
         if (viewId == null) return
         view = null
 
@@ -199,7 +217,8 @@ internal class Scanner(
 
     /** Releases capture ownership and unbinds the reusable camera stream. */
     fun pauseCamera() {
-        releaseCamera()
+        invalidateCameraSettings()
+        releaseCapture()
         camera.unbind()
     }
 
@@ -230,7 +249,7 @@ internal class Scanner(
         if (isDisposed) return
         lifecycleOwner = null
         val failures = ExceptionCollector()
-        failures.attempt(::releaseCamera)
+        failures.attempt(::releaseCapture)
         failures.attempt(camera::unbind)
         failures.throwIfFailed()
     }
@@ -267,7 +286,10 @@ internal class Scanner(
                 lifecycleOwner = lifecycleOwner ?: throw PluginError.CameraSessionDisposed,
                 analysisExecutor = getOrCreateAnalysisExecutor(),
                 onFrame = this::analyzeFrame,
-                onAvailabilityChanged = { if (!isDisposed) scan?.resumeIfReady() },
+                onAvailabilityChanged = { availability ->
+                    if (availability is CameraAvailability.Closed) invalidateCameraSettings()
+                    if (!isDisposed) scan?.resumeIfReady()
+                },
                 onError = { error -> if (!isDisposed) dispose(error) },
             ).await()
         } catch (error: Exception) {
@@ -321,12 +343,17 @@ internal class Scanner(
         operation = work
         operationIsFocus = isFocus
         try {
+            if (previous != null) invalidateCameraSettings()
             previous?.cancel()
             work.start()
             work.await()
         } catch (error: CancellationException) {
+            if (operation === work) invalidateCameraSettings()
             closeCause?.let { throw it }
             if (operation === work) throw error
+        } catch (error: Exception) {
+            if (operation === work) invalidateCameraSettings()
+            throw error
         } finally {
             if (operation === work) operation = null
             work.cancel()
@@ -337,7 +364,14 @@ internal class Scanner(
     private fun cancelOperation() {
         val previous = operation
         operation = null
+        if (previous != null) invalidateCameraSettings()
         previous?.cancel()
+    }
+
+    /** Invalidates settings that must be restored before the camera can be reused. */
+    private fun invalidateCameraSettings() {
+        appliedConfiguration = null
+        focusNeedsReset = true
     }
 
     /**

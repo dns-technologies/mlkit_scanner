@@ -3,9 +3,9 @@ package com.dns_technologies.mlkit_scanner.scanner
 import android.util.Size
 
 /**
- * Registered camera consumer with retained viewport geometry.
+ * Camera consumer with retained preview geometry.
  *
- * @property viewId Stable identifier assigned at registration.
+ * @property viewId Logical identity of this consumer.
  */
 internal class ScannerConsumer(val viewId: Int) {
     /** Viewport size used for crop and focus coordinate mapping. */

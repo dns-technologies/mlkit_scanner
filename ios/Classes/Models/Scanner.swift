@@ -28,9 +28,6 @@ final class Scanner {
         }
     }
 
-    /// Registered camera consumers keyed by identifier.
-    private var consumers: [Int64: ScannerConsumer] = [:]
-
     /// Consumer currently owning camera controls on main.
     private var selected: ScannerConsumer?
 
@@ -42,6 +39,13 @@ final class Scanner {
 
     /// Current camera capture request.
     private var capture: Capture?
+
+    /// Last acknowledged settings of the shared camera.
+    private var appliedConfiguration: ScannerConfiguration?
+    /// Preview geometry acknowledged with the camera settings.
+    private var appliedGeometry: CGSize?
+    /// Whether a gesture requires restoring capture autofocus.
+    private var focusNeedsReset = true
 
     /// In-flight camera disposal and callbacks waiting for it to finish.
     private var disposal: HardwareDisposal?
@@ -112,38 +116,24 @@ final class Scanner {
         }
     }
 
-    /// Creates a logical consumer if its view identifier is not registered.
-    func register(viewId: Int64) {
-        if consumers[viewId] == nil {
-            consumers[viewId] = ScannerConsumer(viewId)
-        }
-    }
-
-    /// Unregisters a consumer and releases its camera ownership.
-    func unregister(viewId: Int64) {
-        if selected === consumers[viewId] { releaseCamera(completion: {}) }
-        consumers.removeValue(forKey: viewId)
-    }
-
-    /// Whether a camera consumer is registered.
-    func contains(viewId: Int64) -> Bool {
-        consumers[viewId] != nil
-    }
-
-    /// Updates the viewport used to map preview coordinates into camera frames.
+    /// Updates the preview geometry of the current camera owner.
     func updateGeometry(viewId: Int64, size: CGSize) throws {
-        guard let consumer = consumers[viewId] else { throw MlKitPluginError.invalidArguments }
+        guard let consumer = selected, consumer.viewId == viewId else { throw MlKitPluginError.cameraSessionDisposed }
+        if appliedGeometry != size { focusNeedsReset = true }
         consumer.size = size
-        if selected === consumer { camera?.updateGeometry(consumer.size) }
+        camera?.updateGeometry(size)
+        appliedGeometry = size
     }
 
-    /// Acquires the shared camera for a registered consumer using its settings.
-    func captureCamera(viewId: Int64, configuration: ScannerConfiguration, completion: @escaping (Error?) -> Void) {
-        guard !isReleased, !isBackgrounded, let target = consumers[viewId] else {
+    /// Acquires the shared camera with the supplied settings and preview geometry.
+    func captureCamera(viewId: Int64, configuration: ScannerConfiguration, geometry: CGSize = CGSize(width: 1, height: 1), completion: @escaping (Error?) -> Void) {
+        guard !isReleased, !isBackgrounded else {
             completion(MlKitPluginError.cameraSessionDisposed)
             return
         }
-        releaseCamera(completion: {})
+        releaseCapture(completion: {})
+        let target = ScannerConsumer(viewId)
+        target.size = geometry
         selected = target
         let request = Capture(consumer: target, configuration: configuration, completion: completion)
         capture = request
@@ -160,9 +150,11 @@ final class Scanner {
     }
 
     /// Revokes the owner immediately; the shared texture and running camera survive a handoff.
-    func releaseCamera(completion: @escaping () -> Void) {
+    func releaseCapture(completion: @escaping () -> Void) {
+        guard selected != nil || capture != nil else { completion(); return }
         selected = nil
         let previous = capture
+        if previous != nil { appliedConfiguration = nil }
         capture = nil
         stopScan()
         camera?.cancelPendingStart(completion: {})
@@ -172,7 +164,8 @@ final class Scanner {
 
     /// Stops capture while retaining the most recent texture frame.
     func pauseCamera(completion: @escaping () -> Void) {
-        releaseCamera(completion: {})
+        appliedConfiguration = nil
+        releaseCapture(completion: {})
         guard let camera = camera else {
             completion()
             return
@@ -185,6 +178,7 @@ final class Scanner {
         try control {
             try $0.focus(locked: locked)
         }
+        focusNeedsReset = true
     }
 
     /// Applies the desired torch state to the active camera.
@@ -192,6 +186,7 @@ final class Scanner {
         try control {
             try $0.setFlash(enabled)
         }
+        appliedConfiguration?.torchEnabled = enabled
     }
 
     /// Applies an absolute zoom factor to the selected camera.
@@ -199,12 +194,15 @@ final class Scanner {
         try control {
             try $0.setZoomRatio(value)
         }
+        appliedConfiguration?.zoomRatio = value
     }
 
     /// Updates the normalized area used for focus and recognition.
     func setCropArea(cropRect: CropRect) throws {
+        if appliedConfiguration?.cropRect != cropRect { focusNeedsReset = true }
         camera?.setCropArea(cropRect)
         analyzer?.updateCropRect(cropRect: cropRect)
+        appliedConfiguration?.cropRect = cropRect
     }
 
     /// Changes the cooldown after successful barcode recognition.
@@ -224,7 +222,7 @@ final class Scanner {
 
     /// Releases camera and recognition resources, notifying all waiting callers.
     func disposeResources(completion: @escaping () -> Void) {
-        releaseCamera(completion: {})
+        releaseCapture(completion: {})
         if let disposal = disposal {
             disposal.callbacks.append(completion)
             return
@@ -232,6 +230,8 @@ final class Scanner {
         let previous = camera
         camera = nil
         analyzer = nil
+        appliedConfiguration = nil
+        appliedGeometry = nil
         guard let previous = previous else {
             onPreviewChanged(nil)
             completion()
@@ -247,7 +247,6 @@ final class Scanner {
         observers.forEach(notificationCenter.removeObserver)
         observers.removeAll()
         disposeResources(completion: {})
-        consumers.removeAll()
     }
 
     /// Prepares the camera for the requested capture.
@@ -302,9 +301,10 @@ final class Scanner {
 
     /// Starts capture with the requested settings, completing when preview is ready.
     private func activate(_ request: Capture, camera: CameraPreviewing) {
-        camera.prepare(request.configuration, geometry: request.consumer.size) { [weak self, weak request, weak camera] error in
+        let prepared: (Error?) -> Void = { [weak self, weak request, weak camera] error in
             guard let self = self, let request = request, let camera = camera, self.isCurrent(request) else { return }
             if let error = error {
+                self.appliedConfiguration = nil
                 let failure: Error
                 if let cameraError = error as? CameraError {
                     failure = cameraError.contextualize(viewId: request.consumer.viewId)
@@ -312,6 +312,9 @@ final class Scanner {
                 self.finish(request, error: failure)
                 return
             }
+            self.appliedConfiguration = request.configuration
+            self.appliedGeometry = request.consumer.size
+            self.focusNeedsReset = false
             if self.analyzer == nil { self.analyzer = self.analyzerFactory() }
             self.analyzer?.updateCropRect(cropRect: request.configuration.cropRect)
             camera.resumeCamera { [weak self, weak request, weak camera] error in
@@ -323,10 +326,32 @@ final class Scanner {
                     }
                     return CameraError(message: "Failed to start camera preview", viewId: request.consumer.viewId, underlyingError: error)
                 }
+                if error != nil { self.appliedConfiguration = nil }
                 self.finish(request, error: failure)
                 if error == nil, self.selected === request.consumer { self.onTorchChanged(request.consumer.viewId, camera.isTorchActive) }
             }
         }
+        prepare(request, camera: camera, completion: prepared)
+    }
+
+    /// Prepares the camera, applying only settings that differ from acknowledged values.
+    private func prepare(_ request: Capture, camera: CameraPreviewing, completion: @escaping (Error?) -> Void) {
+        guard let previous = appliedConfiguration, previous.camera == request.configuration.camera else {
+            appliedConfiguration = nil
+            camera.prepare(request.configuration, geometry: request.consumer.size, completion: completion)
+            return
+        }
+        let next = request.configuration
+        let geometryChanged = appliedGeometry != request.consumer.size
+        appliedConfiguration = nil
+        do {
+            if geometryChanged { camera.updateGeometry(request.consumer.size) }
+            if previous.cropRect != next.cropRect { camera.setCropArea(next.cropRect) }
+            if previous.zoomRatio != next.zoomRatio { try camera.setZoomRatio(next.zoomRatio) }
+            if previous.torchEnabled != next.torchEnabled || camera.isTorchActive != next.torchEnabled { try camera.setFlash(next.torchEnabled) }
+            if focusNeedsReset || geometryChanged || previous.cropRect != next.cropRect { camera.resetFocus() }
+            completion(nil)
+        } catch { completion(error) }
     }
 
     /// Stops recognition and cancels outstanding result delivery.
@@ -350,9 +375,9 @@ final class Scanner {
     private func control(_ action: (CameraPreviewing) throws -> Void) throws {
         guard selected != nil, !isBackgrounded, let camera = camera else { throw MlKitPluginError.cameraIsNotInitialized }
         do { try action(camera) }
-        catch let error as MlKitPluginError { throw error }
-        catch let error as CameraError { throw error.contextualize(viewId: selected?.viewId) }
-        catch { throw CameraError(message: "Camera operation failed", viewId: selected?.viewId, underlyingError: error) }
+        catch let error as MlKitPluginError { appliedConfiguration = nil; throw error }
+        catch let error as CameraError { appliedConfiguration = nil; throw error.contextualize(viewId: selected?.viewId) }
+        catch { appliedConfiguration = nil; throw CameraError(message: "Camera operation failed", viewId: selected?.viewId, underlyingError: error) }
     }
 
     /// Checks that a capture still belongs to the selected live consumer.
@@ -375,9 +400,9 @@ final class Scanner {
     }
 }
 
-/// Registered camera consumer with retained viewport geometry.
+/// Current camera consumer and its preview geometry.
 private final class ScannerConsumer {
-    /// Stable identifier assigned at registration.
+    /// Logical identity of this camera consumer.
     let viewId: Int64
     /// Latest positive preview viewport dimensions for this consumer.
     var size = CGSize(width: 1, height: 1)
@@ -399,9 +424,11 @@ extension Scanner: CameraPreviewDelegate {
         onPreviewChanged(description)
     }
 
-    /// Forwards torch changes only from the initialized camera of the current owner.
+    /// Updates the shared camera torch state and notifies its ready owner.
     func onTorchChanged(_ camera: CameraPreviewing, enabled: Bool) {
-        guard self.camera === camera, capture == nil, !isReleased, let consumer = selected else { return }
+        guard self.camera === camera, !isReleased else { return }
+        appliedConfiguration?.torchEnabled = enabled
+        guard capture == nil, let consumer = selected else { return }
         onTorchChanged(consumer.viewId, enabled)
     }
 

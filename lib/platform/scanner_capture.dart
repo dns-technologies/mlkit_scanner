@@ -5,6 +5,7 @@ import '../models/crop_rect.dart';
 import 'ml_kit_channel.dart';
 import 'scanner_configuration.dart';
 import 'scanner_consumer.dart';
+import 'scanner_lease.dart';
 
 /// Exclusive camera ownership with updates to camera and recognition settings.
 class ScannerCaptureSession {
@@ -32,11 +33,15 @@ class ScannerCaptureSession {
   /// Unblocks startup callers as soon as ownership is revoked.
   final _closed = Completer<void>();
 
-  /// Native lease handle, assigned when allocation is acknowledged.
-  String? id;
+  /// Native camera ownership lease.
+  ///
+  /// Null until the first capture request is sent.
+  ScannerLease? _captureLease;
 
-  /// Only this native result endpoint may deliver scan events.
-  String? _scanSubscription;
+  /// Lease for the current recognition result stream.
+  ///
+  /// Null before the first scan; closed when recognition is disabled.
+  ScannerLease? _scanLease;
 
   /// Last acknowledged settings; scan delay matters only while recognition runs.
   /// Null means a full reapplication is needed.
@@ -73,25 +78,20 @@ class ScannerCaptureSession {
   bool get _scanEnabled => _desired.scanEnabled && !_desired.cameraPaused;
 
   /// Rejects scan results from closed or replaced native subscriptions.
-  bool accepts(ScannerEvent event) => active && _scanEnabled && event.subscriptionId != null && event.subscriptionId == _scanSubscription;
+  bool accepts(ScannerEvent event) =>
+      active && _scanEnabled && _captureLease?.accepts(event.captureId) == true && _scanLease?.accepts(event.subscriptionId) == true;
 
-  /// Accepts torch changes only from this selected native lease.
-  bool acceptsTorch(ScannerEvent event) => active && event.captureId != null && event.captureId == id;
+  /// Accepts torch changes only from this capture lease.
+  bool acceptsTorch(ScannerEvent event) => active && _captureLease?.accepts(event.captureId) == true;
 
   /// Waits for activation or immediate ownership cancellation, whichever wins.
-  Future<void> start(Future<void> registration) => Future.any([_start(registration), _closed.future]);
+  Future<void> start(Future<void> preparation) => Future.any([_start(preparation), _closed.future]);
 
   /// Prepares camera ownership and applies the requested settings.
-  Future<void> _start(Future<void> registration) async {
+  Future<void> _start(Future<void> preparation) async {
     try {
-      await registration;
+      await preparation;
       if (!active) return;
-      final lease = await channel.openCapture(consumer.viewId);
-      id = lease;
-      if (!active) {
-        await channel.closeCapture(lease);
-        return;
-      }
       await _activate();
       if (!active) return;
       // Startup updates can arrive after a drain completes but before this
@@ -113,7 +113,7 @@ class ScannerCaptureSession {
     _desired = desired;
     _geometry = geometry;
     _reconcileRequested = true;
-    if (!_scanEnabled) _scanSubscription = null;
+    if (!_scanEnabled) _scanLease?.close();
     if (!active || !_initialized) return;
     unawaited(_reconcile());
   }
@@ -131,26 +131,37 @@ class ScannerCaptureSession {
   /// Releases camera ownership and prevents further result delivery.
   Future<void> _close(bool pause) async {
     _closed.complete();
-    _scanSubscription = null;
+    _scanLease?.close();
     _pendingFocusLocked = null;
-    final lease = id;
+    final lease = _captureLease;
     if (lease == null) return;
+    lease.close();
     try {
-      if (pause) await channel.stopCamera(captureId: lease);
+      if (pause) await channel.stopCamera(captureId: lease.id);
     } finally {
-      await channel.closeCapture(lease);
+      await channel.release(lease.id);
     }
   }
 
-  /// Applies camera settings with recognition disabled until subscribed.
+  /// Applies the complete capture intent before admitting incremental updates.
   Future<void> _activate() async {
     final desired = _desired;
     final geometry = _geometry;
-    await channel.resumeCamera(configuration: desired, captureId: id!, geometry: geometry);
+    final scanEnabled = _scanEnabled;
+    final lease = _captureLease ??= ScannerLease();
+    _scanLease?.close();
+    final scanLease = scanEnabled ? ScannerLease() : null;
+    _scanLease = scanLease;
+    await channel.capture(
+      viewId: consumer.viewId,
+      captureId: lease.id,
+      configuration: desired,
+      geometry: geometry,
+      subscriptionId: scanLease?.id,
+    );
     if (!active) return;
-    _applied = desired.copyWith(scanEnabled: false);
+    _applied = desired.copyWith(scanEnabled: scanEnabled);
     _appliedGeometry = geometry;
-    _scanSubscription = null;
   }
 
   /// Applies pending settings; concurrent requests share completion.
@@ -197,7 +208,7 @@ class ScannerCaptureSession {
       }
       final desired = _desired;
       final applied = _applied;
-      final lease = id!;
+      final lease = _captureLease!.id;
       final scanEnabled = _scanEnabled;
       if (!scanEnabled && applied?.scanEnabled == true) {
         // Pause stops recognition first; camera controls still use this lease.
@@ -223,16 +234,12 @@ class ScannerCaptureSession {
             cropRect: desired.cropRect ?? const CropRect(),
           );
         }
-      } else if (scanEnabled && (!applied.scanEnabled || _scanSubscription == null)) {
-        final subscription = await channel.subscribeScan(lease);
-        if (!active) return;
-        if (!_scanEnabled) {
-          await channel.cancelScan(captureId: lease);
-          continue;
-        }
-        _scanSubscription = subscription;
+      } else if (scanEnabled && (!applied.scanEnabled || _scanLease == null || _scanLease!.isClosed)) {
+        _scanLease?.close();
+        final scanLease = ScannerLease();
+        _scanLease = scanLease;
         final delay = _desired.scanDelay;
-        await channel.startScan(delay, captureId: lease, subscriptionId: subscription);
+        await channel.startScan(delay, captureId: lease, subscriptionId: scanLease.id);
         if (active) _applied = applied.copyWith(scanEnabled: true, scanDelay: delay);
       } else if (scanEnabled && applied.scanDelay != desired.scanDelay) {
         await channel.setScanDelay(desired.scanDelay, captureId: lease);

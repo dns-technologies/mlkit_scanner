@@ -17,17 +17,17 @@ class RuntimeHarness {
     ScannerRuntime.instance = runtime;
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
+      final arguments = call.arguments;
+      if (arguments is Map) {
+        if (call.method == 'capture') leases[arguments['viewId'] as int] = arguments['captureId'] as String;
+        if (call.method == 'capture' || call.method == 'startScan') {
+          final subscription = arguments['subscriptionId'] as String?;
+          if (subscription != null) scans[arguments['captureId'] as String] = subscription;
+        }
+      }
       final response = await handler?.call(call);
       if (response != null) return response;
       switch (call.method) {
-        case 'openCapture':
-          final id = 'capture-${++_nextLease}';
-          leases[(call.arguments as Map)['viewId'] as int] = id;
-          return id;
-        case 'subscribeScan':
-          final id = 'scan-${++_nextSubscription}';
-          scans[(call.arguments as Map)['captureId'] as String] = id;
-          return id;
         case 'subscribePreview':
           return {'subscriptionId': 'preview', 'description': null};
         default:
@@ -47,10 +47,6 @@ class RuntimeHarness {
   final controllers = <BarcodeScannerController>[];
 
   Future<Object?> Function(MethodCall)? handler;
-
-  int _nextLease = 0;
-
-  int _nextSubscription = 0;
 
   final leases = <int, String>{};
 

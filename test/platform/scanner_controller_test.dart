@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -49,7 +47,7 @@ void main() {
       expect(harness.runtime.isCurrent(scanner), isTrue);
       expect(replacement.isCurrent(scanner), isFalse);
       expect(scanner.preview, same(harness.runtime.preview));
-      final resume = harness.calls.singleWhere((call) => call.method == 'resumeCameraMethod').arguments as Map;
+      final resume = harness.calls.singleWhere((call) => call.method == 'capture').arguments as Map;
       expect(resume['geometry'], {'width': 400, 'height': 800});
       final settings = harness.calls.singleWhere((call) => call.method == 'updateCameraSettings').arguments as Map;
       expect(settings['zoomRatio'], 3);
@@ -61,14 +59,10 @@ void main() {
       expect(harness.methods, contains('pauseCameraMethod'));
       scanner.dispose();
       await RuntimeHarness.flush();
-      expect(harness.calls.where((call) => call.method == 'unregisterScanner' && (call.arguments as Map)['viewId'] == 42), hasLength(1));
+      expect(harness.methods, isNot(contains('unregisterScanner')));
     });
 
-    test('initialization failure is shared without opening a paused camera', () async {
-      harness.handler = (call) async {
-        if (call.method == 'registerScanner') throw PlatformException(code: 'registration_failed');
-        return null;
-      };
+    test('Инициализация локальна и повторные вызовы разделяют завершение', () async {
       final scanner = BarcodeScannerController(
         viewId: 42,
         runtime: harness.runtime,
@@ -78,33 +72,25 @@ void main() {
 
       final initialization = scanner.initialize();
       expect(scanner.initialize(), same(initialization));
-      await expectLater(initialization, throwsA(isA<PlatformException>()));
+      await initialization;
       await scanner.capture();
 
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.calls, isEmpty);
       expect(harness.errors, isEmpty);
     });
 
-    test('dispose during registration removes the late native registration', () async {
-      final registration = Completer<void>();
-      harness.handler = (call) async {
-        if (call.method == 'registerScanner') await registration.future;
-        return null;
-      };
+    test('Удаление после инициализации предотвращает последующий захват', () async {
       final scanner = BarcodeScannerController(viewId: 42, runtime: harness.runtime);
       harness.controllers.add(scanner);
       final initialization = scanner.initialize();
-      await RuntimeHarness.flush();
 
       scanner.dispose();
-      registration.complete();
       await initialization;
       await scanner.capture();
 
       expect(scanner.isDisposed, isTrue);
       expect(scanner.isCurrent, isFalse);
-      expect(harness.calls.where((call) => call.method == 'unregisterScanner' && (call.arguments as Map)['viewId'] == 42), hasLength(1));
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.calls, isEmpty);
     });
   });
 

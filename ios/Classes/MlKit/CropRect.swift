@@ -13,7 +13,7 @@ import Foundation
 /// of the rectangle's center from the preview center.
 /// Defaults to the centered full preview. Argument decoding requires finite values
 /// and uses the same defaults for omitted coordinates.
-struct CropRect {
+struct CropRect: Equatable {
     /// Rectangle width as a fraction of the preview width.
     ///
     /// For example, `0.5` makes the recognition area half as wide as the preview.

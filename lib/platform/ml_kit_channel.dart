@@ -124,14 +124,22 @@ final class MlKitChannel {
   /// Requests a physical camera stop for the specified capture lease.
   Future<void> stopCamera({required String captureId}) => _invokeVoidMethod('pauseCameraMethod', {'captureId': captureId});
 
-  /// Starts or resumes the camera and applies settings for the native capture lease.
-  /// Completes after SDK configuration; [stopCamera] may interrupt this operation.
-  Future<void> resumeCamera({required ScannerConfiguration configuration, required String captureId, required Size geometry}) =>
-      _invokeVoidMethod('resumeCameraMethod', {
-        'configuration': configuration.toCaptureArguments(),
-        'captureId': captureId,
-        'geometry': {'width': geometry.width, 'height': geometry.height},
-      });
+  /// Acquires camera ownership and enables recognition for the supplied endpoint, if any.
+  /// The caller owns the endpoints before events or the completion can arrive.
+  Future<void> capture({
+    required int viewId,
+    required String captureId,
+    required ScannerConfiguration configuration,
+    required Size geometry,
+    String? subscriptionId,
+  }) => _invokeVoidMethod('capture', {
+    'viewId': viewId,
+    'captureId': captureId,
+    'configuration': configuration.toCaptureArguments(),
+    'geometry': {'width': geometry.width, 'height': geometry.height},
+    'subscriptionId': subscriptionId,
+    'delay': configuration.scanDelay,
+  });
 
   /// Applies changed controls in one call; omitted fields retain native values.
   /// Completes after all requested controls finish, without restarting preview.
@@ -154,17 +162,8 @@ final class MlKitChannel {
   /// Stops recognition without stopping preview.
   Future<void> cancelScan({required String captureId}) => _invokeVoidMethod('cancelScan', {'captureId': captureId});
 
-  /// Registers a logical consumer without allocating a camera or texture.
-  Future<void> registerScanner(int viewId) => _invokeVoidMethod('registerScanner', {'viewId': viewId});
-
-  /// Unregisters a logical consumer and closes its active capture lease.
-  Future<void> unregisterScanner(int viewId) => _invokeVoidMethod('unregisterScanner', {'viewId': viewId});
-
-  /// Acquires exclusive camera ownership without starting the camera.
-  Future<String> openCapture(int viewId) async => (await _invokeMethod<String>('openCapture', {'viewId': viewId}))!;
-
   /// Revokes a native lease while keeping the shared camera output warm.
-  Future<void> closeCapture(String id) => _invokeVoidMethod('closeCapture', {'captureId': id});
+  Future<void> release(String id) => _invokeVoidMethod('release', {'captureId': id});
 
   /// Completes after native camera, analyzer and texture resources are released.
   Future<void> disposeScanner() => _invokeVoidMethod('disposeScanner', null);
@@ -184,9 +183,6 @@ final class MlKitChannel {
 
   /// Removes only the specified preview event endpoint.
   Future<void> unsubscribePreview(String id) => _invokeVoidMethod('unsubscribePreview', {'subscriptionId': id});
-
-  /// Allocates a disabled recognition endpoint for the selected lease.
-  Future<String> subscribeScan(String id) async => (await _invokeMethod<String>('subscribeScan', {'captureId': id}))!;
 
   /// Updates viewport mapping without reallocating the shared texture.
   Future<void> updatePreviewGeometry(String id, Size size) =>

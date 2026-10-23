@@ -51,20 +51,21 @@ void main() {
     final channel = MlKitChannel();
     final commands = <String, Future<void> Function()>{
       'stopCamera': () => channel.stopCamera(captureId: 'capture'),
-      'resumeCamera':
-          () => channel.resumeCamera(configuration: const ScannerConfiguration(), captureId: 'capture', geometry: const Size(100, 100)),
+      'capture':
+          () => channel.capture(
+            viewId: 42,
+            configuration: const ScannerConfiguration(),
+            captureId: 'capture',
+            geometry: const Size(100, 100),
+          ),
       'updateCameraSettings': () => channel.updateCameraSettings(captureId: 'capture', torchEnabled: true),
       'setScanDelay': () => channel.setScanDelay(0, captureId: 'capture'),
       'startScan': () => channel.startScan(0, captureId: 'capture', subscriptionId: 'scan'),
       'cancelScan': () => channel.cancelScan(captureId: 'capture'),
-      'registerScanner': () => channel.registerScanner(42),
-      'unregisterScanner': () => channel.unregisterScanner(42),
-      'openCapture': () => channel.openCapture(42),
-      'closeCapture': () => channel.closeCapture('capture'),
+      'release': () => channel.release('capture'),
       'disposeScanner': channel.disposeScanner,
       'subscribePreview': channel.subscribePreview,
       'unsubscribePreview': () => channel.unsubscribePreview('preview'),
-      'subscribeScan': () => channel.subscribeScan('capture'),
       'updatePreviewGeometry': () => channel.updatePreviewGeometry('capture', const Size(100, 100)),
       'focus': () => channel.focus('capture', true),
       'getIosAvailableCameras': channel.getIosAvailableCameras,

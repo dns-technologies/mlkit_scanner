@@ -1,6 +1,5 @@
 package com.dns_technologies.mlkit_scanner.commands
 
-import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.commands.base.AsyncScannerCommand
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.utils.requireBoolean
@@ -13,7 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 internal class ToggleFlashCommand(scannerProvider: () -> Scanner?, commandScope: CoroutineScope) :
     AsyncScannerCommand(scannerProvider, commandScope) {
     override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
-        val enabled = call.arguments.requireMap().requireBoolean(PluginConstants.valueArgument)
+        val enabled = call.arguments.requireMap().requireBoolean("value")
         scanner()?.setTorch(enabled)
         success(result)
     }

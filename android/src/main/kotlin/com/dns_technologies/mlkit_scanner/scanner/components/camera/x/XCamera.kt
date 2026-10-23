@@ -83,6 +83,8 @@ internal class XCamera(
     private var readiness = CompletableDeferred<Unit>()
     /** Current attempt identity, retained through cleanup to reject obsolete failures. */
     private var currentStart: Start? = null
+    override val torchEnabled: Boolean?
+        get() = binding?.camera?.cameraInfo?.torchState?.value?.let { it == androidx.camera.core.TorchState.ON }
     override val isReady: Boolean
         get() = !disposed && binding?.initialized == true && binding?.availability == CameraAvailability.Open
     /** Startup context retained only while Flutter's surface is unavailable. */

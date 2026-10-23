@@ -17,9 +17,9 @@ final class ScannerTests: XCTestCase {
             notificationCenter: notifications, cameraFactory: { [unowned self] in self.allocations += 1; return self.camera },
             analyzerFactory: { [unowned self] in self.analyzerAllocations += 1; return self.analyzer },
             requestPermission: { [unowned self] in self.permissions.append($0) })
-        func capture(_ id: Int64, zoom: Double = 1) throws {
+        func capture(_ id: Int64, zoom: Double = 1, geometry: CGSize = CGSize(width: 1, height: 1)) throws {
             runtime.captureCamera(viewId: id, configuration: try ScannerConfiguration(arguments: [
-                "zoomRatio": zoom, "torchEnabled": false])) { XCTAssertNil($0) }
+                "zoomRatio": zoom, "torchEnabled": false]), geometry: geometry) { XCTAssertNil($0) }
             permissions.removeFirst()(true)
         }
     }
@@ -46,6 +46,7 @@ final class ScannerTests: XCTestCase {
         var recognitionHandler: RecognitionHandler?
         weak var cameraPreviewDelegate: CameraPreviewDelegate?
         var zooms: [Double] = []; var pauses = 0; var disposals = 0
+        var torches: [Bool] = []; var focusResets = 0; var preparations = 0
         var geometries: [CGSize] = []
         var preparationError: Error?
         var resumeError: Error?
@@ -53,13 +54,14 @@ final class ScannerTests: XCTestCase {
         var holdDisposal = false; var finishDisposal: (() -> Void)?
         func initCamera(completion: @escaping (Error?) -> Void) { isInitialized = true; completion(nil) }
         func prepare(_ settings: ScannerConfiguration, geometry: CGSize, completion: @escaping (Error?) -> Void) {
+            preparations += 1
             geometries.append(geometry)
             zooms.append(settings.zoomRatio); isTorchActive = settings.torchEnabled; completion(preparationError)
         }
         func cancelPendingStart(completion: @escaping () -> Void) { completion() }
         func setCamera(_ cameraData: CameraData) throws {}
-        func setFlash(_ enabled: Bool) throws { isTorchActive = enabled }
-        func resetFocus() {}
+        func setFlash(_ enabled: Bool) throws { torches.append(enabled); isTorchActive = enabled }
+        func resetFocus() { focusResets += 1 }
         func focus(locked: Bool) throws {}
         func resumeCamera(completion: @escaping (Error?) -> Void) { completion(resumeError) }
         func pauseCamera(completion: @escaping () -> Void) { pauses += 1; completion() }
@@ -75,9 +77,84 @@ final class ScannerTests: XCTestCase {
         }
     }
 
+    func testIdenticalSettingsSurviveRoundTripBetweenOwners() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        try f.capture(1)
+
+        try f.capture(2)
+        try f.capture(1)
+
+        XCTAssertEqual(f.allocations, 1)
+        XCTAssertEqual(f.camera.preparations, 1)
+        XCTAssertEqual(f.camera.zooms, [1])
+        XCTAssertTrue(f.camera.torches.isEmpty)
+        XCTAssertEqual(f.camera.focusResets, 0)
+    }
+
+    func testChangingOnlyTorchPreservesZoomAndFocus() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        try f.capture(1)
+
+        f.runtime.captureCamera(viewId: 2, configuration: try ScannerConfiguration(arguments: [
+            "zoomRatio": 1.0, "torchEnabled": true])) { XCTAssertNil($0) }
+        f.permissions.removeFirst()(true)
+
+        XCTAssertEqual(f.camera.preparations, 1)
+        XCTAssertEqual(f.camera.zooms, [1])
+        XCTAssertEqual(f.camera.torches, [true])
+        XCTAssertEqual(f.camera.focusResets, 0)
+    }
+
+    func testFailedControlForcesFullSettingsOnNextCapture() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        try f.capture(1)
+        f.camera.zoomError = MlKitPluginError.invalidArguments
+        XCTAssertThrowsError(try f.runtime.setZoomRatio(value: 2))
+        f.camera.zoomError = nil
+
+        try f.capture(2)
+
+        XCTAssertEqual(f.camera.preparations, 2)
+        XCTAssertEqual(f.camera.zooms, [1, 1])
+    }
+
+    func testIdleTorchChangeIsReappliedForTheNextOwner() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        let configuration = try ScannerConfiguration(arguments: ["zoomRatio": 1.0, "torchEnabled": true])
+        f.runtime.captureCamera(viewId: 1, configuration: configuration) { XCTAssertNil($0) }
+        f.permissions.removeFirst()(true)
+        f.runtime.releaseCapture(completion: {})
+        f.camera.isTorchActive = false
+        f.runtime.onTorchChanged(f.camera, enabled: false)
+
+        f.runtime.captureCamera(viewId: 2, configuration: configuration) { XCTAssertNil($0) }
+        f.permissions.removeFirst()(true)
+
+        XCTAssertEqual(f.camera.torches, [true])
+        XCTAssertTrue(f.camera.isTorchActive)
+    }
+
+    func testChangedGeometryRestoresFocusOnNextCapture() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        try f.capture(1)
+        let geometry = CGSize(width: 400, height: 800)
+        try f.runtime.updateGeometry(viewId: 1, size: geometry)
+
+        try f.capture(2, geometry: geometry)
+
+        XCTAssertEqual(f.camera.preparations, 1)
+        XCTAssertEqual(f.camera.focusResets, 1)
+        XCTAssertEqual(f.camera.zooms, [1])
+    }
+
     func testControlsPreserveKnownErrorCategories() throws {
         let f = Fixture()
-        f.runtime.register(viewId: 42)
+
         try f.capture(42)
         defer { f.runtime.release() }
 
@@ -92,7 +169,7 @@ final class ScannerTests: XCTestCase {
 
     func testCameraStartPreservesKnownErrorCategory() throws {
         let f = Fixture()
-        f.runtime.register(viewId: 42)
+
         f.camera.resumeError = MlKitPluginError.initCameraError
         var received: Error?
         defer { f.runtime.release() }
@@ -106,7 +183,7 @@ final class ScannerTests: XCTestCase {
 
     func testCameraFailurePreservesDescriptionAndNativeCauseWhenAddingConsumer() throws {
         let f = Fixture()
-        f.runtime.register(viewId: 42)
+
         try f.capture(42)
         let cause = NSError(domain: "CameraTest", code: 7)
         f.camera.zoomError = CameraError(message: "Failed to set camera zoom ratio to 2.0", underlyingError: cause, stackTrace: "native trace")
@@ -123,7 +200,7 @@ final class ScannerTests: XCTestCase {
 
     func testStartupCameraFailurePreservesDescriptionAndNativeCauseWhenAddingConsumer() throws {
         let f = Fixture()
-        f.runtime.register(viewId: 42)
+
         let cause = NSError(domain: "CameraTest", code: 7)
         f.camera.preparationError = CameraError(message: "Failed to configure camera", underlyingError: cause, stackTrace: "native trace")
         var received: Error?
@@ -141,16 +218,15 @@ final class ScannerTests: XCTestCase {
 
     func testGeometryUpdatesOnlyTheSelectedCameraAndIsRetainedForHandoff() throws {
         let f = Fixture()
-        f.runtime.register(viewId: 1)
-        f.runtime.register(viewId: 2)
+
+
         let compact = CGSize(width: 320.5, height: 240.25)
         let expanded = CGSize(width: 720, height: 1280)
-        try f.runtime.updateGeometry(viewId: 1, size: compact)
-        try f.capture(1)
-        try f.runtime.updateGeometry(viewId: 2, size: expanded)
+        try f.capture(1, geometry: compact)
+        XCTAssertThrowsError(try f.runtime.updateGeometry(viewId: 2, size: expanded))
         XCTAssertEqual(f.camera.geometries, [compact])
 
-        try f.capture(2)
+        try f.capture(2, geometry: expanded)
         XCTAssertEqual(f.camera.geometries, [compact, expanded])
         try f.runtime.updateGeometry(viewId: 2, size: compact)
         XCTAssertEqual(f.camera.geometries, [compact, expanded, compact])
@@ -159,7 +235,7 @@ final class ScannerTests: XCTestCase {
 
     func testPreviewWithdrawalCannotStartReplacementBeforeDisposalCompletes() throws {
         let f = Fixture()
-        f.runtime.register(viewId: 1); f.runtime.register(viewId: 2)
+
         try f.capture(1)
         f.camera.holdDisposal = true
         f.onPreviewChanged = { description in
@@ -180,7 +256,7 @@ final class ScannerTests: XCTestCase {
 
     func testReleasedCameraCannotPublishPreview() throws {
         let f = Fixture()
-        f.runtime.register(viewId: 1); try f.capture(1)
+        try f.capture(1)
         f.camera.cameraPreviewDelegate?.onPreviewChanged(f.camera,
             description: CameraPreviewDescription(textureId: 1, width: 16, height: 8, state: .streaming))
         XCTAssertEqual(f.previews.count, 1)
@@ -196,7 +272,7 @@ final class ScannerTests: XCTestCase {
 
     func testInjectedAnalyzerRetainsItsLifetimeAndRoutesOnlyCurrentSubscription() throws {
         let f = Fixture()
-        f.runtime.register(viewId: 1); f.runtime.register(viewId: 2)
+
         try f.capture(1)
         XCTAssertNil(f.camera.recognitionHandler)
         XCTAssertEqual(f.analyzer.cropUpdates, 1)
@@ -221,10 +297,10 @@ final class ScannerTests: XCTestCase {
     }
 
     func testHandoffRetainsCameraAndReleaseHasNoNativeGraceTimer() throws {
-        let f = Fixture(); f.runtime.register(viewId: 1); f.runtime.register(viewId: 2)
+        let f = Fixture();
         try f.capture(1, zoom: 2); try f.capture(2, zoom: 3)
         XCTAssertEqual(f.allocations, 1); XCTAssertEqual(f.camera.zooms, [2, 3]); XCTAssertEqual(f.camera.pauses, 0)
-        f.runtime.releaseCamera(completion: {})
+        f.runtime.releaseCapture(completion: {})
         XCTAssertEqual(f.camera.disposals, 0)
         f.runtime.disposeResources(completion: {})
         XCTAssertEqual(f.camera.disposals, 1)
@@ -232,10 +308,10 @@ final class ScannerTests: XCTestCase {
     }
 
     func testReleaseCancelsPermissionAndLateApprovalCannotAllocateCamera() throws {
-        let f = Fixture(); f.runtime.register(viewId: 1)
+        let f = Fixture();
         var responses: [Error?] = []
         f.runtime.captureCamera(viewId: 1, configuration: try config()) { responses.append($0) }
-        f.runtime.releaseCamera(completion: {})
+        f.runtime.releaseCapture(completion: {})
         XCTAssertEqual(responses.count, 1); XCTAssertNotNil(responses[0])
         f.permissions.removeFirst()(true)
         XCTAssertEqual(f.allocations, 0); XCTAssertEqual(responses.count, 1)
@@ -243,7 +319,7 @@ final class ScannerTests: XCTestCase {
     }
 
     func testBackgroundStopsHardwareWithoutWaitingForDart() throws {
-        let f = Fixture(); f.runtime.register(viewId: 1); try f.capture(1)
+        let f = Fixture(); try f.capture(1)
         f.notifications.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
         XCTAssertEqual(f.camera.pauses, 1)
         XCTAssertEqual(f.camera.disposals, 0)
@@ -251,7 +327,7 @@ final class ScannerTests: XCTestCase {
     }
 
     func testDisposalAcknowledgmentWaitsForNativeResourceRelease() throws {
-        let f = Fixture(); f.runtime.register(viewId: 1); try f.capture(1)
+        let f = Fixture(); try f.capture(1)
         f.camera.holdDisposal = true
         var replies = 0
         f.runtime.disposeResources { replies += 1 }
@@ -262,7 +338,7 @@ final class ScannerTests: XCTestCase {
     }
 
     func testNewCaptureWaitsForPendingHardwareDisposal() throws {
-        let f = Fixture(); f.runtime.register(viewId: 1); try f.capture(1)
+        let f = Fixture(); try f.capture(1)
         f.camera.holdDisposal = true
         f.runtime.disposeResources(completion: {})
         f.runtime.captureCamera(viewId: 1, configuration: try config()) { XCTAssertNil($0) }

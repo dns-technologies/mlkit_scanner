@@ -325,6 +325,7 @@ internal class ScannerTest {
     }
 
     private class FakeCamera : Camera {
+        override var torchEnabled: Boolean? = false
         override val isReady: Boolean get() = isBound()
         override var onPreviewChanged: (CameraPreviewDescription?) -> Unit = {}
         override val disposal = CompletableDeferred<Unit>()
@@ -361,7 +362,11 @@ internal class ScannerTest {
             return result
         }
 
-        override fun setTorch(enabled: Boolean): Deferred<Unit> = completedControl()
+        override fun setTorch(enabled: Boolean): Deferred<Unit> {
+            val completion = completedControl()
+            torchEnabled = enabled
+            return completion
+        }
 
         private fun completedControl(): Deferred<Unit> {
             if (!isBound()) throw PluginError.CameraIsNotInitialized
@@ -549,7 +554,7 @@ internal class ScannerCaptureTest {
             f.zoom += zoom
             val capture = f.capture()
             f.open()
-            f.scanner.releaseCamera()
+            f.scanner.releaseCapture()
             capture.await()
             assertTrue(zoom.isCancelled)
             verify(f.camera, never()).setTorch(false)
@@ -643,7 +648,7 @@ internal class ScannerCaptureTest {
         val f = Fixture()
         try {
             f.activate()
-            f.scanner.releaseCamera()
+            f.scanner.releaseCapture()
             assertTrue(f.delays.isEmpty())
             assertEquals(Lifecycle.State.RESUMED, f.host.lifecycle.currentState)
             assertFalse(f.scanner.isDisposed)
@@ -660,11 +665,85 @@ internal class ScannerCaptureTest {
         val f = Fixture()
         try {
             f.activate()
-            f.scanner.releaseCamera()
+            f.scanner.releaseCapture()
             f.scanner.select(f.second)
             assertFalse(f.scanner.isDisposed)
             assertEquals(43, f.scanner.viewId)
             assertTrue(f.timers.isEmpty())
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `Одинаковые настройки переиспользуются при смене владельца`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            f.activate()
+            f.scanner.releaseCapture()
+            clearInvocations(f.camera)
+
+            f.scanner.select(f.second)
+            f.scanner.capture(ScannerConfiguration())
+
+            verify(f.camera, never()).setZoomRatio(anyFloat())
+            verify(f.camera, never()).setTorch(anyBoolean())
+            verify(f.camera, never()).resetFocus()
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `Смена только фонаря не применяет zoom и фокус повторно`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            f.activate()
+            f.scanner.releaseCapture()
+            clearInvocations(f.camera)
+
+            f.scanner.select(f.second)
+            f.scanner.capture(ScannerConfiguration(torchEnabled = true))
+
+            verify(f.camera).setTorch(true)
+            verify(f.camera, never()).setZoomRatio(anyFloat())
+            verify(f.camera, never()).resetFocus()
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `Фактическое выключение фонаря требует повторного применения`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            f.activate()
+            f.scanner.setTorch(true)
+            f.scanner.releaseCapture()
+            f.cameraTorch = false
+            clearInvocations(f.camera)
+
+            f.scanner.select(f.second)
+            f.scanner.capture(ScannerConfiguration(torchEnabled = true))
+
+            verify(f.camera).setTorch(true)
+            assertTrue(f.cameraTorch)
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `Прерванный control требует полного восстановления настроек`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            f.activate()
+            val pending = CompletableDeferred<Unit>()
+            f.zoom += pending
+            val old = f.calls.async { runCatching { f.scanner.setZoomRatio(2F) } }
+            f.scanner.releaseCapture()
+            clearInvocations(f.camera)
+
+            f.scanner.select(f.second)
+            f.scanner.capture(ScannerConfiguration())
+            old.await()
+
+            assertTrue(pending.isCancelled)
+            verify(f.camera).setZoomRatio(1F)
+            verify(f.camera).setTorch(false)
+            verify(f.camera).resetFocus()
         } finally { f.close() }
     }
 
@@ -691,7 +770,7 @@ internal class ScannerCaptureTest {
             f.scanner.startScan(0)
             f.emitFrame()
             assertTrue(f.posts.isNotEmpty())
-            f.scanner.releaseCamera()
+            f.scanner.releaseCapture()
             f.scanner.select(f.first)
             f.scanner.capture(ScannerConfiguration())
             f.scanner.startScan(0)
@@ -871,7 +950,7 @@ internal class ScannerCaptureTest {
         try {
             val pending = CompletableDeferred<Unit>()
             doAnswer {
-                f.scanner.releaseCamera()
+                f.scanner.releaseCapture()
                 pending
             }.`when`(f.camera).setZoomRatio(anyFloat())
             val capture = f.capture()
@@ -935,8 +1014,8 @@ internal class ScannerCaptureTest {
         val f = Fixture()
         try {
             f.activate()
-            f.scanner.releaseCamera()
-            f.scanner.releaseCamera()
+            f.scanner.releaseCapture()
+            f.scanner.releaseCapture()
 
             assertNull(f.scanner.viewId)
             assertTrue(f.delays.isEmpty())
@@ -960,7 +1039,7 @@ internal class ScannerCaptureTest {
             f.activate()
             deferDispatch = true
             f.scanner.focus(1000L, 0F, 0F)
-            f.scanner.releaseCamera()
+            f.scanner.releaseCapture()
             f.scanner.select(f.second)
             while (queued.isNotEmpty()) queued.removeFirst().run()
             verify(f.camera, never()).focus(anyLong(), anyFloat(), anyFloat())
@@ -1021,6 +1100,7 @@ internal class ScannerCaptureTest {
         lateinit var previewReady: () -> Unit
         val scanner: Scanner
         private var readiness = CompletableDeferred<Unit>()
+        var cameraTorch = false
         private var cameraReady = false
         private var bound = false
 
@@ -1031,7 +1111,8 @@ internal class ScannerCaptureTest {
             }.`when`(handler).postDelayed(anyValue(), anyLong())
             doAnswer { timers.remove(it.getArgument<Runnable>(0)); null }.`when`(handler).removeCallbacks(anyValue())
             doReturn(CompletableDeferred(Unit)).`when`(camera).resetFocus()
-            doReturn(CompletableDeferred(Unit)).`when`(camera).setTorch(anyBoolean())
+            doAnswer { cameraTorch }.`when`(camera).torchEnabled
+            doAnswer { cameraTorch = it.getArgument(0); CompletableDeferred(Unit) }.`when`(camera).setTorch(anyBoolean())
             doAnswer { zoom.removeFirstOrNull() ?: CompletableDeferred(Unit) }.`when`(camera).setZoomRatio(anyFloat())
             doAnswer { cameraReady }.`when`(camera).isReady
             doAnswer {
@@ -1109,7 +1190,7 @@ internal class ScannerExpiryTest {
         val analyzer = mock(ImageBarcodeAnalyzer::class.java)
         val scanner = Scanner(camera, analyzer, Handler(Looper.getMainLooper()), { _, _ -> })
         scanner.select(ScannerConsumer(42))
-        scanner.releaseCamera()
+        scanner.releaseCapture()
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
         assertFalse(scanner.isDisposed)
         verify(camera, never()).unbind()

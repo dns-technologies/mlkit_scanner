@@ -21,14 +21,14 @@ void main() {
     testWidgets('widget registers once while camera startup is pending', (tester) async {
       final start = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') await start.future;
+        if (call.method == 'capture') await start.future;
         return null;
       };
       await tester.pumpWidget(app(scanner()));
       await tester.pump();
-      expect(h.methods, contains('resumeCameraMethod'));
+      expect(h.methods, contains('capture'));
       expect(blackPlaceholder, findsOneWidget);
-      expect(h.methods.where((m) => m == 'registerScanner'), hasLength(1));
+      expect(h.methods.where((m) => m == 'capture'), hasLength(1));
       start.complete();
       await tester.pump();
       await tester.pumpWidget(const SizedBox());
@@ -40,14 +40,14 @@ void main() {
       final activation = Completer<void>();
       final settings = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') await activation.future;
+        if (call.method == 'capture') await activation.future;
         if (call.method == 'updateCameraSettings') await settings.future;
         return null;
       };
       Widget page(double zoom) => app(BarcodeScanner(onScan: (_) {}, zoomRatio: zoom));
       await tester.pumpWidget(page(1));
       await tester.pump();
-      expect(h.methods, contains('resumeCameraMethod'));
+      expect(h.methods, contains('capture'));
       for (final state in ['paused', 'starting', 'streaming']) {
         await h.send(
           MethodCall('onPreviewState', {
@@ -89,7 +89,7 @@ void main() {
       h.calls.clear();
       final started = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') await started.future;
+        if (call.method == 'capture') await started.future;
         return null;
       };
       unawaited(navigator.currentState!.push(MaterialPageRoute<void>(builder: (_) => Scaffold(body: scanner(key: nextKey)))));
@@ -99,7 +99,7 @@ void main() {
       final nextTexture = find.descendant(of: find.byKey(nextKey), matching: find.byType(Texture));
       expect(nextCover, findsNothing);
       expect(tester.widget<Texture>(nextTexture).textureId, 77);
-      expect(h.methods, contains('resumeCameraMethod'));
+      expect(h.methods, contains('capture'));
       started.complete();
       await tester.pump();
       await tester.pump();
@@ -108,7 +108,7 @@ void main() {
       expect(h.methods, isNot(contains('pauseCameraMethod')));
       final returned = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') await returned.future;
+        if (call.method == 'capture') await returned.future;
         return null;
       };
       h.calls.clear();
@@ -119,7 +119,7 @@ void main() {
       expect(firstCover, findsNothing);
       expect(tester.widget<Texture>(firstTexture).textureId, 77);
       await tester.pump(const Duration(milliseconds: 350));
-      expect(h.methods, contains('resumeCameraMethod'));
+      expect(h.methods, contains('capture'));
       expect(h.methods, isNot(contains('pauseCameraMethod')));
       expect(firstCover, findsNothing);
       expect(tester.widget<Texture>(firstTexture).textureId, 77);
@@ -144,7 +144,7 @@ void main() {
       );
       await tester.pump();
       h.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') throw PlatformException(code: 'start-failed');
+        if (call.method == 'capture') throw PlatformException(code: 'start-failed');
         return null;
       };
       unawaited(
@@ -205,7 +205,7 @@ void main() {
 
         final activation = Completer<void>();
         h.handler = (call) async {
-          if (call.method == 'resumeCameraMethod') await activation.future;
+          if (call.method == 'capture') await activation.future;
           return null;
         };
         unawaited(navigator.currentState!.push(route(scanner(key: nextKey))));
@@ -266,7 +266,7 @@ void main() {
 
       final activation = Completer<void>();
       h.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') await activation.future;
+        if (call.method == 'capture') await activation.future;
         return null;
       };
       navigator.currentState!.pop();
@@ -333,13 +333,13 @@ void main() {
     testWidgets('widget parameters configure capture and recognition without a controller', (tester) async {
       await tester.pumpWidget(page(zoom: 2, flash: true, scanning: true, delay: 200, crop: const CropRect(scaleWidth: .6)));
       await tester.pump();
-      final resume = harness.calls.singleWhere((call) => call.method == 'resumeCameraMethod');
+      final resume = harness.calls.singleWhere((call) => call.method == 'capture');
       expect((resume.arguments as Map)['configuration'], allOf(containsPair('zoomRatio', 2.0), containsPair('torchEnabled', true)));
       expect((resume.arguments as Map)['configuration'], containsPair('cropRect', const CropRect(scaleWidth: .6).toJson()));
       final previewSize = tester.getSize(find.byType(BarcodeScanner));
       expect((resume.arguments as Map)['geometry'], {'width': previewSize.width, 'height': previewSize.height});
-      expect(harness.calls.singleWhere((call) => call.method == 'startScan').arguments, containsPair('delay', 200));
-      expect(harness.methods.toList().indexOf('subscribeScan'), lessThan(harness.methods.toList().indexOf('startScan')));
+      expect(resume.arguments, containsPair('delay', 200));
+      expect(harness.methods, isNot(contains('startScan')));
       expect(find.byType(ScannerOverlay), findsOneWidget);
       await close(tester);
     });
@@ -350,7 +350,7 @@ void main() {
       harness.calls.clear();
       await tester.pumpWidget(page(zoom: 3, flash: true, scanning: true, delay: 150, crop: const CropRect(scaleWidth: .5)));
       await tester.pump();
-      expect(harness.methods, ['updateCameraSettings', 'subscribeScan', 'startScan']);
+      expect(harness.methods, ['updateCameraSettings', 'startScan']);
       expect(harness.calls.first.arguments, {
         'captureId': harness.leases.values.single,
         'zoomRatio': 3.0,
@@ -360,7 +360,7 @@ void main() {
       expect(harness.methods, isNot(contains('setScanDelay')));
       expect(harness.calls.singleWhere((call) => call.method == 'startScan').arguments, containsPair('delay', 150));
       expect(harness.methods, isNot(contains('registerScanner')));
-      expect(harness.methods, isNot(contains('resumeCameraMethod')));
+      expect(harness.methods, isNot(contains('capture')));
       harness.calls.clear();
       await tester.pumpWidget(page(zoom: 3, flash: true, scanning: true, delay: 150, crop: const CropRect(scaleWidth: .5)));
       await tester.pump();
@@ -382,17 +382,17 @@ void main() {
     testWidgets('initial pause allocates no capture and later resume uses latest settings', (tester) async {
       await tester.pumpWidget(page(paused: true, zoom: 2, scanning: true));
       await tester.pump();
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.methods, isNot(contains('capture')));
       await tester.pumpWidget(page(paused: false, zoom: 3, scanning: true, delay: 50));
       await tester.pump();
-      final resume = harness.calls.singleWhere((call) => call.method == 'resumeCameraMethod');
+      final resume = harness.calls.singleWhere((call) => call.method == 'capture');
       expect((resume.arguments as Map)['configuration'], containsPair('zoomRatio', 3.0));
-      expect(harness.methods, contains('startScan'));
+      expect(harness.methods, contains('capture'));
       await tester.pumpWidget(page(paused: true, zoom: 3, scanning: true, delay: 50));
       await tester.pump();
       expect(harness.methods, contains('cancelScan'));
       expect(harness.methods, isNot(contains('pauseCameraMethod')));
-      expect(harness.methods, isNot(contains('closeCapture')));
+      expect(harness.methods, isNot(contains('release')));
       expect(harness.methods, isNot(contains('disposeScanner')));
       await close(tester);
     });
@@ -465,12 +465,12 @@ void main() {
       expect(errors, hasLength(1));
       expect(errors.single, isArgumentError);
       expect(find.text('Scanner failed'), findsOneWidget);
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.methods, isNot(contains('capture')));
       expect(harness.errors, isEmpty);
       await close(tester);
     });
 
-    for (final method in ['registerScanner', 'resumeCameraMethod', 'focus', 'pauseCameraMethod']) {
+    for (final method in ['capture', 'focus', 'pauseCameraMethod']) {
       testWidgets('$method failure reaches only this widget onError once', (tester) async {
         final errors = <Object>[];
         harness.handler = (call) async {
@@ -501,7 +501,7 @@ void main() {
       final errors = <Object>[];
       final start = Completer<void>();
       harness.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') await start.future;
+        if (call.method == 'capture') await start.future;
         return null;
       };
       await tester.pumpWidget(page(onError: errors.add));
@@ -517,7 +517,7 @@ void main() {
     testWidgets('pending startup applies only the latest widget settings', (tester) async {
       final start = Completer<void>();
       harness.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') await start.future;
+        if (call.method == 'capture') await start.future;
         return null;
       };
       await tester.pumpWidget(page());
@@ -529,7 +529,7 @@ void main() {
       final zoom = harness.calls.singleWhere((call) => call.method == 'updateCameraSettings');
       expect((zoom.arguments as Map)['zoomRatio'], 4.0);
       expect(harness.methods, isNot(contains('startScan')));
-      expect(harness.methods.where((method) => method == 'openCapture'), hasLength(1));
+      expect(harness.methods.where((method) => method == 'capture'), hasLength(1));
       await close(tester);
     });
 
@@ -546,7 +546,7 @@ void main() {
       await tester.pump();
       expect(harness.methods, ['updateCameraSettings']);
       expect(harness.methods, isNot(contains('setScanDelay')));
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.methods, isNot(contains('capture')));
       await close(tester);
     });
 
@@ -555,11 +555,11 @@ void main() {
       await tester.pumpWidget(page(zoom: 0, onError: errors.add));
       await tester.pump();
       expect(errors, hasLength(1));
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.methods, isNot(contains('capture')));
       await tester.pumpWidget(page(zoom: 2, onError: errors.add));
       await tester.pump();
-      expect(harness.methods, contains('resumeCameraMethod'));
-      expect(harness.methods.where((method) => method == 'registerScanner'), hasLength(1));
+      expect(harness.methods, contains('capture'));
+      expect(harness.methods, isNot(contains('registerScanner')));
       await close(tester);
     });
 
@@ -585,12 +585,13 @@ void main() {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       await tester.pumpWidget(page(camera: const IosCamera(position: IosCameraPosition.front, type: IosCameraType.builtInWideAngleCamera)));
       await tester.pump();
+      final lease = harness.leases.values.single;
       harness.calls.clear();
       await tester.pumpWidget(page());
       await tester.pump();
-      final resume = harness.calls.singleWhere((call) => call.method == 'resumeCameraMethod');
+      final resume = harness.calls.singleWhere((call) => call.method == 'capture');
       expect((resume.arguments as Map)['configuration'], isNot(contains('iosCamera')));
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.calls.single.arguments, containsPair('captureId', lease));
       await close(tester);
       debugDefaultTargetPlatformOverride = null;
     });
@@ -598,7 +599,7 @@ void main() {
     testWidgets('unchanged rebuild after startup failure does not retry automatically', (tester) async {
       final errors = <Object>[];
       harness.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') {
+        if (call.method == 'capture') {
           throw PlatformException(code: 'camera');
         }
         return null;
@@ -677,7 +678,7 @@ void main() {
       await tester.pump();
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();
-      expect(harness.methods.where((method) => method == 'openCapture'), hasLength(1));
+      expect(harness.methods.where((method) => method == 'capture'), hasLength(1));
 
       pause.completeError(PlatformException(code: 'pause-A'));
       await tester.pump();
@@ -685,7 +686,7 @@ void main() {
       expect((errorsA.single as PlatformException).code, 'pause-A');
       expect(errorsB, isEmpty);
       expect(harness.errors, isEmpty);
-      expect(harness.methods.where((method) => method == 'resumeCameraMethod'), hasLength(2));
+      expect(harness.methods.where((method) => method == 'capture'), hasLength(2));
       await close(tester);
     });
 
@@ -715,12 +716,12 @@ void main() {
       final results = <Barcode>[];
       final startScan = Completer<void>();
       harness.handler = (call) async {
-        if (call.method == 'startScan') await startScan.future;
+        if (call.method == 'capture') await startScan.future;
         return null;
       };
       await tester.pumpWidget(MaterialApp(home: BarcodeScanner(scanning: true, onScan: results.add)));
       await tester.pump();
-      expect(harness.methods, contains('startScan'));
+      expect(harness.methods, contains('capture'));
       await harness.event(harness.leases.keys.single, 'first');
       startScan.complete();
       await tester.pump();
@@ -769,7 +770,7 @@ void main() {
       await tester.pump();
       expect(harness.methods, contains('cancelScan'));
       expect(harness.methods, isNot(contains('pauseCameraMethod')));
-      expect(harness.methods, isNot(contains('closeCapture')));
+      expect(harness.methods, isNot(contains('release')));
       await harness.event(viewId, 'behind dropdown');
       expect(values, isEmpty);
 
@@ -779,7 +780,7 @@ void main() {
       await tester.pump();
       expect(harness.calls.singleWhere((call) => call.method == 'startScan').arguments, containsPair('delay', 200));
       expect(harness.methods, isNot(contains('setScanDelay')));
-      expect(harness.methods, isNot(contains('resumeCameraMethod')));
+      expect(harness.methods, isNot(contains('capture')));
       expect(harness.methods, isNot(contains('updateCameraSettings')));
       expect(harness.leases[viewId], lease);
       await harness.event(viewId, 'after dropdown');
@@ -822,7 +823,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
       final modalView = harness.leases.keys.singleWhere((id) => id != mainView);
-      expect(harness.methods, contains('openCapture'));
+      expect(harness.methods, contains('capture'));
       expect(harness.methods, isNot(contains('pauseCameraMethod')));
       await harness.event(mainView, 'stale page', captureId: oldLease);
       await harness.event(modalView, 'in dialog');
@@ -832,14 +833,14 @@ void main() {
       harness.calls.clear();
       rebuild(() => mainZoom = 4);
       await tester.pump();
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.methods, isNot(contains('capture')));
       expect(harness.methods, isNot(contains('updateCameraSettings')));
 
       navigator.currentState!.pop();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
-      final resume = harness.calls.singleWhere((call) => call.method == 'resumeCameraMethod');
+      final resume = harness.calls.singleWhere((call) => call.method == 'capture');
       expect((resume.arguments as Map)['captureId'], harness.leases[mainView]);
       expect((resume.arguments as Map)['configuration'], containsPair('zoomRatio', 4.0));
       expect(harness.methods, isNot(contains('pauseCameraMethod')));
@@ -872,8 +873,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
       expect(harness.methods.where((method) => method == 'startScan'), hasLength(1));
-      expect(harness.methods, isNot(contains('closeCapture')));
-      expect(harness.methods, isNot(contains('resumeCameraMethod')));
+      expect(harness.methods, isNot(contains('release')));
+      expect(harness.methods, isNot(contains('capture')));
       await close(tester);
     });
 
@@ -887,7 +888,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
       expect(harness.methods, isNot(contains('pauseCameraMethod')));
-      expect(harness.methods, contains('closeCapture'));
+      expect(harness.methods, contains('release'));
       expect(harness.methods, isNot(contains('disposeScanner')));
       await tester.pump(const Duration(milliseconds: 300));
       expect(harness.methods, contains('disposeScanner'));
@@ -895,7 +896,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
-      expect(harness.methods, contains('resumeCameraMethod'));
+      expect(harness.methods, contains('capture'));
       await close(tester);
     });
   });
@@ -937,7 +938,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('Popup'), findsOneWidget);
-      final resumes = harness.calls.where((call) => call.method == 'resumeCameraMethod');
+      final resumes = harness.calls.where((call) => call.method == 'capture');
       expect(resumes, hasLength(1));
       expect((resumes.single.arguments as Map)['captureId'], harness.leases[viewId]);
       expect(((resumes.single.arguments as Map)['configuration'] as Map).keys, isNot(contains('scanEnabled')));
@@ -949,7 +950,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
-      expect(harness.methods, contains('startScan'));
+      expect(harness.methods, contains('capture'));
       await harness.event(viewId, 'after popup');
       expect(values.single.rawValue, 'after popup');
       await close(tester);
@@ -983,7 +984,7 @@ void main() {
 
       expect(harness.methods, contains('cancelScan'));
       expect(harness.methods, isNot(contains('pauseCameraMethod')));
-      expect(harness.methods, isNot(contains('closeCapture')));
+      expect(harness.methods, isNot(contains('release')));
       await harness.event(viewId, 'behind popup');
       expect(values, isEmpty);
       expect(harness.errors, isEmpty);
@@ -1057,7 +1058,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
       expect(harness.methods, isNot(contains('pauseCameraMethod')));
-      final capture = harness.calls.singleWhere((call) => call.method == 'resumeCameraMethod');
+      final capture = harness.calls.singleWhere((call) => call.method == 'capture');
       expect((capture.arguments as Map)['captureId'], harness.leases[firstView]);
       expect((capture.arguments as Map)['configuration'], containsPair('zoomRatio', 3.0));
       expect(harness.methods, isNot(contains('startScan')));
@@ -1070,7 +1071,7 @@ void main() {
 
       updatePage(() => paused = false);
       await tester.pump();
-      expect(harness.methods, ['subscribeScan', 'startScan']);
+      expect(harness.methods, ['startScan']);
       expect(harness.leases[firstView], returnedLease);
       expect(tester.widget<Texture>(find.byType(Texture)).freeze, isFalse);
       expect(blackPlaceholder, findsNothing);
@@ -1100,7 +1101,7 @@ void main() {
       expect(texture.freeze, isFalse);
       expect(texture.textureId, 77);
       expect(identical(tester.element(find.byType(Texture)), textureElement), isTrue);
-      expect(harness.methods, ['cancelScan', 'subscribeScan', 'startScan']);
+      expect(harness.methods, ['cancelScan', 'startScan']);
       expect(blackPlaceholder, findsNothing);
       await close(tester);
     });
@@ -1117,7 +1118,7 @@ void main() {
       final activation = Completer<void>();
       harness.handler = (call) async {
         if (call.method == 'disposeScanner') await disposal.future;
-        if (call.method == 'resumeCameraMethod') await activation.future;
+        if (call.method == 'capture') await activation.future;
         return null;
       };
       harness.calls.clear();
@@ -1126,15 +1127,15 @@ void main() {
       expect(harness.methods, contains('disposeScanner'));
       expect(tester.widget<RawImage>(find.byType(RawImage)).image, same(image));
       await tester.pumpWidget(page(paused: true, zoom: 4, flash: false));
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.methods, isNot(contains('capture')));
       await tester.pumpWidget(page(zoom: 4, flash: false));
       await tester.pump();
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.methods, isNot(contains('capture')));
       expect(tester.widget<RawImage>(find.byType(RawImage)).image, same(image));
 
       disposal.complete();
       await tester.pump();
-      final resume = harness.calls.singleWhere((call) => call.method == 'resumeCameraMethod');
+      final resume = harness.calls.singleWhere((call) => call.method == 'capture');
       expect((resume.arguments as Map)['configuration'], allOf(containsPair('zoomRatio', 4.0), containsPair('torchEnabled', false)));
       expect(tester.widget<RawImage>(find.byType(RawImage)).image, same(image));
       expect(blackPlaceholder, findsNothing);
@@ -1149,7 +1150,7 @@ void main() {
       expect(tester.widget<Texture>(find.byType(Texture)).textureId, 88);
       activation.complete();
       await tester.pump();
-      expect(harness.methods, contains('startScan'));
+      expect(harness.methods, contains('capture'));
       await close(tester);
     });
 
@@ -1179,7 +1180,7 @@ void main() {
       await tester.pump();
       expect(find.byType(RawImage), findsNothing);
       expect(tester.widget<Texture>(find.byType(Texture)).freeze, isFalse);
-      expect(harness.methods, ['subscribeScan', 'startScan']);
+      expect(harness.methods, ['startScan']);
       expect(harness.leases.values.single, lease);
       await close(tester);
     });
@@ -1208,21 +1209,21 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await tester.pump();
       expect(harness.methods, contains('pauseCameraMethod'));
-      expect(harness.methods, contains('closeCapture'));
+      expect(harness.methods, contains('release'));
       harness.calls.clear();
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();
-      expect(harness.methods, isNot(contains('openCapture')));
+      expect(harness.methods, isNot(contains('capture')));
       await tester.pumpWidget(page());
       await tester.pump();
-      expect(harness.methods, contains('openCapture'));
+      expect(harness.methods, contains('capture'));
       await close(tester);
     });
 
     testWidgets('pausing during camera startup does not release or restart it', (tester) async {
       final start = Completer<void>();
       harness.handler = (call) async {
-        if (call.method == 'resumeCameraMethod') await start.future;
+        if (call.method == 'capture') await start.future;
         return null;
       };
       await tester.pumpWidget(page());
@@ -1235,11 +1236,11 @@ void main() {
       await tester.pump();
       expect(find.byType(RawImage), findsOneWidget);
       expect(harness.methods, isNot(contains('startScan')));
-      expect(harness.methods, isNot(contains('closeCapture')));
+      expect(harness.methods, isNot(contains('release')));
       await tester.pumpWidget(page());
       await tester.pump();
-      expect(harness.methods.where((method) => method == 'resumeCameraMethod'), hasLength(1));
-      expect(harness.methods, contains('startScan'));
+      expect(harness.methods.where((method) => method == 'capture'), hasLength(1));
+      expect(harness.methods, contains('capture'));
       await close(tester);
     });
   });

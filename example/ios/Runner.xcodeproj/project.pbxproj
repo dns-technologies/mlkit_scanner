@@ -26,7 +26,6 @@
 		B3000007B3000007B3000007 /* GetIosAvailableCamerasCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000007B2000007B2000007 /* GetIosAvailableCamerasCommandTests.swift */; };
 		52A85F28F95D404182A6BBB6 /* SetZoomRatioCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22D1E8CCE7EB4DCFA9A17692 /* SetZoomRatioCommandTests.swift */; };
 		05F9EA7C42E84462AAC51C45 /* ToggleFlashCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58E2E70CFE3B4343BAA6ADDB /* ToggleFlashCommandTests.swift */; };
-		354A55D021B14683BE4C037E /* StartScanCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927AA60EE2A24F33A9A75515 /* StartScanCommandTests.swift */; };
 		B47FF8AABBC5496E82F4292E /* SetScanDelayCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCB9C485704946DABCC06C87 /* SetScanDelayCommandTests.swift */; };
 		A3E61837650D4A318A78A947 /* SetCropAreaCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 549C4AA36AB54D21B445E3FE /* SetCropAreaCommandTests.swift */; };
 		67E6D8FD912F43EB898A28EF /* CancelScanCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82673E4E8F334E9F89120C6A /* CancelScanCommandTests.swift */; };
@@ -99,7 +98,6 @@
 		B2000007B2000007B2000007 /* GetIosAvailableCamerasCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GetIosAvailableCamerasCommandTests.swift; sourceTree = "<group>"; };
 		22D1E8CCE7EB4DCFA9A17692 /* SetZoomRatioCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetZoomRatioCommandTests.swift; sourceTree = "<group>"; };
 		58E2E70CFE3B4343BAA6ADDB /* ToggleFlashCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToggleFlashCommandTests.swift; sourceTree = "<group>"; };
-		927AA60EE2A24F33A9A75515 /* StartScanCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartScanCommandTests.swift; sourceTree = "<group>"; };
 		BCB9C485704946DABCC06C87 /* SetScanDelayCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetScanDelayCommandTests.swift; sourceTree = "<group>"; };
 		549C4AA36AB54D21B445E3FE /* SetCropAreaCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetCropAreaCommandTests.swift; sourceTree = "<group>"; };
 		82673E4E8F334E9F89120C6A /* CancelScanCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CancelScanCommandTests.swift; sourceTree = "<group>"; };
@@ -231,7 +229,6 @@
 				22D1E8CCE7EB4DCFA9A17692 /* SetZoomRatioCommandTests.swift */,
 				C4020001C4020001C4020001 /* UpdateCameraSettingsCommandTests.swift */,
 				58E2E70CFE3B4343BAA6ADDB /* ToggleFlashCommandTests.swift */,
-				927AA60EE2A24F33A9A75515 /* StartScanCommandTests.swift */,
 				BCB9C485704946DABCC06C87 /* SetScanDelayCommandTests.swift */,
 				549C4AA36AB54D21B445E3FE /* SetCropAreaCommandTests.swift */,
 				82673E4E8F334E9F89120C6A /* CancelScanCommandTests.swift */,
@@ -519,7 +516,6 @@
 				52A85F28F95D404182A6BBB6 /* SetZoomRatioCommandTests.swift in Sources */,
 				C4010001C4010001C4010001 /* UpdateCameraSettingsCommandTests.swift in Sources */,
 				05F9EA7C42E84462AAC51C45 /* ToggleFlashCommandTests.swift in Sources */,
-				354A55D021B14683BE4C037E /* StartScanCommandTests.swift in Sources */,
 				B47FF8AABBC5496E82F4292E /* SetScanDelayCommandTests.swift in Sources */,
 				A3E61837650D4A318A78A947 /* SetCropAreaCommandTests.swift in Sources */,
 				67E6D8FD912F43EB898A28EF /* CancelScanCommandTests.swift in Sources */,

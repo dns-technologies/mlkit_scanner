@@ -191,7 +191,6 @@ final class ScannerCommandFixture {
             analyzerFactory: { analyzer },
             requestPermission: { $0(true) }
         )
-        scanner.register(viewId: 42)
         if activate {
             var completed = false
             var failure: Error?

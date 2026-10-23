@@ -104,38 +104,15 @@ class ScannerRuntime {
     if (_disposed || consumer.isDisposed) {
       throw StateError('Scanner is disposed');
     }
-    return _consumers.putIfAbsent(consumer, () {
-      final registration = _ScannerRegistration(consumer);
-      registration.ready = _register(registration);
-      return registration;
-    }).ready;
+    _consumers.putIfAbsent(consumer, _ScannerRegistration.new);
+    return Future<void>.value();
   }
 
-  /// Registers logical identity; camera resources are acquired by capture only.
-  Future<void> _register(_ScannerRegistration registration) async {
-    await _disposal?.future;
-    if (registration.closed || _disposed) return;
-    await _channel.registerScanner(registration.consumer.viewId);
-    registration.nativeRegistered = true;
-    if (registration.closed) {
-      await _channel.unregisterScanner(registration.consumer.viewId);
-    }
-  }
-
-  /// Unregisters a consumer, releasing capture only if it still owns one.
+  /// Removes a consumer and releases capture only if it still owns one.
   Future<void> unregister(ScannerConsumer consumer) async {
-    final registration = _consumers.remove(consumer);
-    if (registration == null) return;
+    if (_consumers.remove(consumer) == null) return;
     if (identical(_lastOwner, consumer)) _lastOwner = null;
-    registration.closed = true;
-    final release = _closeSession(consumer, pause: false);
-    try {
-      await release;
-    } finally {
-      if (registration.nativeRegistered) {
-        await _channel.unregisterScanner(consumer.viewId);
-      }
-    }
+    await _closeSession(consumer, pause: false);
   }
 
   /// Whether this consumer owns a capture that still admits commands.
@@ -175,7 +152,7 @@ class ScannerRuntime {
     }
     consumer.setCaptureState(ScannerCaptureState.starting);
     try {
-      await session.start(_prepareCapture(session, registration, retention));
+      await session.start(_prepareCapture(session, retention));
     } catch (error, stack) {
       if (identical(_session, session)) {
         _session = null;
@@ -194,8 +171,8 @@ class ScannerRuntime {
   Future<void> suspend(ScannerConsumer consumer) => _closeSession(consumer, pause: true);
 
   /// Acquires fresh resources after disposal, including for already registered consumers.
-  Future<void> _prepareCapture(ScannerCaptureSession session, _ScannerRegistration registration, Future<void> retention) async {
-    await Future.wait([registration.ready, retention, if (_pause case final pause?) pause.catchError((Object _) {})]);
+  Future<void> _prepareCapture(ScannerCaptureSession session, Future<void> retention) async {
+    await Future.wait([retention, if (_pause case final pause?) pause.catchError((Object _) {})]);
     await _disposal?.future;
     if (!session.active) return;
     if (_resources == null && session.consumer.configuration.cameraPaused) {
@@ -382,20 +359,6 @@ class ScannerRuntime {
 
 /// Registration status and viewport of one camera consumer.
 class _ScannerRegistration {
-  _ScannerRegistration(this.consumer);
-
-  /// Registered consumer providing configuration and callbacks.
-  final ScannerConsumer consumer;
-
-  /// Completion of native registration.
-  late final Future<void> ready;
-
   /// Latest nonempty layout size; the initial value allows pre-layout capture.
   Size geometry = const Size(1, 1);
-
-  /// Prevents late registration work from reviving a removed consumer.
-  bool closed = false;
-
-  /// Records whether native registration needs a matching unregister call.
-  bool nativeRegistered = false;
 }

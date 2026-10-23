@@ -1,6 +1,5 @@
 package com.dns_technologies.mlkit_scanner.commands
 
-import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.commands.base.AsyncScannerCommand
 import com.dns_technologies.mlkit_scanner.scanner.Scanner
 import com.dns_technologies.mlkit_scanner.utils.requireFiniteFloat
@@ -14,7 +13,7 @@ internal class SetZoomRatioCommand(scannerProvider: () -> Scanner?, commandScope
     AsyncScannerCommand(scannerProvider, commandScope) {
     override suspend fun executeSuspendCommand(call: MethodCall, result: Result) {
         val value =
-            call.arguments.requireMap().requireFiniteFloat(PluginConstants.valueArgument)
+            call.arguments.requireMap().requireFiniteFloat("value")
         scanner()?.setZoomRatio(value)
         success(result)
     }

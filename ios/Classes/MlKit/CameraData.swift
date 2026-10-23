@@ -9,7 +9,7 @@ import AVFoundation
 import Foundation
 
 /// Camera selection by device type and position.
-struct CameraData {
+struct CameraData: Equatable {
     /// Physical lens or combined camera device to select.
     let type: AVCaptureDevice.DeviceType
 

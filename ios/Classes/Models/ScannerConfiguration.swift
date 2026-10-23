@@ -2,15 +2,15 @@ import Foundation
 
 /// Camera selection and settings for capture activation.
 /// Argument decoding defaults to the full preview and rear wide-angle camera when omitted.
-struct ScannerConfiguration {
+struct ScannerConfiguration: Equatable {
     /// Absolute zoom factor requested for this capture.
-    let zoomRatio: Double
+    var zoomRatio: Double
     /// Desired torch state for this capture.
-    let torchEnabled: Bool
+    var torchEnabled: Bool
     /// Normalized recognition and focus area.
-    let cropRect: CropRect
+    var cropRect: CropRect
     /// Requested native camera type and position.
-    let camera: CameraData
+    var camera: CameraData
 
     init(arguments: Any?) throws {
         let values = try ArgumentUtils.requireMap(arguments)

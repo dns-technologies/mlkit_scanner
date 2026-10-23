@@ -40,6 +40,9 @@ interface Camera {
     /** Whether the current binding has opened and can accept device controls. */
     val isReady: Boolean
 
+    /** Observed torch state, or null when the camera state is unknown. */
+    val torchEnabled: Boolean?
+
     /** Reports current preview metadata, or null when output is withdrawn. */
     var onPreviewChanged: (CameraPreviewDescription?) -> Unit
 
