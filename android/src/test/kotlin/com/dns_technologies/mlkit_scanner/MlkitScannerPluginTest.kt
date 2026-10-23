@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.util.Size
 import com.dns_technologies.mlkit_scanner.permissions.PermissionGateway
 import com.dns_technologies.mlkit_scanner.scanner.CaptureLease
+import com.dns_technologies.mlkit_scanner.scanner.ScannerConfiguration
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
@@ -137,19 +138,39 @@ internal class MlkitScannerPluginLifecycleTest {
         disposal.complete(Unit)
         assertEquals(1, first.replies); assertEquals(1, second.replies)
     }
-    @Test fun `capture needs no prior registration and release of an inactive owner is harmless`() {
-        val f = TexturePluginFixture()
-        val old = f.open(1)
-        val current = f.open(2)
-        f.call("release", mapOf("captureId" to old))
-        assertNull(f.call("setScanDelay", mapOf("captureId" to current, "delay" to 2)).error)
-    }
     @Test fun `dispose allows a fresh capture without retaining registrations`() {
         val f = TexturePluginFixture(); f.open(1)
         assertNull(f.call("disposeScanner").error); verify(f.scanner).dispose()
         f.set("scanner", f.scanner)
         assertNotNull(f.open(1))
     }
+    @Test fun `capture waits for previous hardware disposal before selecting the next owner`() = kotlinx.coroutines.runBlocking<Unit> {
+        val f = TexturePluginFixture()
+        f.open(1)
+        val disposal = kotlinx.coroutines.CompletableDeferred<Unit>()
+        doReturn(disposal).`when`(f.scanner).disposal
+        val disposing = f.call("disposeScanner")
+        f.set("scanner", f.scanner)
+        clearInvocations(f.scanner)
+
+        val capture = f.call("capture", f.arguments(2))
+        val lease = f.plugin.javaClass.getDeclaredField("selected").apply { isAccessible = true }
+            .get(f.plugin) as CaptureLease
+
+        assertEquals(0, capture.replies)
+        verify(f.scanner, never()).select(lease.consumer)
+        verify(f.scanner, never()).capture(ScannerConfiguration())
+        disposal.complete(Unit)
+
+        assertEquals(1, disposing.replies)
+        assertNull(disposing.error)
+        assertEquals(1, capture.replies)
+        assertNull(capture.error)
+        assertEquals(2, lease.consumer.viewId)
+        verify(f.scanner).select(lease.consumer)
+        verify(f.scanner).capture(ScannerConfiguration())
+    }
+
     @Test fun `pause succeeds before hardware allocation`() {
         val f = TexturePluginFixture(); f.set("scanner", null)
         val lease = f.open(1)
@@ -256,15 +277,19 @@ internal class ScannerPluginTransportTest {
         assertNull((f.call("subscribePreview").value as Map<*, *>)["description"])
     }
 
-    @Test fun `batched settings execute only for the selected lease`() = kotlinx.coroutines.runBlocking<Unit> {
+    @Test fun `batched settings reject an obsolete lease before validating the settings`() = kotlinx.coroutines.runBlocking<Unit> {
         val f = TexturePluginFixture()
         val old = f.open(1)
         val current = f.open(2)
         clearInvocations(f.scanner)
-        val stale = f.call("updateCameraSettings", mapOf("captureId" to old, "zoomRatio" to 2.0, "torchEnabled" to true))
+        val stale = f.call("updateCameraSettings", mapOf("captureId" to old, "torchEnabled" to 1))
         assertEquals(PluginError.CameraSessionDisposed.errorCode, stale.error)
         assertEquals(1, stale.replies)
+        val malformed = f.call("updateCameraSettings", mapOf("captureId" to current, "torchEnabled" to 1))
+        assertEquals(PluginError.InvalidArguments.errorCode, malformed.error)
+        assertEquals(1, malformed.replies)
         verifyNoInteractions(f.scanner)
+
         val reply = f.call("updateCameraSettings", mapOf("captureId" to current, "zoomRatio" to 2.0, "torchEnabled" to false))
         verify(f.scanner).setZoomRatio(2.0F)
         verify(f.scanner).setTorch(false)
@@ -363,6 +388,28 @@ internal class ScannerPluginTransportTest {
         verifyNoInteractions(f.scanner)
         assertNull(f.call("startScan", mapOf("captureId" to capture, "subscriptionId" to "scan", "delay" to 250)).error)
         verify(f.scanner).startScan(250)
+    }
+
+    @Test fun `missing or empty scan endpoint leaves the current recognition subscription active`() {
+        val f = TexturePluginFixture()
+        val capture = f.open(1)
+        f.call("startScan", mapOf("captureId" to capture, "subscriptionId" to "active", "delay" to 0))
+        val lease = f.plugin.javaClass.getDeclaredField("selected").apply { isAccessible = true }
+            .get(f.plugin) as CaptureLease
+        val active = lease.scanLease!!
+        clearInvocations(f.scanner)
+
+        for (endpoint in listOf(null, "", 1)) {
+            val reply = f.call("startScan", mapOf("captureId" to capture, "subscriptionId" to endpoint, "delay" to 0))
+
+            assertEquals(PluginError.InvalidArguments.errorCode, reply.error)
+            assertEquals(1, reply.replies)
+            assertSame(active, lease.scanLease)
+            assertTrue(active.enabled)
+            assertFalse(active.closed)
+        }
+
+        verifyNoInteractions(f.scanner)
     }
 
     @Test fun `Новый поток закрывает предыдущий lease без остановки камеры`() {

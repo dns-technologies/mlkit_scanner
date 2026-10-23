@@ -3,9 +3,13 @@ import 'package:mlkit_scanner/models/ios_camera_position.dart';
 
 void main() {
   group('$IosCameraPosition', () {
-    test('every iOS camera position round-trips through its platform code', () {
-      for (final position in IosCameraPosition.values) {
-        expect(IosCameraPositionCode.fromCode(position.code), position);
+    test('platform codes keep their published values in both directions', () {
+      const codes = {IosCameraPosition.unspecified: 0, IosCameraPosition.back: 1, IosCameraPosition.front: 2};
+
+      expect(codes.keys, unorderedEquals(IosCameraPosition.values));
+      for (final entry in codes.entries) {
+        expect(entry.key.code, entry.value);
+        expect(IosCameraPositionCode.fromCode(entry.value), entry.key);
       }
     });
 

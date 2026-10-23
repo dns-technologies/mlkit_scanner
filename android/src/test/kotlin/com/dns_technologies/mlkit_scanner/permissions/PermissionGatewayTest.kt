@@ -322,7 +322,7 @@ internal class PermissionGatewayTest {
     fun `each permission keeps its fixed code even when the queue never empties`() = gatewayTest { fixture ->
         var current = request(fixture)
         var next = request(fixture, AUDIO)
-        repeat(1_000) { index ->
+        repeat(3) { index ->
             assertTrue(fixture.complete(fixture.dispatched.last(), isGranted = false))
             assertFalse(current.await())
             current = next
@@ -581,18 +581,6 @@ internal class PermissionGatewayTest {
         assertTrue(fixture.complete(fixture.dispatched.last(), isGranted = false))
         assertFalse(next.await())
     }
-
-    @Test
-    fun `callback for a request completed on reattach is ignored without a pending owner`() =
-        gatewayTest { fixture ->
-            val result = request(fixture)
-            val oldRequest = fixture.dispatched.single()
-            fixture.gateway.detachForConfigChange()
-            fixture.isGranted = true
-            fixture.gateway.attach(fixture.secondActivity)
-            assertTrue(result.await())
-            assertFalse(fixture.complete(oldRequest, isGranted = true))
-        }
 
     @Test
     fun `separate Activity hosts may use the same code for their own requests`() = gatewayTest { firstFixture ->

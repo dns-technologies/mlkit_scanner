@@ -4,7 +4,7 @@ import XCTest
 
 final class FrameAnalysisGateTests: XCTestCase {
     func testFirstFrameIsAcceptedImmediatelyAndConcurrentFramesAreRejected() {
-        var now: TimeInterval = 10
+        let now: TimeInterval = 10
         let gate = FrameAnalysisGate(
             successfulScanPeriodMilliseconds: 250,
             currentTimeMilliseconds: { now }
@@ -12,11 +12,6 @@ final class FrameAnalysisGateTests: XCTestCase {
 
         XCTAssertTrue(gate.beginAnalysis())
         XCTAssertFalse(gate.beginAnalysis())
-        gate.completeAnalysis(barcodeFound: true)
-        XCTAssertFalse(gate.beginAnalysis())
-
-        now = 260
-        XCTAssertTrue(gate.beginAnalysis())
     }
 
     func testFailedAnalysisUsesOneSecondRetryCooldown() {
@@ -27,10 +22,11 @@ final class FrameAnalysisGateTests: XCTestCase {
         )
 
         XCTAssertTrue(gate.beginAnalysis())
+        now = 500
         gate.completeAnalysis(barcodeFound: false)
-        now = 1_099
+        now = 1_499
         XCTAssertFalse(gate.beginAnalysis())
-        now = 1_100
+        now = 1_500
         XCTAssertTrue(gate.beginAnalysis())
     }
 
@@ -42,10 +38,11 @@ final class FrameAnalysisGateTests: XCTestCase {
         )
 
         XCTAssertTrue(gate.beginAnalysis())
+        now = 2_000
         gate.completeAnalysis(barcodeFound: true)
-        now = 1_274
+        now = 2_274
         XCTAssertFalse(gate.beginAnalysis())
-        now = 1_275
+        now = 2_275
         XCTAssertTrue(gate.beginAnalysis())
     }
 
@@ -74,6 +71,58 @@ final class FrameAnalysisGateTests: XCTestCase {
 
         XCTAssertTrue(gate.beginAnalysis())
         gate.completeAnalysis(barcodeFound: true)
+        XCTAssertTrue(gate.beginAnalysis())
+    }
+
+    func testPeriodUpdateDoesNotChangeAnActiveCooldown() {
+        var now: TimeInterval = 0
+        let gate = FrameAnalysisGate(
+            successfulScanPeriodMilliseconds: 100,
+            currentTimeMilliseconds: { now }
+        )
+        XCTAssertTrue(gate.beginAnalysis())
+        gate.completeAnalysis(barcodeFound: true)
+
+        gate.updateSuccessfulScanPeriod(0)
+
+        now = 99
+        XCTAssertFalse(gate.beginAnalysis())
+        now = 100
+        XCTAssertTrue(gate.beginAnalysis())
+        gate.completeAnalysis(barcodeFound: true)
+        XCTAssertTrue(gate.beginAnalysis())
+    }
+
+    func testSkippedFramesDoNotPostponeTheRetryDeadline() {
+        var now: TimeInterval = 0
+        let gate = FrameAnalysisGate(
+            successfulScanPeriodMilliseconds: 0,
+            currentTimeMilliseconds: { now }
+        )
+        XCTAssertTrue(gate.beginAnalysis())
+        gate.completeAnalysis(barcodeFound: false)
+
+        for instant in [1, 100, 500, 999] {
+            now = TimeInterval(instant)
+            XCTAssertFalse(gate.beginAnalysis())
+        }
+
+        now = 1_000
+        XCTAssertTrue(gate.beginAnalysis())
+    }
+
+    func testLargePeriodDoesNotOverflowTheChannelIntegerRange() {
+        var now: TimeInterval = 200
+        let gate = FrameAnalysisGate(
+            successfulScanPeriodMilliseconds: Int(Int32.max),
+            currentTimeMilliseconds: { now }
+        )
+        XCTAssertTrue(gate.beginAnalysis())
+        gate.completeAnalysis(barcodeFound: true)
+
+        now = 200 + TimeInterval(Int32.max) - 1
+        XCTAssertFalse(gate.beginAnalysis())
+        now += 1
         XCTAssertTrue(gate.beginAnalysis())
     }
 

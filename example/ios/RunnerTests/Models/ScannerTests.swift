@@ -318,12 +318,112 @@ final class ScannerTests: XCTestCase {
         f.runtime.release()
     }
 
-    func testBackgroundStopsHardwareWithoutWaitingForDart() throws {
-        let f = Fixture(); try f.capture(1)
+    func testBackgroundStopsHardwareAndForegroundRequiresANewCapture() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        try f.capture(1)
+        try f.runtime.startScan(delay: 0)
+        let previous = try XCTUnwrap(f.analyzer.subscription)
+        let barcode = ScannerBarcode(rawValue: "test", displayValue: nil, format: 256, valueType: 7)
+
         f.notifications.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        f.notifications.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        previous.deliver(barcode)
+        try f.runtime.startScan(delay: 0)
+
         XCTAssertEqual(f.camera.pauses, 1)
         XCTAssertEqual(f.camera.disposals, 0)
+        XCTAssertNil(f.camera.recognitionHandler)
+        XCTAssertNil(f.analyzer.subscription)
+        XCTAssertTrue(f.resultOwners.isEmpty)
+
+        try f.capture(1)
+        try f.runtime.startScan(delay: 0)
+        f.analyzer.subscription?.deliver(barcode)
+
+        XCTAssertEqual(f.resultOwners, [1])
+        XCTAssertEqual(f.allocations, 1)
+    }
+
+    func testReplacementCaptureIgnoresLatePermissionForPreviousOwner() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        var previousReplies: [Error?] = []
+        var currentReplies: [Error?] = []
+        f.runtime.captureCamera(viewId: 1, configuration: try config()) { previousReplies.append($0) }
+        f.runtime.captureCamera(viewId: 2, configuration: try config()) { currentReplies.append($0) }
+
+        XCTAssertEqual(previousReplies.count, 1)
+        XCTAssertEqual(previousReplies[0] as? MlKitPluginError, .cameraSessionDisposed)
+        f.permissions.removeFirst()(true)
+
+        XCTAssertEqual(f.allocations, 0)
+        XCTAssertTrue(currentReplies.isEmpty)
+        f.permissions.removeFirst()(true)
+
+        XCTAssertEqual(f.allocations, 1)
+        XCTAssertEqual(currentReplies.count, 1)
+        XCTAssertNil(currentReplies[0])
+        XCTAssertEqual(previousReplies.count, 1)
+        XCTAssertThrowsError(try f.runtime.updateGeometry(viewId: 1, size: CGSize(width: 20, height: 20)))
+        XCTAssertNoThrow(try f.runtime.updateGeometry(viewId: 2, size: CGSize(width: 20, height: 20)))
+    }
+
+    func testDeniedPermissionAllocatesNoHardwareAndAllowsANewCapture() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        var replies: [Error?] = []
+        f.runtime.captureCamera(viewId: 1, configuration: try config()) { replies.append($0) }
+
+        f.permissions.removeFirst()(false)
+
+        XCTAssertEqual(replies.count, 1)
+        XCTAssertEqual(replies[0] as? MlKitPluginError, .authorizationCameraError)
+        XCTAssertEqual(f.allocations, 0)
+        XCTAssertEqual(f.analyzerAllocations, 0)
+
+        try f.capture(2)
+
+        XCTAssertEqual(f.allocations, 1)
+        XCTAssertEqual(f.analyzerAllocations, 1)
+    }
+
+    func testPermanentReleaseDisposesOnceAndRejectsLateResultsAndRestart() throws {
+        let f = Fixture()
+        try f.capture(1)
+        try f.runtime.startScan(delay: 0)
+        let previous = try XCTUnwrap(f.analyzer.subscription)
+        var replies: [Error?] = []
+
         f.runtime.release()
+        f.runtime.release()
+        previous.deliver(ScannerBarcode(rawValue: "late", displayValue: nil, format: 256, valueType: 7))
+        f.notifications.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        f.runtime.captureCamera(viewId: 2, configuration: try config()) { replies.append($0) }
+        try f.runtime.startScan(delay: 0)
+
+        XCTAssertEqual(f.camera.disposals, 1)
+        XCTAssertEqual(f.camera.pauses, 0)
+        XCTAssertEqual(f.allocations, 1)
+        XCTAssertTrue(f.permissions.isEmpty)
+        XCTAssertNil(f.analyzer.subscription)
+        XCTAssertNil(f.camera.recognitionHandler)
+        XCTAssertTrue(f.resultOwners.isEmpty)
+        XCTAssertEqual(replies.count, 1)
+        XCTAssertEqual(replies[0] as? MlKitPluginError, .cameraSessionDisposed)
+    }
+
+    func testReleaseBeforeFirstCaptureDoesNotAllocateResourcesOrRequestPermission() throws {
+        let f = Fixture()
+        var received: Error?
+
+        f.runtime.release()
+        f.runtime.captureCamera(viewId: 1, configuration: try config()) { received = $0 }
+
+        XCTAssertEqual(received as? MlKitPluginError, .cameraSessionDisposed)
+        XCTAssertEqual(f.allocations, 0)
+        XCTAssertEqual(f.analyzerAllocations, 0)
+        XCTAssertTrue(f.permissions.isEmpty)
     }
 
     func testDisposalAcknowledgmentWaitsForNativeResourceRelease() throws {

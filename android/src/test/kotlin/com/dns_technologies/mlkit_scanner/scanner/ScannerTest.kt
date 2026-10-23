@@ -661,19 +661,6 @@ internal class ScannerCaptureTest {
     }
 
     @Test
-    fun `new consumer reuses SDK and cancels pending idle disposal`() = runBlocking<Unit> {
-        val f = Fixture()
-        try {
-            f.activate()
-            f.scanner.releaseCapture()
-            f.scanner.select(f.second)
-            assertFalse(f.scanner.isDisposed)
-            assertEquals(43, f.scanner.viewId)
-            assertTrue(f.timers.isEmpty())
-        } finally { f.close() }
-    }
-
-    @Test
     fun `Одинаковые настройки переиспользуются при смене владельца`() = runBlocking<Unit> {
         val f = Fixture()
         try {
@@ -1010,22 +997,6 @@ internal class ScannerCaptureTest {
     }
 
     @Test
-    fun `release does not schedule native cleanup`() = runBlocking<Unit> {
-        val f = Fixture()
-        try {
-            f.activate()
-            f.scanner.releaseCapture()
-            f.scanner.releaseCapture()
-
-            assertNull(f.scanner.viewId)
-            assertTrue(f.delays.isEmpty())
-            assertTrue(f.timers.isEmpty())
-            verify(f.camera, never()).dispose()
-            verify(f.analyzer, never()).dispose()
-        } finally { f.close() }
-    }
-
-    @Test
     fun `release cancels a focus gesture before its SDK dispatch`() = runBlocking<Unit> {
         val queued = ArrayDeque<Runnable>()
         var deferDispatch = false
@@ -1191,10 +1162,13 @@ internal class ScannerExpiryTest {
         val scanner = Scanner(camera, analyzer, Handler(Looper.getMainLooper()), { _, _ -> })
         scanner.select(ScannerConsumer(42))
         scanner.releaseCapture()
+        scanner.releaseCapture()
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertNull(scanner.viewId)
         assertFalse(scanner.isDisposed)
         verify(camera, never()).unbind()
         verify(camera, never()).dispose()
+        verify(analyzer, never()).dispose()
         scanner.dispose()
         verify(camera).dispose()
         verify(analyzer).dispose()

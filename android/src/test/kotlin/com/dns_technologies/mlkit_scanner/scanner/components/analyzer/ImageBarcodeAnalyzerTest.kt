@@ -277,21 +277,6 @@ internal class ImageBarcodeAnalyzerTest {
     }
 
     @Test
-    fun `failed recognition is retried after time interval instead of frame count`() {
-        val clock = MutableClock()
-        val analyzer = TestAnalyzer(clock = clock)
-
-        analyzer.analyze(TEST_FRAME, null)
-        repeat(5) { analyzer.analyze(TEST_FRAME, null) }
-        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS - 1
-        analyzer.analyze(TEST_FRAME, null)
-        clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS
-        analyzer.analyze(TEST_FRAME, null)
-
-        assertEquals(2, analyzer.analysisCalls.get())
-    }
-
-    @Test
     fun `configured period is applied only after recognized barcode`() {
         val clock = MutableClock()
         val analyzer = TestAnalyzer(clock = clock) { TEST_BARCODE }
@@ -323,6 +308,7 @@ internal class ImageBarcodeAnalyzerTest {
         analyzer.updatePeriod(10_000)
 
         analyzer.analyze(TEST_FRAME, null)
+        repeat(5) { assertNull(analyzer.analyze(TEST_FRAME, null)) }
         clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS - 1
         analyzer.analyze(TEST_FRAME, null)
         clock.timeMs = FAILED_ANALYSIS_INTERVAL_MS

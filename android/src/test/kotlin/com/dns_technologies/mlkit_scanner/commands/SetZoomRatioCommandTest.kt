@@ -24,6 +24,19 @@ internal class SetZoomRatioCommandTest {
     }
 
     @Test
+    fun `camera control failure preserves its typed channel error and completes once`() = runBlocking<Unit> {
+        val failure = PluginError.CameraError("Failed to set camera zoom ratio to 2.5", viewId = 42)
+        doAnswer { throw failure }.`when`(scanner).setZoomRatio(2.5F)
+        val reply = mock(MethodChannel.Result::class.java)
+
+        command.execute(MethodCall("setZoomRatio", mapOf("value" to 2.5)), reply)
+
+        verifyError(reply, failure)
+        verifyNoMoreInteractions(reply)
+        verify(scanner).setZoomRatio(2.5F)
+    }
+
+    @Test
     fun `rejects malformed arguments before invoking scanner`() {
         for (arguments in listOf(null, mapOf("value" to "bad"))) {
             val reply = mock(MethodChannel.Result::class.java)

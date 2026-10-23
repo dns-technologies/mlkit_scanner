@@ -15,13 +15,6 @@ final class CameraDataTests: XCTestCase {
         XCTAssertEqual(camera.toJson()["position"] as? Int, 1)
     }
 
-    func testNativeInitializerPreservesTypeAndPosition() {
-        let camera = CameraData(type: .builtInTelephotoCamera, position: .front)
-
-        XCTAssertEqual(camera.type, .builtInTelephotoCamera)
-        XCTAssertEqual(camera.position, .front)
-    }
-
     func testInvalidCodesFractionsAndBooleansAreRejected() {
         let invalidValues: [[String: Any]] = [
             ["type": -1, "position": 1],

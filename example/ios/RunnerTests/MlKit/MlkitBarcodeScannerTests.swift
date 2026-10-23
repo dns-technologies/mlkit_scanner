@@ -10,14 +10,13 @@ final class MlkitBarcodeScannerTests: XCTestCase {
     func testProcessVideoOutputRecognizesBarcodeForItsSubscription() throws {
         let scanner = MlkitBarcodeScanner(delay: 0, cropRect: nil)
         var barcode: ScannerBarcode?
-        var resultCount = 0
         scanner.setDelay(delay: 0)
         scanner.updateCropRect(cropRect: try CropRect(arguments: [:]))
         let sampleBuffer = try makeSampleBuffer(
             from: qrCodeImage(containing: "mlkit-scanner-test")
         )
         let expectation = expectation(description: "scanner result")
-        let subscription = scanner.subscribe { barcode = $0; resultCount += 1; expectation.fulfill() }
+        _ = scanner.subscribe { barcode = $0; expectation.fulfill() }
 
         scanner.processVideoOutput(
             sampleBuffer: sampleBuffer,
@@ -26,16 +25,27 @@ final class MlkitBarcodeScannerTests: XCTestCase {
 
         wait(for: [expectation], timeout: 5)
         XCTAssertEqual(barcode?.rawValue, "mlkit-scanner-test")
-        subscription.cancel()
-        let recognized = try XCTUnwrap(barcode)
-        var replacementCount = 0
-        let replacement = scanner.subscribe { _ in replacementCount += 1 }
-        subscription.deliver(recognized)
-        XCTAssertEqual(resultCount, 1)
-        XCTAssertEqual(replacementCount, 0)
-        replacement.deliver(recognized)
-        XCTAssertEqual(replacementCount, 1)
-        replacement.cancel()
+        scanner.unsubscribe()
+    }
+
+    func testReplacingAndRemovingSubscriptionSuppressesObsoleteDeliveries() {
+        let scanner = MlkitBarcodeScanner(delay: 0, cropRect: nil)
+        var previousResults = 0
+        var currentResults = 0
+        let previous = scanner.subscribe { _ in previousResults += 1 }
+        let barcode = ScannerBarcode(rawValue: "test", displayValue: nil, format: 256, valueType: 7)
+        previous.deliver(barcode)
+
+        let current = scanner.subscribe { _ in currentResults += 1 }
+        previous.deliver(barcode)
+        current.deliver(barcode)
+
+        XCTAssertEqual(previousResults, 1)
+        XCTAssertEqual(currentResults, 1)
+        scanner.unsubscribe()
+        current.deliver(barcode)
+
+        XCTAssertEqual(currentResults, 1)
     }
 
     private func qrCodeImage(containing value: String) throws -> UIImage {

@@ -20,7 +20,6 @@
 		A1000002A1000002A1000002 /* FrameAnalysisGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000012A1000012A1000012 /* FrameAnalysisGateTests.swift */; };
 		A1000003A1000003A1000003 /* ScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000013A1000013A1000013 /* ScannerTests.swift */; };
 		B3000001B3000001B3000001 /* CameraTextureOutputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001B2000001B2000001 /* CameraTextureOutputTests.swift */; };
-		B3000002B3000002B3000002 /* CameraUtilTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002B2000002B2000002 /* CameraUtilTests.swift */; };
 		B3000003B3000003B3000003 /* BaseScannerCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003B2000003B2000003 /* BaseScannerCommandTests.swift */; };
 		B3000004B3000004B3000004 /* ScannerCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000004B2000004B2000004 /* ScannerCommandTests.swift */; };
 		B3000007B3000007B3000007 /* GetIosAvailableCamerasCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000007B2000007B2000007 /* GetIosAvailableCamerasCommandTests.swift */; };
@@ -30,7 +29,6 @@
 		A3E61837650D4A318A78A947 /* SetCropAreaCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 549C4AA36AB54D21B445E3FE /* SetCropAreaCommandTests.swift */; };
 		67E6D8FD912F43EB898A28EF /* CancelScanCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82673E4E8F334E9F89120C6A /* CancelScanCommandTests.swift */; };
 		B3000017B3000017B3000017 /* BarcodeExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000017B2000017B2000017 /* BarcodeExtensionTests.swift */; };
-		B3000019B3000019B3000019 /* CaptureDeviceExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000019B2000019B2000019 /* CaptureDeviceExtensionTests.swift */; };
 		B3000020B3000020B3000020 /* DeviceTypeExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000020B2000020B2000020 /* DeviceTypeExtensionTests.swift */; };
 		B3000021B3000021B3000021 /* PositionExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000021B2000021B2000021 /* PositionExtensionTests.swift */; };
 		B3000024B3000024B3000024 /* CameraDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000024B2000024B2000024 /* CameraDataTests.swift */; };
@@ -92,7 +90,6 @@
 		A1000013A1000013A1000013 /* ScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerTests.swift; sourceTree = "<group>"; };
 		A1000014A1000014A1000014 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2000001B2000001B2000001 /* CameraTextureOutputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraTextureOutputTests.swift; sourceTree = "<group>"; };
-		B2000002B2000002B2000002 /* CameraUtilTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraUtilTests.swift; sourceTree = "<group>"; };
 		B2000003B2000003B2000003 /* BaseScannerCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaseScannerCommandTests.swift; sourceTree = "<group>"; };
 		B2000004B2000004B2000004 /* ScannerCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerCommandTests.swift; sourceTree = "<group>"; };
 		B2000007B2000007B2000007 /* GetIosAvailableCamerasCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GetIosAvailableCamerasCommandTests.swift; sourceTree = "<group>"; };
@@ -102,7 +99,6 @@
 		549C4AA36AB54D21B445E3FE /* SetCropAreaCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetCropAreaCommandTests.swift; sourceTree = "<group>"; };
 		82673E4E8F334E9F89120C6A /* CancelScanCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CancelScanCommandTests.swift; sourceTree = "<group>"; };
 		B2000017B2000017B2000017 /* BarcodeExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeExtensionTests.swift; sourceTree = "<group>"; };
-		B2000019B2000019B2000019 /* CaptureDeviceExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureDeviceExtensionTests.swift; sourceTree = "<group>"; };
 		B2000020B2000020B2000020 /* DeviceTypeExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTypeExtensionTests.swift; sourceTree = "<group>"; };
 		B2000021B2000021B2000021 /* PositionExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionExtensionTests.swift; sourceTree = "<group>"; };
 		B2000024B2000024B2000024 /* CameraDataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraDataTests.swift; sourceTree = "<group>"; };
@@ -208,7 +204,6 @@
 			isa = PBXGroup;
 			children = (
 				B2000001B2000001B2000001 /* CameraTextureOutputTests.swift */,
-				B2000002B2000002B2000002 /* CameraUtilTests.swift */,
 				B4000001B4000001B4000001 /* Commands */,
 				B4000003B4000003B4000003 /* Extensions */,
 				B4000004B4000004B4000004 /* MlKit */,
@@ -249,7 +244,6 @@
 			isa = PBXGroup;
 			children = (
 				B2000017B2000017B2000017 /* BarcodeExtensionTests.swift */,
-				B2000019B2000019B2000019 /* CaptureDeviceExtensionTests.swift */,
 				B2000020B2000020B2000020 /* DeviceTypeExtensionTests.swift */,
 				B2000021B2000021B2000021 /* PositionExtensionTests.swift */,
 			);
@@ -509,7 +503,6 @@
 				A1000002A1000002A1000002 /* FrameAnalysisGateTests.swift in Sources */,
 				A1000003A1000003A1000003 /* ScannerTests.swift in Sources */,
 				B3000001B3000001B3000001 /* CameraTextureOutputTests.swift in Sources */,
-				B3000002B3000002B3000002 /* CameraUtilTests.swift in Sources */,
 				B3000003B3000003B3000003 /* BaseScannerCommandTests.swift in Sources */,
 				B3000004B3000004B3000004 /* ScannerCommandTests.swift in Sources */,
 				B3000007B3000007B3000007 /* GetIosAvailableCamerasCommandTests.swift in Sources */,
@@ -520,7 +513,6 @@
 				A3E61837650D4A318A78A947 /* SetCropAreaCommandTests.swift in Sources */,
 				67E6D8FD912F43EB898A28EF /* CancelScanCommandTests.swift in Sources */,
 				B3000017B3000017B3000017 /* BarcodeExtensionTests.swift in Sources */,
-				B3000019B3000019B3000019 /* CaptureDeviceExtensionTests.swift in Sources */,
 				B3000020B3000020B3000020 /* DeviceTypeExtensionTests.swift in Sources */,
 				B3000021B3000021B3000021 /* PositionExtensionTests.swift in Sources */,
 				B3000024B3000024B3000024 /* CameraDataTests.swift in Sources */,

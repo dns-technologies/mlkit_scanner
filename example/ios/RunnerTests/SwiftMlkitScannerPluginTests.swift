@@ -108,30 +108,61 @@ final class SwiftMlkitScannerPluginTests: XCTestCase {
         messenger.onSend = nil
     }
 
-    func testScanCanBeCancelledAndRestartedWithoutReacquiringCamera() {
-        let registry = RecordingTextureRegistry()
-        let plugin = makePlugin(registry)
+    func testScanCanBeCancelledAndRestartedWithoutReacquiringCamera() throws {
+        let camera = PluginTestCamera()
+        let analyzer = PluginTestAnalyzer()
+        var owners: [Int64] = []
+        let plugin = makePlugin(RecordingTextureRegistry(), camera: camera, analyzer: analyzer,
+            onScanResult: { owner, _ in owners.append(owner) })
+        defer { _ = call(plugin, "disposeScanner") }
         let capture = capture(plugin, viewId: 1)
-
         XCTAssertNil(call(plugin, "startScan", ["captureId": capture, "subscriptionId": "first", "delay": 0]))
+        let previous = try XCTUnwrap(analyzer.subscription)
+        let barcode = ScannerBarcode(rawValue: "test", displayValue: nil, format: 256, valueType: 7)
+        previous.deliver(barcode)
+
         XCTAssertNil(call(plugin, "cancelScan", ["captureId": capture]))
+        XCTAssertNil(analyzer.subscription)
+        XCTAssertNil(camera.recognitionHandler)
+        previous.deliver(barcode)
+        XCTAssertEqual(owners, [1])
+
         XCTAssertNil(call(plugin, "startScan", ["captureId": capture, "subscriptionId": "second", "delay": 0]))
-        XCTAssertTrue(registry.registered.isEmpty)
-        _ = call(plugin, "disposeScanner")
+        let current = try XCTUnwrap(analyzer.subscription)
+        XCTAssertFalse(current === previous)
+        previous.deliver(barcode)
+        current.deliver(barcode)
+
+        XCTAssertEqual(owners, [1, 1])
+        XCTAssertEqual(camera.initializations, 1)
+        XCTAssertNotNil(camera.recognitionHandler)
     }
 
-    func testScanLeaseRejectsMissingOrEmptyEndpointAndInvalidDelay() {
-        let plugin = makePlugin(RecordingTextureRegistry())
+    func testMalformedScanRequestPreservesTheActiveSubscription() throws {
+        let analyzer = PluginTestAnalyzer()
+        var resultCount = 0
+        let plugin = makePlugin(RecordingTextureRegistry(), analyzer: analyzer,
+            onScanResult: { _, _ in resultCount += 1 })
+        defer { _ = call(plugin, "disposeScanner") }
         let capture = capture(plugin, viewId: 1)
+        XCTAssertNil(call(plugin, "startScan", ["captureId": capture, "subscriptionId": "active", "delay": 0]))
+        let active = try XCTUnwrap(analyzer.subscription)
         let arguments: [[String: Any]] = [
             ["captureId": capture, "delay": 0],
             ["captureId": capture, "subscriptionId": "", "delay": 0],
-            ["captureId": capture, "subscriptionId": "scan", "delay": -1],
+            ["captureId": capture, "subscriptionId": "replacement", "delay": -1],
+            ["captureId": capture, "subscriptionId": "replacement", "delay": 0.5],
+            ["captureId": capture, "subscriptionId": "replacement", "delay": NSNumber(value: true)],
+            ["captureId": capture, "subscriptionId": "replacement", "delay": "1"],
         ]
+
         for values in arguments {
             XCTAssertEqual((call(plugin, "startScan", values) as? FlutterError)?.code, MlKitPluginError.invalidArguments.rawValue)
+            XCTAssertTrue(analyzer.subscription === active)
         }
-        _ = call(plugin, "disposeScanner")
+        active.deliver(ScannerBarcode(rawValue: "test", displayValue: nil, format: 256, valueType: 7))
+
+        XCTAssertEqual(resultCount, 1)
     }
 
     func testCancellingChildLeaseDuringCapturePreventsLateScanStartup() {
@@ -155,23 +186,74 @@ final class SwiftMlkitScannerPluginTests: XCTestCase {
         _ = call(plugin, "disposeScanner")
     }
 
-    func testConsumerCommandsRejectMalformedViewIds() {
-        let registry = RecordingTextureRegistry()
-        let plugin = makePlugin(registry)
-        let invalidArguments: [[String: Any]] = [
-            [:], ["viewId": -1], ["viewId": 1.5], ["viewId": 1e20],
-            ["viewId": NSNumber(value: true)],
-        ]
+    func testCaptureRejectsMalformedViewIdsWithoutRevokingTheActiveOwner() {
+        let camera = PluginTestCamera()
+        let plugin = makePlugin(RecordingTextureRegistry(), camera: camera)
+        defer { _ = call(plugin, "disposeScanner") }
+        let current = capture(plugin, viewId: 1)
+        let invalidIds: [Any?] = [nil, -1, 1.5, 1e20, NSNumber(value: true), "1"]
 
-        for method in ["capture"] {
-            for arguments in invalidArguments {
-                XCTAssertEqual((call(plugin, method, arguments) as? FlutterError)?.code,
-                    MlKitPluginError.invalidArguments.rawValue)
-            }
+        for id in invalidIds {
+            var arguments = captureArguments(viewId: 2, captureId: "replacement")
+            arguments["viewId"] = id
+
+            XCTAssertEqual((call(plugin, "capture", arguments) as? FlutterError)?.code,
+                MlKitPluginError.invalidArguments.rawValue)
         }
 
-        XCTAssertTrue(registry.registered.isEmpty)
-        _ = call(plugin, "disposeScanner")
+        XCTAssertNil(call(plugin, "setScanDelay", ["captureId": current, "delay": 250]))
+        XCTAssertEqual(camera.initializations, 1)
+    }
+
+    func testReleaseDuringPendingCaptureCompletesOnceAndSuppressesLateScanStartup() {
+        let camera = PluginTestCamera()
+        camera.holdResume = true
+        let analyzer = PluginTestAnalyzer()
+        let plugin = makePlugin(RecordingTextureRegistry(), camera: camera, analyzer: analyzer)
+        defer { _ = call(plugin, "disposeScanner") }
+        var arguments = captureArguments(viewId: 1, captureId: "pending")
+        arguments["subscriptionId"] = "scan"
+        var replies: [Any?] = []
+        plugin.handle(FlutterMethodCall(methodName: "capture", arguments: arguments)) { replies.append($0) }
+        XCTAssertTrue(replies.isEmpty)
+        let finishResume = camera.pendingResume
+
+        XCTAssertNil(call(plugin, "release", ["captureId": "pending"]))
+        XCTAssertEqual(replies.count, 1)
+        XCTAssertEqual((replies[0] as? FlutterError)?.code, MlKitPluginError.cameraSessionDisposed.rawValue)
+        finishResume?(nil)
+
+        XCTAssertEqual(replies.count, 1)
+        XCTAssertNil(analyzer.subscription)
+        XCTAssertNil(camera.recognitionHandler)
+        camera.holdResume = false
+        let current = capture(plugin, viewId: 2)
+        XCTAssertNil(call(plugin, "startScan", ["captureId": current, "subscriptionId": "current", "delay": 0]))
+        XCTAssertNotNil(analyzer.subscription)
+        XCTAssertEqual(camera.initializations, 1)
+    }
+
+    func testNewScanReplacesThePreviousSubscriptionWithoutReinitializingCamera() throws {
+        let camera = PluginTestCamera()
+        let analyzer = PluginTestAnalyzer()
+        var resultCount = 0
+        let plugin = makePlugin(RecordingTextureRegistry(), camera: camera, analyzer: analyzer,
+            onScanResult: { _, _ in resultCount += 1 })
+        defer { _ = call(plugin, "disposeScanner") }
+        let capture = capture(plugin, viewId: 1)
+        XCTAssertNil(call(plugin, "startScan", ["captureId": capture, "subscriptionId": "first", "delay": 0]))
+        let previous = try XCTUnwrap(analyzer.subscription)
+
+        XCTAssertNil(call(plugin, "startScan", ["captureId": capture, "subscriptionId": "second", "delay": 0]))
+        let current = try XCTUnwrap(analyzer.subscription)
+        let barcode = ScannerBarcode(rawValue: "test", displayValue: nil, format: 256, valueType: 7)
+        previous.deliver(barcode)
+        current.deliver(barcode)
+
+        XCTAssertEqual(resultCount, 1)
+        XCTAssertFalse(current === previous)
+        XCTAssertEqual(camera.initializations, 1)
+        XCTAssertNotNil(camera.recognitionHandler)
     }
 
     private func call(_ plugin: SwiftMlkitScannerPlugin, _ method: String, _ arguments: [String: Any] = [:]) -> Any? {
@@ -183,15 +265,20 @@ final class SwiftMlkitScannerPluginTests: XCTestCase {
     private func capture(_ plugin: SwiftMlkitScannerPlugin, viewId: Int64) -> String {
         nextCapture += 1
         let id = "capture-\(nextCapture)"
-        XCTAssertNil(call(plugin, "capture", ["viewId": viewId, "captureId": id,
-            "configuration": ["zoomRatio": 1.0, "torchEnabled": false],
-            "geometry": ["width": 1.0, "height": 1.0], "delay": 0]))
+        XCTAssertNil(call(plugin, "capture", captureArguments(viewId: viewId, captureId: id)))
         return id
     }
 
+    private func captureArguments(viewId: Int64, captureId: String) -> [String: Any] {
+        ["viewId": viewId, "captureId": captureId,
+            "configuration": ["zoomRatio": 1.0, "torchEnabled": false],
+            "geometry": ["width": 1.0, "height": 1.0], "delay": 0]
+    }
+
     private func makePlugin(_ registry: FlutterTextureRegistry, messenger: TestBinaryMessenger = TestBinaryMessenger(),
-                            camera: PluginTestCamera = PluginTestCamera(), analyzer: PluginTestAnalyzer = PluginTestAnalyzer()) -> SwiftMlkitScannerPlugin {
-        let scanner = mlkit_scanner.Scanner(onScanResult: { _, _ in }, onTorchChanged: { _, _ in },
+                            camera: PluginTestCamera = PluginTestCamera(), analyzer: PluginTestAnalyzer = PluginTestAnalyzer(),
+                            onScanResult: @escaping (Int64, ScannerBarcode) -> Void = { _, _ in }) -> SwiftMlkitScannerPlugin {
+        let scanner = mlkit_scanner.Scanner(onScanResult: onScanResult, onTorchChanged: { _, _ in },
             onPreviewChanged: { _ in }, cameraFactory: { camera }, analyzerFactory: { analyzer },
             requestPermission: { $0(true) })
         return SwiftMlkitScannerPlugin(channel: FlutterMethodChannel(name: "scanner.tests", binaryMessenger: messenger), textures: registry, scanner: scanner)
