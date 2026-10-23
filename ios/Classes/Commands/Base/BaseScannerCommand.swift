@@ -1,0 +1,49 @@
+import Flutter
+import Foundation
+
+/// Shared command functionality for the native scanner.
+class BaseScannerCommand {
+    /// Native scanner targeted by this command.
+    let scanner: Scanner
+
+    init(scanner: Scanner) {
+        self.scanner = scanner
+    }
+
+    /// Completes a Flutter call successfully without a return value.
+    func success(_ result: @escaping FlutterResult) {
+        result(nil)
+    }
+
+    /// Completes a Flutter call successfully or maps the supplied error.
+    func complete(_ result: @escaping FlutterResult, error: Error?) {
+        guard let error = error else {
+            success(result)
+            return
+        }
+        reportError(result, error: error)
+    }
+
+    /// Converts a native error into a stable Flutter platform error.
+    func reportError(_ result: @escaping FlutterResult, error: Error) {
+        if let cameraError = error as? CameraError {
+            result(FlutterError(
+                code: CameraError.errorCode,
+                message: cameraError.channelMessage,
+                details: cameraError.channelDetails
+            ))
+        } else if let pluginError = error as? MlKitPluginError {
+            result(FlutterError(
+                code: pluginError.rawValue,
+                message: pluginError.localizedDescription,
+                details: ["stacktrace": Thread.callStackSymbols.joined(separator: "\n")]
+            ))
+        } else {
+            result(FlutterError(
+                code: MlKitPluginError.unknownError.rawValue,
+                message: error.localizedDescription,
+                details: ["stacktrace": Thread.callStackSymbols.joined(separator: "\n")]
+            ))
+        }
+    }
+}
