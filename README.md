@@ -89,8 +89,8 @@ class _ScannerPageState extends State<ScannerPage> {
   /// Original error, including structured camera failures.
   Object? _error;
 
-  /// Stable widget identity, replaced only for explicit retry.
-  Key _scannerKey = UniqueKey();
+  /// Session identity, changed only for explicit retry.
+  int _sessionId = 0;
 
   /// Receives errors outside build, so updating UI state is safe.
   void _onError(Object error) => setState(() => _error = error);
@@ -98,7 +98,7 @@ class _ScannerPageState extends State<ScannerPage> {
   /// Recreates this scanner without replacing the surrounding page.
   void _retry() => setState(() {
         _error = null;
-        _scannerKey = UniqueKey();
+        _sessionId++;
       });
 
   /// Builds the preview and state-driven controls.
@@ -115,7 +115,7 @@ class _ScannerPageState extends State<ScannerPage> {
           SizedBox(
             height: 240,
             child: BarcodeScanner(
-              key: _scannerKey,
+              sessionId: _sessionId,
               zoomRatio: 1,
               flashEnabled: false,
               cropRect: const CropRect(scaleWidth: .8, scaleHeight: .5),
@@ -162,6 +162,7 @@ place the scanner in a Flutter `Stack` with an `IgnorePointer` overlay.
 | `cameraPaused` | `false` | Freezes preview and stops recognition; camera resources expire after the shutdown grace period. |
 | `scanning` | `false` | Enables barcode recognition when the scanner can capture. |
 | `scanDelay` | `0` | Milliseconds of cooldown after a successful recognition. |
+| `sessionId` | `null` | Session identity compared with `==`; changing it recreates the session with current settings. |
 
 A valid `zoomRatio` is finite and greater than zero. The native camera also
 checks its supported minimum and maximum; an unsupported ratio produces an error
@@ -288,14 +289,13 @@ Recognition attempts that find no barcode and native per-frame recognition error
 do not invoke `onError`; they use the unsuccessful-attempt cooldown.
 
 Error callbacks are delivered outside build and are suppressed after their
-scanner is disposed. They may safely call `setState`, remove the scanner, or
-replace its key. Keep the key stable for ordinary configuration changes; create a
-new `UniqueKey` only when you intend to replace that scanner's lifetime, such as an
-explicit retry after an error. Errors from an old disposed scanner cannot affect
-its replacement.
+session is disposed. They may safely call `setState`, remove the scanner, or
+change its `sessionId`. Keep `sessionId` stable for ordinary configuration changes;
+change it for an explicit retry after an error. Errors from an old disposed
+session cannot affect its replacement.
 
-An unchanged rebuild does not automatically retry failed startup. Replace the
-scanner's key for an explicit retry. Fix invalid properties before retrying;
+An unchanged rebuild does not automatically retry failed startup. Change
+`sessionId` for an explicit retry. Fix invalid properties before retrying;
 recreating the widget cannot make unsupported hardware settings valid.
 
 ### Migration from the controller API

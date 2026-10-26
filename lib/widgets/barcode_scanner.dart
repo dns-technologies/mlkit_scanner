@@ -17,6 +17,7 @@ import 'scanner_overlay.dart';
 class BarcodeScanner extends StatefulWidget {
   const BarcodeScanner({
     required this.onScan,
+    this.sessionId,
     this.zoomRatio = 1,
     this.flashEnabled = false,
     this.cropRect,
@@ -32,10 +33,16 @@ class BarcodeScanner extends StatefulWidget {
   /// Called for each barcode recognized while scanning is active.
   final ValueChanged<Barcode> onScan;
 
+  /// Identifies this scanner's session using equality (`==`).
+  ///
+  /// Changing this value recreates the session with the current settings.
+  /// Keep it stable across ordinary rebuilds; change it to retry after an error.
+  final Object? sessionId;
+
   /// Receives configuration, initialization and camera operation failures.
   ///
   /// Native failures use the specific [ScannerException] subtype. The
-  /// callback may rebuild or replace this scanner; use a new key to restart it.
+  /// callback may rebuild or replace this scanner; change [sessionId] to restart it.
   /// Without a callback, Flutter reports the error.
   /// Errors from superseded captures and disposed widgets are not delivered.
   final ValueChanged<Object>? onError;
@@ -92,10 +99,10 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   static int _nextViewId = 0;
 
   /// Retained settings and guarded native callbacks for this widget.
-  late final BarcodeScannerController _controller;
+  late BarcodeScannerController _controller;
 
   /// Retained preview whose rasterization must finish before camera handoff.
-  final _previewKey = GlobalKey<FrozenPreviewState>();
+  late GlobalKey<FrozenPreviewState> _previewKey;
 
   /// Whether ticker and application visibility permit retaining camera work.
   bool _active = false;
@@ -103,9 +110,6 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   /// Allows recognition and new ownership only on the foremost route.
   /// The previous owner may restore preview beneath a popup after app resume.
   bool _routeCurrent = true;
-
-  /// Registration failures are delivered by initialization, never twice by capture.
-  bool _registered = false;
 
   /// Prevents capture until at least one complete valid snapshot is accepted.
   bool _validConfiguration = false;
@@ -122,16 +126,32 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _controller = BarcodeScannerController(
+    _startSession();
+  }
+
+  /// Starts an independent scanner lifetime with the current desired settings.
+  void _startSession() {
+    _validConfiguration = false;
+    _previewKey = GlobalKey<FrozenPreviewState>();
+    late final BarcodeScannerController controller;
+    controller = BarcodeScannerController(
       viewId: _nextViewId++,
       onScan: (value) => widget.onScan(value),
       onTorchChanged: (value) => widget.onChangeFlashState?.call(value),
-      onError: _report,
+      onError: (error, stack) => _report(controller, error, stack),
       retainPreview: _retainPreview,
     );
+    _controller = controller;
+    controller.setForeground(_routeCurrent);
     _applyConfiguration();
-    _controller.captureState.addListener(_updateCaptureState);
-    unawaited(_initialize());
+    controller.captureState.addListener(_updateCaptureState);
+    unawaited(_initialize(controller));
+  }
+
+  /// Releases capture ownership and stops observing the outgoing session.
+  void _disposeController() {
+    _controller.captureState.removeListener(_updateCaptureState);
+    _controller.dispose();
   }
 
   /// Applies valid widget settings, reporting invalid settings through [BarcodeScanner.onError].
@@ -140,13 +160,18 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
       _controller.applyConfiguration(widget._configuration);
       _validConfiguration = true;
     } catch (error, stack) {
-      _report(error, stack);
+      _controller.reportError(error, stack);
     }
   }
 
   @override
   void didUpdateWidget(covariant BarcodeScanner oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.sessionId != widget.sessionId) {
+      _disposeController();
+      _startSession();
+      return;
+    }
     if (widget._configuration.hasSameSettings(oldWidget._configuration)) return;
     _applyConfiguration();
     unawaited(_capture());
@@ -166,14 +191,13 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   }
 
   /// Observes registration and starts capture once this widget can own the camera.
-  Future<void> _initialize() async {
+  Future<void> _initialize(BarcodeScannerController controller) async {
     try {
-      await _controller.initialize();
-      if (!mounted) return;
-      _registered = true;
+      await controller.initialize();
+      if (!mounted || controller.isDisposed) return;
       await _capture();
     } catch (error, stack) {
-      _report(error, stack);
+      controller.reportError(error, stack);
     }
   }
 
@@ -181,30 +205,31 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final size = constraints.biggest;
-      final configuration = _controller.configuration;
+      final controller = _controller;
+      final configuration = controller.configuration;
       final cameraActive = _active && !configuration.cameraPaused;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _controller.updateGeometry(size);
+        if (mounted) controller.updateGeometry(size);
       });
 
       return Stack(
         fit: StackFit.expand,
         children: [
           ValueListenableBuilder(
-            valueListenable: _controller.preview,
+            valueListenable: controller.preview,
             builder:
                 (context, preview, _) => CameraPreview(
                   description: preview,
                   frameKey: _previewKey,
-                  canRetainFrame: () => _controller.isCurrent,
-                  paused: configuration.cameraPaused || _controller.captureState.value == ScannerCaptureState.released,
-                  onError: _report,
+                  canRetainFrame: () => controller.isCurrent,
+                  paused: configuration.cameraPaused || controller.captureState.value == ScannerCaptureState.released,
+                  onError: controller.reportError,
                 ),
           ),
           ScannerOverlay(
             crop: configuration.cropRect ?? const CropRect(),
             scanning: cameraActive && configuration.scanEnabled,
-            focusEnabled: _controller.captureState.value == ScannerCaptureState.ready && _canFocus,
+            focusEnabled: controller.captureState.value == ScannerCaptureState.ready && _canFocus,
             onFocus: () => _focus(false),
             onLockFocus: () => _focus(true),
           ),
@@ -219,27 +244,25 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   /// Forwards a gesture only if this visible widget still owns the camera.
   void _focus(bool locked) {
     if (!_canFocus) return;
-    unawaited(
-      _controller.focus(locked: locked).catchError((Object error, StackTrace stack) {
-        _report(error, stack);
-      }),
-    );
+    final controller = _controller;
+    unawaited(controller.focus(locked: locked).catchError(controller.reportError));
   }
 
   /// Acquires camera ownership and reports startup errors.
   Future<void> _capture() async {
     if (!_canRequestCapture) return;
+    final controller = _controller;
     try {
-      await _controller.capture();
+      await controller.capture();
     } catch (error, stack) {
-      if (_registered) _report(error, stack);
+      controller.reportError(error, stack);
     }
   }
 
   /// Delivers errors outside build, using the latest callback of a live widget.
-  void _report(Object error, StackTrace stack) {
+  void _report(BarcodeScannerController controller, Object error, StackTrace stack) {
     void deliver() {
-      if (!mounted || _controller.isDisposed) return;
+      if (!mounted || controller.isDisposed) return;
       if (widget.onError case final callback?) {
         callback(error);
       } else {
@@ -300,7 +323,8 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
     } else {
       // A background app may render no further frame to run a deferred release.
       if (_controller.isCurrent) {
-        unawaited(_controller.suspend().catchError(_report));
+        final controller = _controller;
+        unawaited(controller.suspend().catchError(controller.reportError));
       }
     }
   }
@@ -308,14 +332,14 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
   /// Releases hidden ownership without stopping the stream during the grace period.
   void _releaseIfHidden() {
     if (!mounted || _active || !_controller.isCurrent) return;
-    unawaited(_controller.release().catchError(_report));
+    final controller = _controller;
+    unawaited(controller.release().catchError(controller.reportError));
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller.captureState.removeListener(_updateCaptureState);
-    _controller.dispose();
+    _disposeController();
     super.dispose();
   }
 }

@@ -59,14 +59,8 @@ class _ScannerPageState extends State<_ScannerPage> {
   /// Current recognition area; null enables recognition across the full frame.
   CropRect? _cropRect = const CropRect(scaleHeight: .7, scaleWidth: .7);
 
-  /// Recognition area restored when leaving fullscreen, including a full frame.
-  CropRect? _cropBeforeFullscreen;
-
   /// Cooldown after successful barcode recognition, in milliseconds.
   int _scanDelay = 0;
-
-  /// Whether the existing preview fills the window and hides the settings panel.
-  bool _isFullscreen = false;
 
   /// Cameras returned by native iOS device discovery.
   List<IosCamera> _iosCameras = [];
@@ -80,8 +74,8 @@ class _ScannerPageState extends State<_ScannerPage> {
   /// Optional device-discovery failure, separate from scanner capture errors.
   Object? _discoveryError;
 
-  /// Identity replaced only when retrying this scanner after an error.
-  Key _scannerKey = UniqueKey();
+  /// Session replaced when retrying after a scanner failure.
+  int _sessionId = 0;
 
   @override
   void initState() {
@@ -125,49 +119,34 @@ class _ScannerPageState extends State<_ScannerPage> {
       _zoomIndex = 0;
       _flashEnabled = false;
       _cameraIndex = -1;
-      _scannerKey = UniqueKey();
-    });
-  }
-
-  /// Switches preview size while preserving the compact mode's recognition area.
-  void _toggleFullscreen() {
-    setState(() {
-      if (_isFullscreen) {
-        _cropRect = _cropBeforeFullscreen;
-        _cropBeforeFullscreen = null;
-      } else {
-        _cropBeforeFullscreen = _cropRect;
-        _cropRect = const CropRect(scaleHeight: .3, scaleWidth: .8);
-      }
-      _isFullscreen = !_isFullscreen;
+      _sessionId++;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: _isFullscreen ? null : AppBar(title: const Text('MLKit Scanner example')),
+      appBar: AppBar(title: const Text('MLKit Scanner example')),
       body: LayoutBuilder(
         builder:
             (context, constraints) => Column(
               children: [
-                // Keep the scanner at the same tree location when resizing it.
-                SizedBox(height: _isFullscreen ? constraints.maxHeight : constraints.maxHeight.clamp(0.0, 240.0), child: _buildPreview()),
-                if (!_isFullscreen) Expanded(child: SingleChildScrollView(child: _buildControls())),
+                SizedBox(height: constraints.maxHeight.clamp(0.0, 240.0), child: _buildPreview()),
+                Expanded(child: SingleChildScrollView(child: _buildControls())),
               ],
             ),
       ),
     );
   }
 
-  /// Renders the scanner preview with a focus hint and fullscreen toggle.
+  /// Renders the scanner preview with a focus hint.
   Widget _buildPreview() {
     final camera = _cameraIndex < 0 ? null : _iosCameras[_cameraIndex];
     return Stack(
       fit: StackFit.expand,
       children: [
         BarcodeScanner(
-          key: _scannerKey,
+          sessionId: _sessionId,
           zoomRatio: _zoomRatios[_zoomIndex],
           flashEnabled: _flashEnabled,
           cropRect: _cropRect,
@@ -188,17 +167,6 @@ class _ScannerPageState extends State<_ScannerPage> {
                 padding: EdgeInsets.all(8),
                 child: Text('Tap to focus / Long press to lock focus', style: TextStyle(color: Colors.white)),
               ),
-            ),
-          ),
-        ),
-        SafeArea(
-          minimum: const EdgeInsets.all(12),
-          child: Align(
-            alignment: Alignment.bottomRight,
-            child: IconButton.filled(
-              tooltip: _isFullscreen ? 'Exit fullscreen' : 'Fullscreen preview',
-              onPressed: _toggleFullscreen,
-              icon: Icon(_isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
             ),
           ),
         ),

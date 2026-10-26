@@ -12,7 +12,7 @@ See [Migration from the controller API](README.md#migration-from-the-controller-
 - Unify focus-overlay dimensions, easing and timing on Android and iOS; retain immediate feedback when animations are disabled.
 - Retain independent settings for each scanner and apply the latest desired state after pending operations. Batch changed zoom, flash and crop settings into one native call.
 - Keep recognition disabled by default (`scanning: false`); setting `cropRect` or iOS `camera` to `null` resets it to the default.
-- Add `CameraException` with descriptive messages and native stack traces. Deliver initialization, capture and control errors outside build, suppress stale errors after disposal, and demonstrate retrying a scanner with a new key in the example.
+- Add `CameraException` with descriptive messages and native stack traces. Deliver initialization, capture and control errors outside build, suppress stale errors after disposal, and add `sessionId` for declarative retries in the example.
 - Map all native failures to `ScannerException` subtypes on Android and iOS, including methods returning values. Preserve unknown codes in `UnknownScannerException`, expose diagnostics through `message` and `stacktrace` without a separate native cause API, and retain known iOS error categories during camera controls and startup.
 - Validate zoom, crop and scan delay before applying settings; report invalid configuration through `onError` and allow corrected settings on the same widget.
 - Keep the camera session alive beneath dropdowns and dialogs while suspending recognition; transfer ownership when a modal contains another scanner.

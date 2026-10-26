@@ -8,7 +8,9 @@ import 'package:mlkit_scanner/src/widgets/frozen_preview.dart';
 import 'package:mlkit_scanner/widgets/scanner_overlay.dart';
 import '../support/runtime_harness.dart';
 
-void main() {
+void main() => group('$BarcodeScanner', _scannerTests);
+
+void _scannerTests() {
   final blackPlaceholder = find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.black);
   group('lifecycle', () {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -295,6 +297,7 @@ void main() {
     });
 
     Widget page({
+      Object? sessionId,
       double zoom = 1,
       bool flash = false,
       CropRect? crop,
@@ -310,6 +313,7 @@ void main() {
         width: 300,
         height: 400,
         child: BarcodeScanner(
+          sessionId: sessionId,
           zoomRatio: zoom,
           flashEnabled: flash,
           cropRect: crop,
@@ -612,6 +616,142 @@ void main() {
       await tester.pump();
       expect(harness.calls, isEmpty);
       expect(errors, hasLength(1));
+      await close(tester);
+    });
+
+    testWidgets('Изменение sessionId повторяет запуск после ошибки с текущими настройками', (tester) async {
+      final errors = <Object>[];
+      final values = <Barcode>[];
+      harness.handler = (call) async {
+        if (call.method == 'capture') throw PlatformException(code: 'camera');
+        return null;
+      };
+      await tester.pumpWidget(page(sessionId: 0, onError: errors.add));
+      await tester.pump();
+      expect(errors, hasLength(1));
+      harness.handler = null;
+      harness.calls.clear();
+
+      await tester.pumpWidget(
+        page(sessionId: 1, zoom: 2, flash: true, scanning: true, delay: 150, onError: errors.add, onScan: values.add),
+      );
+      await tester.pump();
+
+      final capture = harness.calls.singleWhere((call) => call.method == 'capture');
+      expect((capture.arguments as Map)['configuration'], allOf(containsPair('zoomRatio', 2.0), containsPair('torchEnabled', true)));
+      expect(capture.arguments, containsPair('delay', 150));
+      await harness.event(harness.leases.keys.last, 'recovered');
+      await tester.pump();
+      expect(values.map((value) => value.rawValue), ['recovered']);
+      expect(errors, hasLength(1));
+      expect(harness.errors, isEmpty);
+      await close(tester);
+    });
+
+    testWidgets('Равные sessionId сохраняют сеанс при обновлении настроек', (tester) async {
+      await tester.pumpWidget(page(sessionId: ValueKey('test-session')));
+      await tester.pump();
+      harness.calls.clear();
+
+      await tester.pumpWidget(page(sessionId: ValueKey('test-session'), zoom: 2));
+      await tester.pump();
+
+      expect(harness.methods, ['updateCameraSettings']);
+      expect(harness.calls.single.arguments, containsPair('zoomRatio', 2.0));
+      await close(tester);
+    });
+
+    testWidgets('Новая сессия с неверными настройками ждёт их исправления', (tester) async {
+      final errors = <Object>[];
+      await tester.pumpWidget(page(sessionId: 0, zoom: 2));
+      await tester.pump();
+      harness.calls.clear();
+
+      await tester.pumpWidget(page(sessionId: 1, zoom: 0, onError: errors.add));
+      await tester.pump();
+
+      expect(errors, [isArgumentError]);
+      expect(harness.methods, isNot(contains('capture')));
+
+      await tester.pumpWidget(page(sessionId: 1, zoom: 3, onError: errors.add));
+      await tester.pump();
+
+      final capture = harness.calls.singleWhere((call) => call.method == 'capture');
+      expect((capture.arguments as Map)['configuration'], containsPair('zoomRatio', 3.0));
+      expect(errors, hasLength(1));
+      expect(harness.errors, isEmpty);
+      await close(tester);
+    });
+
+    testWidgets('Смена sessionId на паузе удаляет старый кадр и ждёт возобновления', (tester) async {
+      await tester.pumpWidget(page(sessionId: 0));
+      await tester.pump();
+      await harness.send(
+        const MethodCall('onPreviewState', {
+          'subscriptionId': 'preview',
+          'description': {'textureId': 77, 'width': 1280, 'height': 720, 'rotationDegrees': 0, 'mirrored': false, 'state': 'streaming'},
+        }),
+      );
+      await tester.pump();
+      await tester.pumpWidget(page(sessionId: 0, paused: true));
+      await tester.pump();
+      expect(find.byType(RawImage), findsOneWidget);
+      harness.calls.clear();
+
+      await tester.pumpWidget(page(sessionId: 1, paused: true, zoom: 3));
+      await tester.pump();
+
+      expect(find.byType(RawImage), findsNothing);
+      expect(harness.methods, isNot(contains('capture')));
+
+      await tester.pumpWidget(page(sessionId: 1, zoom: 3));
+      await tester.pump();
+
+      final capture = harness.calls.singleWhere((call) => call.method == 'capture');
+      expect((capture.arguments as Map)['configuration'], containsPair('zoomRatio', 3.0));
+      expect(harness.errors, isEmpty);
+      await close(tester);
+    });
+
+    testWidgets('Смена sessionId отбрасывает события предыдущих сеансов, включая null', (tester) async {
+      final values = <Barcode>[];
+      for (final sessionId in [null, 'test-session', null]) {
+        await tester.pumpWidget(page(sessionId: sessionId, scanning: true, onScan: values.add));
+        await tester.pump();
+      }
+
+      final viewIds = harness.leases.keys.toList();
+      expect(viewIds, hasLength(3));
+      await harness.event(viewIds[0], 'stale-first');
+      await harness.event(viewIds[1], 'stale-second');
+      await harness.event(viewIds[2], 'current');
+      await tester.pump();
+
+      expect(values.map((value) => value.rawValue), ['current']);
+      expect(harness.errors, isEmpty);
+      await close(tester);
+    });
+
+    testWidgets('Новая сессия запускается до завершения старой и игнорирует её позднюю ошибку', (tester) async {
+      final start = Completer<void>();
+      final errors = <Object>[];
+      harness.handler = (call) async {
+        if (call.method == 'capture') await start.future;
+        return null;
+      };
+      await tester.pumpWidget(page(sessionId: 0, onError: errors.add));
+      await tester.pump();
+      harness.handler = null;
+      harness.calls.clear();
+
+      await tester.pumpWidget(page(sessionId: 1, onError: errors.add));
+      await tester.pump();
+      expect(harness.methods.where((method) => method == 'capture'), hasLength(1));
+      start.completeError(PlatformException(code: 'late'));
+      await tester.pump();
+
+      expect(errors, isEmpty);
+      expect(harness.errors, isEmpty);
       await close(tester);
     });
 
