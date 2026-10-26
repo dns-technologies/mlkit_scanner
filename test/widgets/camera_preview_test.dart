@@ -1,103 +1,70 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mlkit_scanner/platform/scanner_preview.dart';
 import 'package:mlkit_scanner/widgets/camera_preview.dart';
 
 void main() {
-  group('$CameraPreview', () {
-    const channel = MethodChannel('mlkit_channel');
-
-    Widget _buildApp({
-      required Function() onCameraInitialized,
-      Function(PlatformException)? onCameraInitializeError,
-    }) {
-      return MaterialApp(
+  testWidgets('unregistered, starting and stopped outputs hide stale pixels', (tester) async {
+    for (final description in [
+      null,
+      const ScannerPreviewDescription(textureId: 9, size: Size(1280, 720), status: ScannerPreviewStatus.starting),
+      const ScannerPreviewDescription(textureId: 9, size: Size(1280, 720), status: ScannerPreviewStatus.paused),
+    ]) {
+      await tester.pumpWidget(
+        MaterialApp(home: Center(child: SizedBox(width: 240, height: 180, child: CameraPreview(description: description)))),
+      );
+      final cover = find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.black);
+      expect(cover, findsOneWidget);
+      expect(tester.getSize(cover), const Size(240, 180));
+      expect(find.byType(Texture), findsNothing);
+    }
+  });
+  testWidgets('manual pause without an own snapshot hides a stopped texture', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
         home: CameraPreview(
-          onCameraInitialized: onCameraInitialized,
-          onCameraInitializeError: onCameraInitializeError,
+          description: ScannerPreviewDescription(textureId: 9, size: Size(1280, 720), status: ScannerPreviewStatus.paused),
+          paused: true,
+        ),
+      ),
+    );
+    expect(find.byWidgetPredicate((widget) => widget is ColoredBox && widget.color == Colors.black), findsOneWidget);
+    expect(find.byType(Texture), findsNothing);
+  });
+  testWidgets('streaming output renders the registered texture and freezes on manual pause', (tester) async {
+    for (final paused in [false, true]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CameraPreview(
+            description: const ScannerPreviewDescription(textureId: 9, size: Size(1280, 720), status: ScannerPreviewStatus.streaming),
+            paused: paused,
+          ),
         ),
       );
+      expect(find.byType(Texture), findsOneWidget);
+      final texture = tester.widget<Texture>(find.byType(Texture));
+      expect(texture.textureId, 9);
+      expect(texture.freeze, paused);
     }
-
-    setUp(() {
-      channel.setMockMethodCallHandler((call) async => null);
-
-      SystemChannels.platform_views.setMockMethodCallHandler(
-        (call) async {
-          switch (call.method) {
-            default:
-              null;
-          }
-        },
-      );
-    });
-
-    tearDown(() {
-      channel.setMockMethodCallHandler(null);
-      SystemChannels.platform_views.setMockMethodCallHandler(null);
-    });
-
-    group('Инициализация виджета при успешной инициализации камеры', () {
-      testWidgets('Android', (tester) async {
-        debugDefaultTargetPlatformOverride = TargetPlatform.android;
-        var cameraInitialized = false;
-        PlatformException? error;
-
-        await tester.pumpWidget(_buildApp(
-          onCameraInitialized: () => cameraInitialized = true,
-          onCameraInitializeError: (e) => error = e,
-        ));
-
-        final platformView = find.byType(PlatformViewLink);
-        await tester.pumpAndSettle();
-        expect(platformView, findsOneWidget, reason: "Не отображается нативный виджет");
-        expect(cameraInitialized, true, reason: 'Не вызвался колбек при успешной инициализации камеры');
-        expect(error, isNull, reason: "Не должно быть ошибки инициализации камеры");
-        debugDefaultTargetPlatformOverride = null;
-      });
-
-      testWidgets('IOS', (tester) async {
-        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-        var cameraInitialized = false;
-        PlatformException? error;
-
-        await tester.pumpWidget(_buildApp(
-          onCameraInitialized: () => cameraInitialized = true,
-          onCameraInitializeError: (e) => error = e,
-        ));
-
-        final platformView = find.byType(UiKitView);
-        final widget = tester.firstWidget(platformView) as UiKitView;
-
-        widget.onPlatformViewCreated!(1);
-        await tester.pumpAndSettle();
-        expect(platformView, findsOneWidget, reason: "Не отображается нативный виджет");
-        expect(cameraInitialized, true, reason: 'Не вызвался колбек при успешной инициализации камеры');
-        expect(error, isNull, reason: "Не должно быть ошибки инициализации камеры");
-        debugDefaultTargetPlatformOverride = null;
-      });
-    });
-
-    testWidgets('Инициализация виджета при ошибке инициализации камеры', (tester) async {
-      channel.setMockMethodCallHandler((call) async {
-        if (call.method == 'initCameraPreview') {
-          throw PlatformException(code: "911", message: "Ошибочка");
-        }
-      });
-      var cameraInitialized = false;
-      late PlatformException error;
-
-      await tester.pumpWidget(_buildApp(
-        onCameraInitialized: () => cameraInitialized = true,
-        onCameraInitializeError: (e) => error = e,
-      ));
-
-      final platformView = find.byType(PlatformViewLink);
-      await tester.pumpAndSettle();
-      expect(platformView, findsOneWidget, reason: "Не отображается нативный виджет");
-      expect(cameraInitialized, false, reason: 'Колбек инициализации не должен вызываться при ошибке');
-      expect(error.message, "Ошибочка", reason: "Должна вернуться ошибка инициализации камеры");
-    });
+  });
+  testWidgets('source crop is applied before quarter-turn and cover scaling', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: CameraPreview(
+          description: ScannerPreviewDescription(
+            textureId: 7,
+            size: Size(1280, 720),
+            cropRect: Rect.fromLTWH(160, 0, 960, 720),
+            rotationDegrees: 90,
+            status: ScannerPreviewStatus.streaming,
+          ),
+        ),
+      ),
+    );
+    expect(tester.widget<RotatedBox>(find.byType(RotatedBox)).quarterTurns, 1);
+    final source = tester.widget<Positioned>(find.byType(Positioned));
+    expect(source.left, -160);
+    expect(source.width, 1280);
+    expect(tester.widget<FittedBox>(find.byType(FittedBox)).fit, BoxFit.cover);
   });
 }

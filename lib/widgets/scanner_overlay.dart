@@ -1,0 +1,273 @@
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import '../models/crop_rect.dart';
+
+/// Recognition-area overlay with focus gestures and animated feedback.
+class ScannerOverlay extends StatefulWidget {
+  const ScannerOverlay({
+    super.key,
+    required this.crop,
+    required this.scanning,
+    required this.focusEnabled,
+    required this.onFocus,
+    required this.onLockFocus,
+  });
+
+  /// Recognition area whose center also anchors focus feedback.
+  final CropRect crop;
+
+  /// Selects the active recognition color for crop corners.
+  final bool scanning;
+
+  /// Whether focus gestures are enabled.
+  final bool focusEnabled;
+
+  /// Requests continuous autofocus at the crop center.
+  final VoidCallback onFocus;
+
+  /// Requests locked autofocus at the crop center.
+  final VoidCallback onLockFocus;
+
+  @override
+  State<ScannerOverlay> createState() => _ScannerOverlayState();
+}
+
+/// Owns transient circle feedback independently of the persistent focus lock.
+class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStateMixin {
+  /// Transient focus feedback that fades away even while focus remains locked.
+  late final _circleAnimation = AnimationController(vsync: this, duration: const Duration(seconds: 1));
+
+  /// Shared timeline for the lock's appearance and corner flight.
+  late final _lockAnimation = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
+
+  /// Fades the lock at its current position when autofocus is restored.
+  late final _unlockAnimation = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
+
+  /// Rebuilds only the overlay when any feedback animation advances.
+  late final _animations = Listenable.merge([_circleAnimation, _lockAnimation, _unlockAnimation]);
+
+  /// Keeps repeat long presses from restarting a settled lock's flight.
+  bool _focusLocked = false;
+
+  /// Requests static feedback when the user disables animations.
+  bool get _disableAnimations => MediaQuery.disableAnimationsOf(context);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_disableAnimations) {
+      _circleAnimation.value = 1;
+      _lockAnimation.value = _focusLocked ? 1 : 0;
+      _unlockAnimation.value = 0;
+    }
+  }
+
+  @override
+  void didUpdateWidget(ScannerOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.focusEnabled) {
+      _focusLocked = false;
+      _circleAnimation.reset();
+      _lockAnimation.reset();
+      _unlockAnimation.reset();
+    }
+  }
+
+  /// Restarts the circle for each accepted gesture and forwards its focus mode.
+  void _focus(bool locked) {
+    if (!widget.focusEnabled) return;
+    if (_disableAnimations) {
+      _circleAnimation.value = 1;
+    } else {
+      _circleAnimation.forward(from: 0);
+    }
+    _animateLock(locked);
+    _focusLocked = locked;
+    if (locked) {
+      widget.onLockFocus();
+    } else {
+      widget.onFocus();
+    }
+  }
+
+  /// Starts a new lock flight or fades the existing lock without moving it back.
+  void _animateLock(bool locked) {
+    if (locked && !_focusLocked) {
+      _unlockAnimation.reset();
+      if (_disableAnimations) {
+        _lockAnimation.value = 1;
+      } else {
+        _lockAnimation.forward(from: 0);
+      }
+    } else if (!locked) {
+      // Fade at the current position, including a tap during the flight.
+      _lockAnimation.stop();
+      if (_disableAnimations) {
+        _unlockAnimation.value = 1;
+      } else if (_focusLocked) {
+        _unlockAnimation.forward(from: 0);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: widget.focusEnabled ? () => _focus(false) : null,
+    onLongPress: widget.focusEnabled ? () => _focus(true) : null,
+    child: AnimatedBuilder(animation: _animations, builder: _buildFeedback),
+  );
+
+  /// Converts animation progress into circle opacity, lock opacity and flight position.
+  Widget _buildFeedback(BuildContext context, Widget? child) {
+    const curve = _FocusCurve();
+    final pulse = _circleAnimation.value <= .5 ? _circleAnimation.value * 2 : (1 - _circleAnimation.value) * 2;
+    // The lock fades in for 300 ms, then flies to the corner for 500 ms.
+    const fadeEnd = .375;
+    return CustomPaint(
+      painter: _OverlayPainter(widget.crop, widget.scanning),
+      foregroundPainter: _FocusPainter(
+        crop: widget.crop,
+        circleOpacity: curve.transform(pulse),
+        lockOpacity: Interval(0, fadeEnd, curve: curve).transform(_lockAnimation.value) * (1 - curve.transform(_unlockAnimation.value)),
+        lockTravel: Interval(fadeEnd, 1, curve: curve).transform(_lockAnimation.value),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _circleAnimation.dispose();
+    _lockAnimation.dispose();
+    _unlockAnimation.dispose();
+    super.dispose();
+  }
+}
+
+/// Cosine easing with symmetric acceleration and deceleration.
+class _FocusCurve extends Curve {
+  const _FocusCurve();
+
+  @override
+  double transformInternal(double t) => t == .5 ? .5 : (1 - math.cos(math.pi * t)) / 2;
+}
+
+/// Draws the recognition mask and corner strokes in widget coordinates.
+class _OverlayPainter extends CustomPainter {
+  _OverlayPainter(this.crop, this.scanning);
+
+  /// Normalized recognition rectangle relative to the current viewport.
+  final CropRect crop;
+
+  /// Chooses active or idle crop-corner color.
+  final bool scanning;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width * (1 + crop.offsetX) / 2, size.height * (1 + crop.offsetY) / 2);
+    final area = Rect.fromCenter(center: center, width: size.width * crop.scaleWidth, height: size.height * crop.scaleHeight);
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    final mask =
+        Path()
+          ..fillType = PathFillType.evenOdd
+          ..addRect(Offset.zero & size)
+          ..addRect(area);
+    canvas.drawPath(mask, Paint()..color = const Color(0x78000000));
+    final border =
+        Paint()
+          ..color = scanning ? const Color(0xff43a047) : const Color(0xff616161)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..strokeCap = StrokeCap.round;
+    final length = area.width * .05;
+    for (final corner in [area.topLeft, area.topRight, area.bottomLeft, area.bottomRight]) {
+      final dx = corner.dx == area.left ? length : -length;
+      final dy = corner.dy == area.top ? length : -length;
+      canvas.drawPath(
+        Path()
+          ..moveTo(corner.dx + dx, corner.dy)
+          ..lineTo(corner.dx, corner.dy)
+          ..lineTo(corner.dx, corner.dy + dy),
+        border,
+      );
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_OverlayPainter old) => old.crop != crop || old.scanning != scanning;
+}
+
+/// Paints one frame of focus feedback without changing its animation state.
+class _FocusPainter extends CustomPainter {
+  _FocusPainter({required this.crop, required this.circleOpacity, required this.lockOpacity, required this.lockTravel});
+
+  /// Shared focus-circle radius in logical pixels.
+  static const _radius = 35.0;
+
+  /// Top and left inset of the settled lock icon, in logical pixels.
+  static const _lockOffset = 19.2;
+
+  /// Distance from focus center to the lock's initial center.
+  static const _lockDistance = 30.0;
+
+  /// Lock outline in local icon coordinates, before placement in the preview.
+  static final _lockPath =
+      Path()
+        ..fillType = PathFillType.evenOdd
+        ..addRRect(RRect.fromRectAndRadius(const Rect.fromLTRB(3.6667, 8, 20.3334, 22), const Radius.circular(2)))
+        ..addRect(const Rect.fromLTRB(5.75, 10, 18.25, 20))
+        ..moveTo(6.7917, 8)
+        ..lineTo(6.7917, 6)
+        ..cubicTo(6.7917, 3.24, 9.125, 1, 12, 1)
+        ..cubicTo(14.875, 1, 17.2084, 3.24, 17.2084, 6)
+        ..lineTo(17.2084, 8)
+        ..lineTo(15.125, 8)
+        ..lineTo(15.125, 6)
+        ..cubicTo(15.125, 4.34, 13.7292, 3, 12, 3)
+        ..cubicTo(10.2709, 3, 8.875, 4.34, 8.875, 6)
+        ..lineTo(8.875, 8)
+        ..close()
+        ..addOval(const Rect.fromLTRB(9.9167, 13, 14.0834, 17));
+
+  /// Recognition geometry whose center anchors the circle and initial lock.
+  final CropRect crop;
+
+  /// Current circle alpha, independent of the focus lock state.
+  final double circleOpacity;
+
+  /// Combined appearance and unlock alpha for the lock icon.
+  final double lockOpacity;
+
+  /// Progress from the focus point to the upper-left preview corner.
+  final double lockTravel;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width * (1 + crop.offsetX) / 2, size.height * (1 + crop.offsetY) / 2);
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    if (circleOpacity > 0) {
+      canvas.drawCircle(
+        center,
+        _radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = Colors.white.withAlpha((255 * circleOpacity).round()),
+      );
+    }
+    if (lockOpacity > 0) {
+      final origin = Offset.lerp(center.translate(-_lockDistance - 12, -12), const Offset(_lockOffset, _lockOffset), lockTravel)!;
+      canvas.translate(origin.dx, origin.dy);
+      canvas.drawPath(_lockPath, Paint()..color = Colors.white.withAlpha((255 * lockOpacity).round()));
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_FocusPainter old) =>
+      old.crop != crop || old.circleOpacity != circleOpacity || old.lockOpacity != lockOpacity || old.lockTravel != lockTravel;
+}

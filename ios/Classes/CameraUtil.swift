@@ -8,8 +8,10 @@
 import Foundation
 import AVFoundation
 
+/// Discovers capture devices that meet the supported camera criteria.
 class CameraUtil {
-    /// Returns all available cameras on device.
+
+    /// Discovers supported video cameras, including both front and rear positions.
     func getAvailableCameras() -> [AVCaptureDevice] {
         var deviceTypes: [AVCaptureDevice.DeviceType] = [
             .builtInWideAngleCamera,
