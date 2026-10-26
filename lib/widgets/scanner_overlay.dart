@@ -125,17 +125,14 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
     final pulse = _circleAnimation.value <= .5 ? _circleAnimation.value * 2 : (1 - _circleAnimation.value) * 2;
     // The lock fades in for 300 ms, then flies to the corner for 500 ms.
     const fadeEnd = .375;
-    return Opacity(
-      // Removing Opacity at 0.99 causes rendering artifacts on the icon. https://github.com/dnfield/flutter_svg/issues/975
-      opacity: .99,
-      child: CustomPaint(
-        painter: _OverlayPainter(widget.crop, widget.scanning),
-        foregroundPainter: _FocusPainter(
-          crop: widget.crop,
-          circleOpacity: curve.transform(pulse),
-          lockOpacity: Interval(0, fadeEnd, curve: curve).transform(_lockAnimation.value) * (1 - curve.transform(_unlockAnimation.value)),
-          lockTravel: Interval(fadeEnd, 1, curve: curve).transform(_lockAnimation.value),
-        ),
+    return CustomPaint(
+      painter: _OverlayPainter(widget.crop, widget.scanning),
+      foregroundPainter: _FocusPainter(
+        crop: widget.crop,
+        pixelRatio: MediaQuery.devicePixelRatioOf(context),
+        circleOpacity: curve.transform(pulse),
+        lockOpacity: Interval(0, fadeEnd, curve: curve).transform(_lockAnimation.value) * (1 - curve.transform(_unlockAnimation.value)),
+        lockTravel: Interval(fadeEnd, 1, curve: curve).transform(_lockAnimation.value),
       ),
     );
   }
@@ -206,7 +203,13 @@ class _OverlayPainter extends CustomPainter {
 
 /// Paints one frame of focus feedback without changing its animation state.
 class _FocusPainter extends CustomPainter {
-  _FocusPainter({required this.crop, required this.circleOpacity, required this.lockOpacity, required this.lockTravel});
+  _FocusPainter({
+    required this.crop,
+    required this.pixelRatio,
+    required this.circleOpacity,
+    required this.lockOpacity,
+    required this.lockTravel,
+  });
 
   /// Shared focus-circle radius in logical pixels.
   static const _radius = 35.0;
@@ -239,6 +242,9 @@ class _FocusPainter extends CustomPainter {
   /// Recognition geometry whose center anchors the circle and initial lock.
   final CropRect crop;
 
+  /// Display density used to keep edge softening consistent across screens.
+  final double pixelRatio;
+
   /// Current circle alpha, independent of the focus lock state.
   final double circleOpacity;
 
@@ -260,6 +266,7 @@ class _FocusPainter extends CustomPainter {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, .5 / pixelRatio)
           ..color = Colors.white.withAlpha((255 * circleOpacity).round()),
       );
     }
@@ -273,5 +280,9 @@ class _FocusPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_FocusPainter old) =>
-      old.crop != crop || old.circleOpacity != circleOpacity || old.lockOpacity != lockOpacity || old.lockTravel != lockTravel;
+      old.crop != crop ||
+      old.pixelRatio != pixelRatio ||
+      old.circleOpacity != circleOpacity ||
+      old.lockOpacity != lockOpacity ||
+      old.lockTravel != lockTravel;
 }
