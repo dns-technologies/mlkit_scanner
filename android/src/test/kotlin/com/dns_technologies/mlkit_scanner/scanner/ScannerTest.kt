@@ -413,6 +413,26 @@ internal class ScannerTest {
 /** Native tests cover physical work. Route selection and retained configuration are tested in Dart. */
 internal class ScannerCaptureTest {
     @Test
+    fun `initial zoom is applied before waiting for focus reset`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            val focus = CompletableDeferred<Unit>()
+            doReturn(focus).`when`(f.camera).resetFocus()
+            f.scanner.select(f.first)
+
+            val capture = f.calls.async { f.scanner.capture(ScannerConfiguration(zoomRatio = 3F)) }
+            f.open()
+
+            assertFalse(capture.isCompleted)
+            verify(f.camera).setZoomRatio(3F)
+            verify(f.camera).resetFocus()
+
+            focus.complete(Unit)
+            capture.await()
+        } finally { f.close() }
+    }
+
+    @Test
     fun `capture applies all settings before binding focus and starting analysis`() = runBlocking<Unit> {
         val f = Fixture()
         try {

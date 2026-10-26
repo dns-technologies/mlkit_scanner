@@ -121,10 +121,11 @@ internal class Scanner(
             currentCoroutineContext().ensureActive()
             awaitCameraReady()
             val previous = appliedConfiguration
-            if (focusNeedsReset) control(id, camera::resetFocus)
             cropArea = configuration.cropArea
+            // Focus reset can wait for a camera frame; apply framing before that wait.
             if (previous?.zoomRatio != configuration.zoomRatio)
                 control(id) { camera.setZoomRatio(configuration.zoomRatio) }
+            if (focusNeedsReset) control(id, camera::resetFocus)
             if (previous?.torchEnabled != configuration.torchEnabled || camera.torchEnabled != configuration.torchEnabled)
                 control(id) { camera.setTorch(configuration.torchEnabled) }
             appliedConfiguration = configuration
