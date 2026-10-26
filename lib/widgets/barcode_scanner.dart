@@ -219,7 +219,9 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
             valueListenable: controller.preview,
             builder:
                 (context, preview, _) => CameraPreview(
-                  description: preview,
+                  // Startup frames may arrive before the requested zoom is applied.
+                  description:
+                      configuration.zoomRatio != 1 && controller.captureState.value == ScannerCaptureState.starting ? null : preview,
                   frameKey: _previewKey,
                   canRetainFrame: () => controller.isCurrent,
                   paused: configuration.cameraPaused || controller.captureState.value == ScannerCaptureState.released,

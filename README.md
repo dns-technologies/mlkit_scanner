@@ -207,8 +207,10 @@ choose zoom and torch settings supported by the new camera.
 `onChangeFlashState` reports actual torch changes on iOS. Keep observed torch state
 separate from `flashEnabled` when the UI needs to distinguish desired and actual
 state. A black cover hides missing, starting or stopped camera output until the
-native stream is live. A live shared texture appears immediately during capture
-handoff, without waiting for settings or recognition; zoom changes may be visible.
+native stream is live. With `zoomRatio: 1`, a live shared texture appears immediately
+during capture handoff. Other zoom ratios wait until capture settings are acknowledged,
+so startup does not briefly reveal the camera's previous zoom. An existing saved image
+remains visible while waiting; a new scanner shows a black cover.
 
 ### Recognition area and focus
 
@@ -366,7 +368,7 @@ call it only on iOS and handle errors through its returned future.
 Each widget retains its own zoom, torch, crop, camera and recognition settings.
 Visible scanners share a camera stream and texture; the selected scanner supplies
 current settings and receives results. Switching routes reuses that output,
-and each screen can show the live stream while its own capture is still being configured.
+and screens with `zoomRatio: 1` can show the live stream while their capture is still being configured.
 Only one scanner owns camera controls and recognition at a time. Multiple visible
 widgets do not provide independent camera streams or simultaneous recognition.
 
@@ -412,9 +414,10 @@ existing capture, a widget created paused waits for resume before starting one.
 
 Each widget saves its own image before releasing capture, including when hidden
 behind a page without a scanner. Returning to that widget keeps its image visible
-through a cold startup, until a live stream is available. A newly created widget
-has no saved image: it immediately shows a warm live stream, or a black cover while
-waiting for cold startup. It never uses a stopped shared texture as its snapshot.
+through a cold startup, until a live stream and the requested startup zoom are ready.
+A newly created widget has no saved image: it shows a black cover until live preview
+is ready. At `zoomRatio: 1`, a warm live stream appears immediately.
+It never uses a stopped shared texture as its snapshot.
 If no camera frame has been painted yet, there is no image to retain. Retention
 failures are reported through `onError`; a saved image is not guaranteed in that case.
 Camera handoff and resource disposal wait for pending image copies. Saved images

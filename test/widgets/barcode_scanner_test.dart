@@ -38,7 +38,38 @@ void _scannerTests() {
       await h.dispose();
     });
 
-    testWidgets('first live frame reveals preview before startup and settings complete', (tester) async {
+    testWidgets('non-default zoom hides initial frames until settings are applied', (tester) async {
+      final activation = Completer<void>();
+      h.handler = (call) async {
+        if (call.method == 'capture') await activation.future;
+        return null;
+      };
+      await tester.pumpWidget(app(BarcodeScanner(zoomRatio: 2, onScan: (_) {})));
+      await tester.pump();
+
+      await h.send(
+        const MethodCall('onPreviewState', {
+          'subscriptionId': 'preview',
+          'description': {'textureId': 77, 'width': 1280, 'height': 720, 'rotationDegrees': 0, 'mirrored': false, 'state': 'streaming'},
+        }),
+      );
+      await tester.pump();
+
+      expect(blackPlaceholder, findsOneWidget);
+      expect(find.byType(Texture), findsNothing);
+
+      activation.complete();
+      await tester.pump();
+      await tester.pump();
+
+      expect(blackPlaceholder, findsNothing);
+      expect(tester.widget<Texture>(find.byType(Texture)).textureId, 77);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 300));
+      await h.dispose();
+    });
+
+    testWidgets('default zoom shows the stream immediately and later zoom changes keep the preview visible', (tester) async {
       final activation = Completer<void>();
       final settings = Completer<void>();
       h.handler = (call) async {
@@ -62,8 +93,9 @@ void _scannerTests() {
         expect(find.byType(Texture), state == 'streaming' ? findsOneWidget : findsNothing);
       }
 
-      await tester.pumpWidget(page(2));
       activation.complete();
+      await tester.pump();
+      await tester.pumpWidget(page(2));
       await tester.pump();
       expect(h.methods, contains('updateCameraSettings'));
       expect(blackPlaceholder, findsNothing);
@@ -1246,7 +1278,7 @@ void _scannerTests() {
       await close(tester);
     });
 
-    testWidgets('expired manual pause keeps its image while resume waits for disposal and fresh frames', (tester) async {
+    testWidgets('expired manual pause retains its image until the stream and settings are ready', (tester) async {
       await tester.pumpWidget(page());
       await tester.pump();
       await showPreview(tester);
@@ -1286,10 +1318,12 @@ void _scannerTests() {
         }),
       );
       await tester.pump();
-      expect(find.byType(RawImage), findsNothing);
-      expect(tester.widget<Texture>(find.byType(Texture)).textureId, 88);
+      expect(tester.widget<RawImage>(find.byType(RawImage)).image, same(image));
       activation.complete();
       await tester.pump();
+      await tester.pump();
+      expect(find.byType(RawImage), findsNothing);
+      expect(tester.widget<Texture>(find.byType(Texture)).textureId, 88);
       expect(harness.methods, contains('capture'));
       await close(tester);
     });
