@@ -50,7 +50,8 @@ class CameraPreview extends StatelessWidget {
       height: preview.size.height,
       child: Texture(textureId: preview.textureId, freeze: paused || preview.status == ScannerPreviewStatus.paused),
     );
-    if (preview.cropRect case final crop?) {
+    // A full-frame crop can use the texture directly and avoid an extra clip layer.
+    if (preview.cropRect case final crop? when crop != (Offset.zero & preview.size)) {
       image = SizedBox(
         width: crop.width,
         height: crop.height,

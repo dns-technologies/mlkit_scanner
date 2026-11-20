@@ -8,6 +8,9 @@ internal class ImageProxyNv21Converter(
     /** Exclusive NV21 buffers reused between conversion callbacks. */
     private val bufferPool: ReusableByteArrayPool = ReusableByteArrayPool()
 ) {
+    /** Pooled scratch space for two chroma rows. */
+    private val chromaRows = ReusableByteArrayPool()
+
     /** Converts a full or cropped frame and scopes access to the pooled NV21 buffer. */
     fun <T> convert(
         image: ImageProxy,
@@ -35,6 +38,7 @@ internal class ImageProxyNv21Converter(
     /** Releases retained conversion buffers. Active leases remain independently valid. */
     fun dispose() {
         bufferPool.dispose()
+        chromaRows.dispose()
     }
 
     /** Clamps, orders, and chroma-aligns a requested crop to the camera buffer. */
@@ -91,16 +95,32 @@ internal class ImageProxyNv21Converter(
         val chromaTop = crop.top / 2
         val chromaWidth = crop.width / 2
         val chromaHeight = crop.height / 2
+        val uRowStride = uPlane.rowStride
+        val vRowStride = vPlane.rowStride
+        val uPixelStride = uPlane.pixelStride
+        val vPixelStride = vPlane.pixelStride
+        // The last row may omit trailing padding, so each span ends at its last sample.
+        val uLength = (chromaWidth - 1) * uPixelStride + 1
+        val vLength = (chromaWidth - 1) * vPixelStride + 1
         var destinationOffset = outputOffset
 
-        for (row in 0 until chromaHeight) {
-            val uRowOffset = uBaseOffset + (chromaTop + row) * uPlane.rowStride
-            val vRowOffset = vBaseOffset + (chromaTop + row) * vPlane.rowStride
-            for (column in 0 until chromaWidth) {
-                output[destinationOffset++] =
-                    vBuffer.get(vRowOffset + (chromaLeft + column) * vPlane.pixelStride)
-                output[destinationOffset++] =
-                    uBuffer.get(uRowOffset + (chromaLeft + column) * uPlane.pixelStride)
+        // Bulk reads avoid a ByteBuffer access per sample. Use each plane's row stride to locate
+        // the span and its pixel stride to pick samples from the copied bytes.
+        chromaRows.acquire(uLength + vLength).use { lease ->
+            val rows = lease.data
+            for (row in 0 until chromaHeight) {
+                uBuffer.position(uBaseOffset + (chromaTop + row) * uRowStride + chromaLeft * uPixelStride)
+                vBuffer.position(vBaseOffset + (chromaTop + row) * vRowStride + chromaLeft * vPixelStride)
+                uBuffer.get(rows, 0, uLength)
+                vBuffer.get(rows, uLength, vLength)
+                var uOffset = 0
+                var vOffset = uLength
+                repeat(chromaWidth) {
+                    output[destinationOffset++] = rows[vOffset]
+                    output[destinationOffset++] = rows[uOffset]
+                    uOffset += uPixelStride
+                    vOffset += vPixelStride
+                }
             }
         }
     }

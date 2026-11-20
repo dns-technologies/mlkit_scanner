@@ -64,6 +64,12 @@ interface Camera {
         onError: OnError,
     ): Deferred<Unit>
 
+    /**
+     * Selects the frame receiver for current and future bindings. A null receiver allows a preview-only
+     * stream. Adapters with a single stream can continue to use the callback passed to [bind].
+     */
+    fun setFrameReceiver(onFrame: OnCameraFrame?) = Unit
+
     /** Returns true when the camera has an active lifecycle binding. */
     fun isBound(): Boolean
 

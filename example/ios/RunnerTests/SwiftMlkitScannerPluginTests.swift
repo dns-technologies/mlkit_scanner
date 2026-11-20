@@ -313,7 +313,7 @@ private final class PluginTestCamera: CameraPreviewing {
     var recognitionHandler: RecognitionHandler?
     weak var cameraPreviewDelegate: CameraPreviewDelegate?
 
-    func initCamera(completion: @escaping (Error?) -> Void) { initializations += 1; isInitialized = true; completion(nil) }
+    func initCamera(_ camera: CameraData, completion: @escaping (Error?) -> Void) { initializations += 1; isInitialized = true; completion(nil) }
     func prepare(_ settings: ScannerConfiguration, geometry: CGSize, completion: @escaping (Error?) -> Void) { geometries.append(geometry); completion(nil) }
     func cancelPendingStart(completion: @escaping () -> Void) { completion() }
     func setCamera(_ cameraData: CameraData) throws {}

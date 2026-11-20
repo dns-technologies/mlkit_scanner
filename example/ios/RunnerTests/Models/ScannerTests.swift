@@ -27,9 +27,9 @@ final class ScannerTests: XCTestCase {
     private final class TestAnalyzer: BarcodeAnalyzing, RecognitionHandler {
         var subscription: ScanResultSubscription?
         var delay = 0
-        var cropUpdates = 0
+        var cropUpdates: [CropRect] = []
         func setDelay(delay: Int) { self.delay = delay }
-        func updateCropRect(cropRect: CropRect) { cropUpdates += 1 }
+        func updateCropRect(cropRect: CropRect) { cropUpdates.append(cropRect) }
         func subscribe(_ onResult: @escaping (ScannerBarcode) -> Void) -> ScanResultSubscription {
             unsubscribe()
             let listener = ScanResultSubscription(onResult)
@@ -48,11 +48,18 @@ final class ScannerTests: XCTestCase {
         var zooms: [Double] = []; var pauses = 0; var disposals = 0
         var torches: [Bool] = []; var focusResets = 0; var preparations = 0
         var geometries: [CGSize] = []
+        var initializedCameras: [CameraData] = []
         var preparationError: Error?
         var resumeError: Error?
+        var holdResume = false
+        var finishResume: ((Error?) -> Void)?
         var zoomError: Error?
         var holdDisposal = false; var finishDisposal: (() -> Void)?
-        func initCamera(completion: @escaping (Error?) -> Void) { isInitialized = true; completion(nil) }
+        func initCamera(_ camera: CameraData, completion: @escaping (Error?) -> Void) {
+            initializedCameras.append(camera)
+            isInitialized = true
+            completion(nil)
+        }
         func prepare(_ settings: ScannerConfiguration, geometry: CGSize, completion: @escaping (Error?) -> Void) {
             preparations += 1
             geometries.append(geometry)
@@ -63,7 +70,9 @@ final class ScannerTests: XCTestCase {
         func setFlash(_ enabled: Bool) throws { torches.append(enabled); isTorchActive = enabled }
         func resetFocus() { focusResets += 1 }
         func focus(locked: Bool) throws {}
-        func resumeCamera(completion: @escaping (Error?) -> Void) { completion(resumeError) }
+        func resumeCamera(completion: @escaping (Error?) -> Void) {
+            if holdResume { finishResume = completion } else { completion(resumeError) }
+        }
         func pauseCamera(completion: @escaping () -> Void) { pauses += 1; completion() }
         func setZoomRatio(_ value: Double) throws {
             if let error = zoomError { throw error }
@@ -75,6 +84,21 @@ final class ScannerTests: XCTestCase {
             disposals += 1; isInitialized = false
             if holdDisposal { finishDisposal = completion } else { completion() }
         }
+    }
+
+    func testColdCaptureInitializesTheRequestedCameraDirectly() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        let configuration = try ScannerConfiguration(arguments: [
+            "zoomRatio": 1.0, "torchEnabled": false, "iosCamera": ["type": 0, "position": 2],
+        ])
+
+        f.runtime.captureCamera(viewId: 1, configuration: configuration) { XCTAssertNil($0) }
+        f.permissions.removeFirst()(true)
+
+        XCTAssertEqual(f.camera.initializedCameras, [configuration.camera])
+        XCTAssertEqual(f.allocations, 1)
+        XCTAssertEqual(f.camera.preparations, 1)
     }
 
     func testIdenticalSettingsSurviveRoundTripBetweenOwners() throws {
@@ -270,13 +294,69 @@ final class ScannerTests: XCTestCase {
         f.runtime.release()
     }
 
+    func testPreviewOnlyHandoffsAndDisposalDoNotAllocateAnAnalyzer() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+
+        try f.capture(1)
+        try f.capture(2)
+        f.runtime.disposeResources(completion: {})
+
+        XCTAssertEqual(f.analyzerAllocations, 0)
+        XCTAssertTrue(f.analyzer.cropUpdates.isEmpty)
+    }
+
+    func testInitialScanAllocatesAnAnalyzerAfterTheFirstPreviewFrame() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        f.camera.holdResume = true
+        let configuration = try ScannerConfiguration(arguments: [
+            "zoomRatio": 1.0, "torchEnabled": false, "cropRect": ["scaleWidth": 0.5],
+        ])
+        var replies = 0
+        f.runtime.captureCamera(viewId: 1, configuration: configuration) { error in
+            XCTAssertNil(error)
+            replies += 1
+            do { try f.runtime.startScan(delay: 100) }
+            catch { XCTFail("Initial scan failed: \(error)") }
+        }
+
+        f.permissions.removeFirst()(true)
+        XCTAssertEqual(replies, 0)
+        XCTAssertEqual(f.analyzerAllocations, 0)
+        f.camera.finishResume?(nil)
+
+        XCTAssertEqual(replies, 1)
+        XCTAssertEqual(f.analyzerAllocations, 1)
+        XCTAssertEqual(f.analyzer.cropUpdates, [configuration.cropRect])
+        XCTAssertEqual(f.analyzer.delay, 100)
+        XCTAssertNotNil(f.camera.recognitionHandler)
+    }
+
+    func testFirstScanUsesLatestCropAfterAControlFailure() throws {
+        let f = Fixture()
+        defer { f.runtime.release() }
+        let cropRect = try CropRect(arguments: ["scaleWidth": 0.55, "offsetY": -0.2])
+        try f.capture(1)
+        try f.runtime.setCropArea(cropRect: cropRect)
+        f.camera.zoomError = MlKitPluginError.invalidArguments
+        XCTAssertThrowsError(try f.runtime.setZoomRatio(value: 2))
+
+        try f.runtime.startScan(delay: 250)
+
+        XCTAssertEqual(f.analyzer.cropUpdates.last, cropRect)
+        XCTAssertEqual(f.analyzer.delay, 250)
+        XCTAssertNotNil(f.camera.recognitionHandler)
+    }
+
     func testInjectedAnalyzerRetainsItsLifetimeAndRoutesOnlyCurrentSubscription() throws {
         let f = Fixture()
 
         try f.capture(1)
         XCTAssertNil(f.camera.recognitionHandler)
-        XCTAssertEqual(f.analyzer.cropUpdates, 1)
+        XCTAssertTrue(f.analyzer.cropUpdates.isEmpty)
         try f.runtime.startScan(delay: 100)
+        XCTAssertEqual(f.analyzer.cropUpdates.count, 1)
         let old = try XCTUnwrap(f.analyzer.subscription)
         let barcode = ScannerBarcode(rawValue: "test", displayValue: nil, format: 256, valueType: 7)
         old.deliver(barcode)
@@ -284,7 +364,7 @@ final class ScannerTests: XCTestCase {
 
         try f.capture(2)
         XCTAssertNil(f.camera.recognitionHandler)
-        XCTAssertEqual(f.analyzer.cropUpdates, 2)
+        XCTAssertEqual(f.analyzer.cropUpdates.count, 2)
         try f.runtime.startScan(delay: 500)
         old.deliver(barcode)
         XCTAssertEqual(f.resultOwners, [1])
@@ -385,6 +465,8 @@ final class ScannerTests: XCTestCase {
         try f.capture(2)
 
         XCTAssertEqual(f.allocations, 1)
+        XCTAssertEqual(f.analyzerAllocations, 0)
+        try f.runtime.startScan(delay: 0)
         XCTAssertEqual(f.analyzerAllocations, 1)
     }
 

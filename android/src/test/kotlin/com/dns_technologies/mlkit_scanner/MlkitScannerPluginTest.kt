@@ -116,6 +116,34 @@ internal class MlkitScannerPluginTest {
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 internal class MlkitScannerPluginLifecycleTest {
+    @Test fun `final Activity detach releases listeners and hardware when camera unbind fails`() = kotlinx.coroutines.runBlocking<Unit> {
+        val f = TexturePluginFixture()
+        f.open(1)
+        val failure = IllegalStateException("Camera unbind failed")
+        doThrow(failure).`when`(f.scanner).detachActivity()
+
+        val error = runCatching { f.plugin.onDetachedFromActivity() }.exceptionOrNull()
+
+        assertSame(failure, error)
+        verify(f.activityBinding).removeRequestPermissionsResultListener(any())
+        verify(f.scanner).dispose()
+        assertFalse(f.permissions.requestCameraPermission())
+    }
+    @Test fun `engine detach releases Activity and permissions even when scanner cleanup fails`() = kotlinx.coroutines.runBlocking<Unit> {
+        val f = TexturePluginFixture()
+        f.open(1)
+        val failure = IllegalStateException("Analyzer cleanup failed")
+        doThrow(failure).`when`(f.scanner).dispose()
+
+        val error = runCatching {
+            f.plugin.onDetachedFromEngine(mock(FlutterPlugin.FlutterPluginBinding::class.java))
+        }.exceptionOrNull()
+
+        assertSame(failure, error)
+        verify(f.activityBinding).removeRequestPermissionsResultListener(any())
+        assertFalse(f.permissions.requestCameraPermission())
+        assertEquals(PluginError.CameraSessionDisposed.errorCode, f.call("capture", f.arguments(2)).error)
+    }
     @Test fun `cleanup failure still waits for actual surface disposal before replying`() {
         val f = TexturePluginFixture()
         val disposal = kotlinx.coroutines.CompletableDeferred<Unit>()

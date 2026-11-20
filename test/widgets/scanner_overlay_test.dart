@@ -7,6 +7,47 @@ import 'package:mlkit_scanner/mlkit_scanner.dart';
 import 'package:mlkit_scanner/widgets/scanner_overlay.dart';
 
 void main() => group('$ScannerOverlay', () {
+  for (final size in [const Size(300, 400), const Size(400, 800)]) {
+    testWidgets('Замок появляется сбоку от кружка без пересечения при размере $size', (tester) async {
+      const crop = CropRect(scaleWidth: .8, scaleHeight: .6, offsetX: .2, offsetY: -.2);
+      await tester.binding.setSurfaceSize(size);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: SizedBox.fromSize(
+              size: size,
+              child: RepaintBoundary(
+                child: ScannerOverlay(crop: crop, scanning: true, focusEnabled: true, onFocus: () {}, onLockFocus: () {}),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final overlay = find.byType(ScannerOverlay);
+      await tester.longPress(overlay);
+      await tester.pump(const Duration(milliseconds: 250));
+
+      final components = await tester.runAsync(() async {
+        final image = await captureImage(tester.element(overlay));
+        try {
+          final data = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+          return _whiteComponents(data.buffer.asUint8List(), image.width, image.height);
+        } finally {
+          image.dispose();
+        }
+      });
+      final center = Offset(size.width * (1 + crop.offsetX) / 2, size.height * (1 + crop.offsetY) / 2);
+      final circle = components!.singleWhere((rect) => rect.contains(center));
+      final lock = components.where((rect) => rect != circle).fold<Rect?>(null, (bounds, rect) => bounds?.expandToInclude(rect) ?? rect);
+      expect(lock, isNotNull, reason: 'Кружок и замок должны быть раздельными фигурами');
+      expect(lock!.right, lessThan(circle.left - 8));
+      expect(lock.center.dy, closeTo(circle.center.dy, 2));
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   for (final reduceMotion in [false, true]) {
     testWidgets('Android and iOS paint identical focus feedback with reduced motion $reduceMotion', (tester) async {
       final android = await _feedbackFrames(tester, TargetPlatform.android, reduceMotion: reduceMotion);
@@ -21,6 +62,34 @@ void main() => group('$ScannerOverlay', () {
     });
   }
 });
+
+List<Rect> _whiteComponents(Uint8List pixels, int width, int height) {
+  final remaining = <int>{
+    for (var index = 0; index < width * height; index++)
+      if (pixels[index * 4] > 0 && pixels[index * 4] == pixels[index * 4 + 1] && pixels[index * 4] == pixels[index * 4 + 2]) index,
+  };
+  final bounds = <Rect>[];
+  while (remaining.isNotEmpty) {
+    final pending = [remaining.first];
+    remaining.remove(pending.first);
+    var rect = Rect.fromLTWH((pending.first % width).toDouble(), (pending.first ~/ width).toDouble(), 1, 1);
+    while (pending.isNotEmpty) {
+      final index = pending.removeLast();
+      final x = index % width;
+      final y = index ~/ width;
+      rect = rect.expandToInclude(Rect.fromLTWH(x.toDouble(), y.toDouble(), 1, 1));
+      for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+          if (x + dx < 0 || x + dx >= width || y + dy < 0 || y + dy >= height) continue;
+          final neighbor = (y + dy) * width + x + dx;
+          if (remaining.remove(neighbor)) pending.add(neighbor);
+        }
+      }
+    }
+    bounds.add(rect);
+  }
+  return bounds;
+}
 
 Future<List<Uint8List>> _feedbackFrames(WidgetTester tester, TargetPlatform platform, {required bool reduceMotion}) async {
   await tester.pumpWidget(

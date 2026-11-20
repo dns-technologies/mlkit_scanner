@@ -48,6 +48,48 @@ final class MlkitBarcodeScannerTests: XCTestCase {
         XCTAssertEqual(currentResults, 1)
     }
 
+    func testReplacementSubscriptionAnalyzesImmediatelyDuringPreviousSuccessfulCooldown() throws {
+        let scanner = MlkitBarcodeScanner(delay: 60_000, cropRect: nil)
+        let sampleBuffer = try makeSampleBuffer(from: qrCodeImage(containing: "replacement"))
+        let viewport = CGSize(width: 400, height: 400)
+        let previousResult = expectation(description: "previous subscription result")
+        let previous = scanner.subscribe { _ in previousResult.fulfill() }
+        scanner.input(for: previous).processVideoOutput(sampleBuffer: sampleBuffer, viewport: viewport)
+        wait(for: [previousResult], timeout: 5)
+
+        let currentResult = expectation(description: "replacement subscription result")
+        var rawValue: String?
+        let current = scanner.subscribe {
+            rawValue = $0.rawValue
+            currentResult.fulfill()
+        }
+        scanner.input(for: current).processVideoOutput(sampleBuffer: sampleBuffer, viewport: viewport)
+
+        wait(for: [currentResult], timeout: 5)
+        XCTAssertEqual(rawValue, "replacement")
+    }
+
+    func testQueuedFrameFromPreviousSubscriptionDoesNotBlockCurrentFrame() throws {
+        let scanner = MlkitBarcodeScanner(delay: 60_000, cropRect: nil)
+        let sampleBuffer = try makeSampleBuffer(from: qrCodeImage(containing: "current"))
+        let viewport = CGSize(width: 400, height: 400)
+        let previous = scanner.subscribe { _ in XCTFail("Cancelled subscription received a result") }
+        let queuedInput = scanner.input(for: previous)
+        scanner.unsubscribe()
+        let currentResult = expectation(description: "current subscription result")
+        var rawValue: String?
+        let current = scanner.subscribe {
+            rawValue = $0.rawValue
+            currentResult.fulfill()
+        }
+
+        queuedInput.processVideoOutput(sampleBuffer: sampleBuffer, viewport: viewport)
+        scanner.input(for: current).processVideoOutput(sampleBuffer: sampleBuffer, viewport: viewport)
+
+        wait(for: [currentResult], timeout: 5)
+        XCTAssertEqual(rawValue, "current")
+    }
+
     private func qrCodeImage(containing value: String) throws -> UIImage {
         let filter = try XCTUnwrap(CIFilter(name: "CIQRCodeGenerator"))
         filter.setValue(Data(value.utf8), forKey: "inputMessage")

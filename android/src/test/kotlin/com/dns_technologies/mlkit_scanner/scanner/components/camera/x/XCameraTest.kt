@@ -1,9 +1,14 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
 import android.graphics.Rect as AndroidRect
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.TotalCaptureResult
+import android.os.Looper
 import android.util.Rational
 import android.util.Size
 import android.view.Surface
+import androidx.camera.camera2.impl.Camera2ImplConfig
 import androidx.camera.core.CameraControl
 import androidx.camera.core.CameraState
 import androidx.camera.core.FocusMeteringAction
@@ -12,13 +17,21 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageInfo
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCase
 import androidx.camera.core.ZoomState
+import androidx.camera.core.impl.CameraInfoInternal
+import androidx.camera.core.impl.CameraInternal
 import androidx.camera.core.impl.StreamSpec
 import androidx.camera.core.internal.ViewPorts
 import com.dns_technologies.mlkit_scanner.PluginError
+import com.dns_technologies.mlkit_scanner.scanner.ScannerConfiguration
+import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.ImageBarcodeAnalyzer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
+import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
+import com.dns_technologies.mlkit_scanner.scanner.scannerForTest
 import com.google.common.util.concurrent.ListenableFuture
 import io.flutter.view.TextureRegistry
 import java.util.concurrent.CancellationException
@@ -26,9 +39,13 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -52,12 +69,84 @@ import org.mockito.Mockito.verifyNoInteractions
 import org.robolectric.annotation.Config
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowLooper
 
 // region XCameraTest
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 internal class XCameraTest {
+    @Test fun `streaming preview callbacks do not enqueue main thread work`() = withCameraFixture { f ->
+        f.start()
+        val preview = f.groups.single().useCases.filterIsInstance<Preview>().single()
+        val surface = PreviewSurfaceRequest()
+        val callback = requireNotNull(Camera2ImplConfig(preview.currentConfig).getSessionCaptureCallback(null))
+        val session = mock(CameraCaptureSession::class.java)
+        val request = mock(CaptureRequest::class.java)
+        val first = mock(TotalCaptureResult::class.java)
+        doReturn(1L).`when`(first).frameNumber
+        preview.surfaceProvider!!.onSurfaceRequested(surface.request)
+        callback.onCaptureStarted(session, request, 0, 1)
+        callback.onCaptureCompleted(session, request, first)
+        ShadowLooper.idleMainLooper()
+        assertEquals(CameraPreviewState.Streaming, f.previews.last()?.state)
+        val next = mock(TotalCaptureResult::class.java)
+
+        callback.onCaptureStarted(session, request, 1, 2)
+        callback.onCaptureCompleted(session, request, next)
+
+        assertTrue(shadowOf(Looper.getMainLooper()).isIdle)
+        verifyNoInteractions(next)
+        surface.finish()
+    }
+
+    @Test fun `queued start from an old surface cannot confirm replacement preview`() = withCameraFixture { f ->
+        f.start()
+        val preview = f.groups.single().useCases.filterIsInstance<Preview>().single()
+        val first = PreviewSurfaceRequest()
+        val second = PreviewSurfaceRequest()
+        val callback = requireNotNull(Camera2ImplConfig(preview.currentConfig).getSessionCaptureCallback(null))
+        val session = mock(CameraCaptureSession::class.java)
+        val request = mock(CaptureRequest::class.java)
+        val stale = mock(TotalCaptureResult::class.java)
+        doReturn(1L).`when`(stale).frameNumber
+        preview.surfaceProvider!!.onSurfaceRequested(first.request)
+        callback.onCaptureStarted(session, request, 0, 1)
+
+        preview.surfaceProvider!!.onSurfaceRequested(second.request)
+        callback.onCaptureCompleted(session, request, stale)
+        ShadowLooper.idleMainLooper()
+
+        assertEquals(CameraPreviewState.Starting, f.previews.last()?.state)
+        val current = mock(TotalCaptureResult::class.java)
+        doReturn(2L).`when`(current).frameNumber
+        callback.onCaptureStarted(session, request, 1, 2)
+        callback.onCaptureCompleted(session, request, current)
+        ShadowLooper.idleMainLooper()
+        assertEquals(CameraPreviewState.Streaming, f.previews.last()?.state)
+        first.finish()
+        second.finish()
+    }
+
+    @Test fun `preview disposal failure still unregisters display listener`() {
+        val displays = mock(android.hardware.display.DisplayManager::class.java)
+        val context = object : android.content.ContextWrapper(RuntimeEnvironment.getApplication()) {
+            override fun getSystemService(name: String): Any? =
+                if (name == android.content.Context.DISPLAY_SERVICE) displays else super.getSystemService(name)
+        }
+        val producer = mock(TextureRegistry.SurfaceProducer::class.java)
+        val failure = IllegalStateException("Preview callback failed")
+        val camera = XCamera(context, producer, { throw failure })
+
+        val error = runCatching { camera.dispose() }.exceptionOrNull()
+
+        assertSame(failure, error)
+        assertTrue(camera.disposal.isCompleted)
+        verify(displays).unregisterDisplayListener(any())
+        verify(producer).release()
+        camera.dispose()
+        verify(displays, times(1)).unregisterDisplayListener(any())
+    }
     @Test fun `unbound controls fail and disposed adapter cannot restart`() = withCameraFixture { f ->
         for (action in listOf<() -> Deferred<Unit>>(f.camera::resetFocus, { f.camera.focus(3000, 0F, 0F) },
             { f.camera.setZoomRatio(2F) }, { f.camera.setTorch(true) })) {
@@ -500,6 +589,81 @@ internal class XCameraBindingTest {
 @Config(sdk = [34])
 internal class XCameraControlsTest {
     @Test
+    fun `first reset after a confirmed close completes without another camera frame`() = withCameraFixture { f ->
+        f.deviceState.value = CameraState.create(CameraState.Type.CLOSED)
+        f.start()
+        f.deviceState.value = CameraState.create(CameraState.Type.OPEN)
+        doReturn(CameraTestFuture<Void?>()).`when`(f.control).cancelFocusAndMetering()
+
+        val initial = f.camera.resetFocus()
+
+        assertTrue(initial.isCompleted)
+        verify(f.control, never()).cancelFocusAndMetering()
+    }
+
+    @Test
+    fun `later reset on the same binding awaits CameraX`() = withCameraFixture { f ->
+        f.deviceState.value = CameraState.create(CameraState.Type.CLOSED)
+        f.start()
+        f.deviceState.value = CameraState.create(CameraState.Type.OPEN)
+        doReturn(CameraTestFuture<Void?>()).`when`(f.control).cancelFocusAndMetering()
+        f.camera.resetFocus()
+
+        val reused = f.camera.resetFocus()
+
+        assertFalse(reused.isCompleted)
+        verify(f.control).cancelFocusAndMetering()
+    }
+
+    @Test
+    fun `error during opening requires a focus reset after recovery`() = withCameraFixture { f ->
+        f.deviceState.value = CameraState.create(CameraState.Type.CLOSED)
+        f.start()
+        val error = CameraState.StateError.create(CameraState.ERROR_STREAM_CONFIG)
+        f.deviceState.value = CameraState.create(CameraState.Type.OPENING, error)
+        f.deviceState.value = CameraState.create(CameraState.Type.OPEN)
+        doReturn(CameraTestFuture<Void?>()).`when`(f.control).cancelFocusAndMetering()
+
+        val reset = f.camera.resetFocus()
+
+        assertFalse(reset.isCompleted)
+        verify(f.control).cancelFocusAndMetering()
+    }
+
+    @Test
+    fun `interrupted metering before first reset still requires a hardware reset`() = withCameraFixture { f ->
+        f.deviceState.value = CameraState.create(CameraState.Type.CLOSED)
+        f.start()
+        f.deviceState.value = CameraState.create(CameraState.Type.OPEN)
+        attachPreviewStream(f)
+        val metering = CameraTestFuture<FocusMeteringResult>()
+        doReturn(metering).`when`(f.control).startFocusAndMetering(any())
+        doReturn(CameraTestFuture<Void?>()).`when`(f.control).cancelFocusAndMetering()
+        f.camera.focus(0, 0.5F, 0.5F).cancel()
+
+        val reset = f.camera.resetFocus()
+
+        assertTrue(metering.isCancelled)
+        assertFalse(reset.isCompleted)
+        verify(f.control).cancelFocusAndMetering()
+    }
+
+    private fun attachPreviewStream(f: XCameraFixture) {
+        val preview = f.groups.single().useCases.filterIsInstance<Preview>().single()
+        val camera = mock(CameraInternal::class.java)
+        doReturn(mock(CameraInfoInternal::class.java)).`when`(camera).cameraInfoInternal
+        // The fixture replaces ProcessCameraProvider, so install the stream metadata normally supplied by it.
+        UseCase::class.java.getDeclaredField("mCamera").apply {
+            isAccessible = true
+            set(preview, camera)
+        }
+        UseCase::class.java.getDeclaredField("mAttachedStreamSpec").apply {
+            isAccessible = true
+            set(preview, StreamSpec.builder(Size(1280, 720)).build())
+        }
+    }
+
+    @Test
     fun `synchronous SDK failure describes the requested zoom and preserves its cause`() = withCameraFixture { f ->
         runBlocking {
             f.start()
@@ -785,6 +949,93 @@ internal class XCameraControlCompletionTest {
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 internal class XCameraAnalyzerTest {
+    @Test
+    fun `preview only does not register image analysis until recognition starts`() = withCameraFixture { f ->
+        val scanner = scannerForTest(f.camera, mock(ImageBarcodeAnalyzer::class.java))
+        try {
+            f.start()
+
+            assertTrue(f.camera.isReady)
+            assertNull(f.analyzerOrNull())
+            scanner.startScan(0)
+            assertNotNull(f.analyzerOrNull())
+            scanner.pauseScan()
+            assertNull(f.analyzerOrNull())
+            assertTrue(f.camera.isReady)
+            assertEquals(1, f.groups.size)
+        } finally {
+            scanner.dispose()
+        }
+    }
+
+    @Test
+    fun `queued image from cleared analyzer cannot consume resumed scan's first recognition`() = withCameraFixture { f ->
+        val barcode = Barcode("active", null, 1, 1)
+        val analyzer = object : ImageBarcodeAnalyzer({ 0L }) {
+            override fun analyzeFrame(frame: CameraFrame, cropRect: Rect?): Barcode = barcode
+
+            override fun disposeAnalyzer() = Unit
+        }
+        val scanner = scannerForTest(f.camera, analyzer)
+        val results = mutableListOf<Barcode>()
+        scanner.subscribeToScanResults(results::add)
+        try {
+            f.start()
+            scanner.startScan(5_000)
+            val previous = f.analyzer()
+            val stale = image()
+            val fresh = image()
+
+            scanner.pauseScan()
+            scanner.startScan(5_000)
+            previous.analyze(stale)
+
+            assertTrue(results.isEmpty())
+            verify(stale, never()).imageInfo
+            verify(stale).close()
+            f.analyzer().analyze(fresh)
+            assertEquals(listOf(barcode), results)
+            verify(fresh).close()
+            assertEquals(1, f.groups.size)
+        } finally {
+            scanner.dispose()
+        }
+    }
+
+    @Test
+    fun `device availability withdraws and restores analysis on the same binding`() = withCameraFixture { f ->
+        val scanner = scannerForTest(f.camera, mock(ImageBarcodeAnalyzer::class.java))
+        val zoomState = mock(ZoomState::class.java)
+        doReturn(1F).`when`(zoomState).minZoomRatio
+        doReturn(4F).`when`(zoomState).maxZoomRatio
+        f.zoomState.value = zoomState
+        val control = CameraTestFuture<Void?>().apply { complete(null) }
+        doReturn(control).`when`(f.control).setZoomRatio(1F)
+        doReturn(control).`when`(f.control).cancelFocusAndMetering()
+        val calls = CoroutineScope(Dispatchers.Unconfined)
+        try {
+            val capture = calls.async { scanner.capture(ScannerConfiguration()) }
+            f.future.complete(f.provider)
+            ShadowLooper.idleMainLooper()
+            assertTrue(capture.isCompleted)
+            runBlocking { capture.await() }
+            assertNull(f.analyzerOrNull())
+            scanner.startScan(0)
+            val previous = f.analyzer()
+
+            f.deviceState.value = CameraState.create(CameraState.Type.CLOSED)
+            assertNull(f.analyzerOrNull())
+            f.deviceState.value = CameraState.create(CameraState.Type.OPEN)
+
+            assertNotSame(previous, f.analyzer())
+            assertTrue(f.camera.isReady)
+            assertEquals(1, f.groups.size)
+        } finally {
+            calls.cancel()
+            scanner.dispose()
+        }
+    }
+
     @Test
     fun `frame callback borrows image until returning then it closes once`() = withCameraFixture { f ->
         val image = image()

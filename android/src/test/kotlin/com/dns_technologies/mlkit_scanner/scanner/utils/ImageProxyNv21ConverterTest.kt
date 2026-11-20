@@ -71,6 +71,63 @@ internal class ImageProxyNv21ConverterTest {
     }
 
     @Test
+    fun `cropped direct chroma rows respect separate strides and tight limits`() {
+        val uBuffer = ByteBuffer.allocateDirect(26)
+        val vBuffer = ByteBuffer.allocateDirect(29)
+        repeat(3) { row ->
+            repeat(4) { column ->
+                uBuffer.put(1 + row * 9 + column * 2, (90 + row * 10 + column).toByte())
+                vBuffer.put(2 + row * 10 + column * 2, (40 + row * 10 + column).toByte())
+            }
+        }
+        uBuffer.position(1)
+        vBuffer.position(2)
+        val image = imageProxy(
+            y = plane(ByteArray(48) { it.toByte() }, 8, 1),
+            u = plane(uBuffer, 9, 2),
+            v = plane(vBuffer, 10, 2),
+            width = 8,
+            height = 6,
+        )
+
+        val converted = ImageProxyNv21Converter().convert(image, Rect(2, 2, 8, 6)) { bytes, _, _ -> bytes.copyOf() }
+
+        assertArrayEquals(
+            byteArrayOf(
+                18, 19, 20, 21, 22, 23, 26, 27, 28, 29, 30, 31,
+                34, 35, 36, 37, 38, 39, 42, 43, 44, 45, 46, 47,
+                51, 101, 52, 102, 53, 103, 61, 111, 62, 112, 63, 113,
+            ),
+            converted,
+        )
+        assertEquals(1, uBuffer.position())
+        assertEquals(2, vBuffer.position())
+        assertEquals(26, uBuffer.limit())
+        assertEquals(29, vBuffer.limit())
+    }
+
+    @Test
+    fun `disposal preserves borrowed output and prevents later buffer retention`() {
+        val converter = ImageProxyNv21Converter()
+        val image = emptyImage()
+        var disposedBuffer: ByteArray? = null
+
+        converter.convert(image, FULL_CROP) { borrowed, _, _ ->
+            converter.dispose()
+            converter.convert(image, FULL_CROP) { next, _, _ ->
+                assertNotSame(borrowed, next)
+                disposedBuffer = next
+            }
+            assertArrayEquals(ByteArray(NV21_SIZE), borrowed)
+        }
+
+        converter.convert(image, FULL_CROP) { next, _, _ ->
+            assertNotSame(disposedBuffer, next)
+            assertArrayEquals(ByteArray(NV21_SIZE), next)
+        }
+    }
+
+    @Test
     fun `converter reuses released buffer but not active buffer`() {
         val converter = ImageProxyNv21Converter()
         val image = emptyImage()

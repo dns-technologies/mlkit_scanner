@@ -83,6 +83,8 @@ final class ArgumentUtilsTests: XCTestCase {
         for value: Int64 in [Int64.min, -1, 0, 1, 9_007_199_254_740_993, Int64.max] {
             XCTAssertEqual(try argument(NSNumber(value: value)).requireInt64("value"), value)
         }
+        XCTAssertEqual(try argument(Double(Int64.min)).requireInt64("value"), Int64.min)
+        XCTAssertEqual(try argument(Double(Int64.max).nextDown).requireInt64("value"), Int64.max - 1_023)
     }
 
     func testIntegersRejectFractionsOverflowAndMalformedValues() {

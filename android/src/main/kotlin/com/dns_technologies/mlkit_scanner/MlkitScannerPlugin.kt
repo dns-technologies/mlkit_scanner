@@ -73,8 +73,10 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         try {
-            disposeResources()
-            detach(true)
+            val failures = ExceptionCollector()
+            failures.attempt(::disposeResources)
+            failures.attempt { detach(true) }
+            failures.throwIfFailed()
         } finally {
             previewSubscriptions.clear()
             channel?.setMethodCallHandler(null)
@@ -105,13 +107,15 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
     private fun detach(final: Boolean) {
         val binding = activityBinding
         activityBinding = null
-        closeSelected()
-        scanner?.detachActivity()
-        binding?.removeRequestPermissionsResultListener(permissionListener)
+        val failures = ExceptionCollector()
+        failures.attempt(::closeSelected)
+        failures.attempt { scanner?.detachActivity() }
+        failures.attempt { binding?.removeRequestPermissionsResultListener(permissionListener) }
         if (final) {
-            permissions.detachFinal()
-            disposeResources()
-        } else permissions.detachForConfigChange()
+            failures.attempt(permissions::detachFinal)
+            failures.attempt(::disposeResources)
+        } else failures.attempt(permissions::detachForConfigChange)
+        failures.throwIfFailed()
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {

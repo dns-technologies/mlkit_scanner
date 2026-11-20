@@ -53,8 +53,15 @@ extension Dictionary where Key == String, Value == Any {
     /// Requires an exact Int64 while preserving integer precision beyond Double's exact range.
     func requireInt64(_ key: String) throws -> Int64 {
         let number = try requireNumber(self[key])
-        let value = number.int64Value
-        guard number.compare(NSNumber(value: value)) == .orderedSame else { throw MlKitPluginError.invalidArguments }
+        let value: Int64?
+        switch String(cString: number.objCType) {
+        case "f", "d":
+            // NSNumber's integer conversion can accept 2^63 as Int64.max.
+            value = Int64(exactly: number.doubleValue)
+        default:
+            value = number as? Int64
+        }
+        guard let value = value else { throw MlKitPluginError.invalidArguments }
         return value
     }
 

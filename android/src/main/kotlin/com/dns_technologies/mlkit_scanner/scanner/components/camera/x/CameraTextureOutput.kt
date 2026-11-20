@@ -6,6 +6,7 @@ import androidx.camera.core.SurfaceRequest
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewState
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
+import com.dns_technologies.mlkit_scanner.utils.ExceptionCollector
 import io.flutter.view.TextureRegistry
 import java.util.concurrent.Executor
 import kotlinx.coroutines.CompletableDeferred
@@ -28,6 +29,11 @@ internal class CameraTextureOutput(
     private var transformation: SurfaceRequest.TransformationInfo? = null
     /** Whether a completed capture has confirmed the current request is streaming. */
     private var streaming = false
+    /** Whether the camera is open and can deliver new preview frames. */
+    private var cameraOpen = false
+    /** First-frame request visible to camera callbacks until the current stream is confirmed. */
+    @Volatile var awaitedFrame: FirstFrame? = null
+        private set
     /** Whether this preview can retain a captured frame while paused. */
     private var hasFrame = false
     /** Terminal flag rejecting new surfaces and late readiness callbacks. */
@@ -74,6 +80,7 @@ internal class CameraTextureOutput(
         producer.setSize(next.resolution.width, next.resolution.height)
         val target = producer.surface
         surface = target
+        if (cameraOpen) awaitedFrame = FirstFrame()
         next.setTransformationInfoListener(executor) { info ->
             if (request !== next || closed) return@setTransformationInfoListener
             transformation = info
@@ -87,6 +94,8 @@ internal class CameraTextureOutput(
                     request = null
                     surface = null
                     transformation = null
+                    awaitedFrame = null
+                    streaming = false
                 }
                 finishDisposal()
             }
@@ -97,38 +106,36 @@ internal class CameraTextureOutput(
         }
     }
 
-    /** Associates a real capture with the surface request active when it began. */
-    fun frameStarted(frameNumber: Long): PreviewFrame? =
-        request?.let { PreviewFrame(frameNumber, it) }
-
     /** Capture completion is a readiness signal, not a Flutter raster presentation timestamp. */
-    fun frameCaptured(frame: PreviewFrame) {
-        if (closed || streaming || surface == null || request !== frame.output) return
+    fun frameCaptured(frame: FirstFrame) {
+        if (awaitedFrame !== frame) return
+        awaitedFrame = null
         streaming = true
         hasFrame = true
         emit()
     }
 
-    /**
-     * A real camera capture associated with the surface request active when it started.
-     *
-     * @property number Camera2 frame number used to correlate capture callbacks.
-     * @property output Surface request whose readiness this capture can confirm.
-     */
-    class PreviewFrame(val number: Long, val output: SurfaceRequest)
+    /** Identity of a surface and camera-open interval awaiting its first completed capture. */
+    class FirstFrame
 
     /** Pauses preview delivery while retaining the last available frame. */
     fun pause() {
         if (closed) return
+        cameraOpen = false
         emit(if (hasFrame) CameraPreviewState.Paused else CameraPreviewState.Starting)
         clearRequest()
     }
 
-    /** Marks a closed camera as paused or starting without discarding retained pixels. */
+    /** Pauses frame confirmation when the camera closes and re-arms it on reopen. */
     fun cameraAvailable(available: Boolean) {
-        if (!available) {
-            emit(if (hasFrame) CameraPreviewState.Paused else CameraPreviewState.Starting)
+        if (closed) return
+        cameraOpen = available
+        if (available) {
+            if (!streaming && surface != null && awaitedFrame == null) awaitedFrame = FirstFrame()
+        } else {
+            awaitedFrame = null
             streaming = false
+            emit(if (hasFrame) CameraPreviewState.Paused else CameraPreviewState.Starting)
         }
     }
 
@@ -170,6 +177,7 @@ internal class CameraTextureOutput(
         request = null
         surface = null
         transformation = null
+        awaitedFrame = null
         streaming = false
         previous?.clearTransformationInfoListener()
         previous?.invalidate()
@@ -179,10 +187,12 @@ internal class CameraTextureOutput(
     fun dispose() {
         if (closed) return
         closed = true
-        producer.setCallback(null)
-        clearRequest()
-        publish(null)
-        finishDisposal()
+        val failures = ExceptionCollector()
+        failures.attempt { producer.setCallback(null) }
+        failures.attempt(::clearRequest)
+        failures.attempt { publish(null) }
+        failures.attempt(::finishDisposal)
+        failures.throwIfFailed()
     }
 
     /** Releases the producer exactly once after CameraX has relinquished every surface. */

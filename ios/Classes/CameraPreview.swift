@@ -117,7 +117,7 @@ final class CameraPreview: NSObject, CameraPreviewing {
     }
 
     /// Initializes the native camera session and reports completion on main.
-    func initCamera(completion: @escaping (Error?) -> Void) {
+    func initCamera(_ data: CameraData, completion: @escaping (Error?) -> Void) {
         guard !closed else {
             completion(MlKitPluginError.cameraSessionDisposed)
             return
@@ -131,23 +131,27 @@ final class CameraPreview: NSObject, CameraPreviewing {
                 return
             }
             do {
-                let session = AVCaptureSession()
-                session.sessionPreset = .hd1280x720
-                guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+                guard let camera = AVCaptureDevice.default(data.type, for: .video, position: data.position) else {
                     throw MlKitPluginError.initCameraError
                 }
                 let input = try AVCaptureDeviceInput(device: camera)
-                guard session.canAddInput(input) else { throw MlKitPluginError.initCameraError }
-                session.addInput(input)
                 let video = AVCaptureVideoDataOutput()
                 video.alwaysDiscardsLateVideoFrames = true
+                // BGRA avoids a YUV color conversion in Flutter's external texture renderer.
                 video.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)]
-                guard session.canAddOutput(video) else { throw MlKitPluginError.initCameraError }
-                session.addOutput(video)
+                let session = AVCaptureSession()
+                session.beginConfiguration()
+                do {
+                    defer { session.commitConfiguration() }
+                    session.sessionPreset = .hd1280x720
+                    guard session.canAddInput(input) else { throw MlKitPluginError.initCameraError }
+                    session.addInput(input)
+                    guard session.canAddOutput(video) else { throw MlKitPluginError.initCameraError }
+                    session.addOutput(video)
+                }
                 self.session = session
                 self.camera = camera
                 self.videoOutput = video
-                self.installReceiver()
                 DispatchQueue.main.async {
                     guard !self.closed else {
                         completion(MlKitPluginError.cameraSessionDisposed)

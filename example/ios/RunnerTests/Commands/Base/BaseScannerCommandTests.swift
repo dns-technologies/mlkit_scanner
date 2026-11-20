@@ -112,7 +112,7 @@ final class ScannerCommandFixture {
         var initializationError: Error?
         var error: Error?
 
-        func initCamera(completion: @escaping (Error?) -> Void) {
+        func initCamera(_ camera: CameraData, completion: @escaping (Error?) -> Void) {
             isInitialized = initializationError == nil
             completion(initializationError)
         }

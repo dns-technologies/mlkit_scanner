@@ -93,6 +93,57 @@ final class FrameAnalysisGateTests: XCTestCase {
         XCTAssertTrue(gate.beginAnalysis())
     }
 
+    func testResetClearsCompletedNoMatchCooldown() {
+        let now: TimeInterval = 500
+        let gate = FrameAnalysisGate(
+            successfulScanPeriodMilliseconds: 5_000,
+            currentTimeMilliseconds: { now }
+        )
+        XCTAssertTrue(gate.beginAnalysis())
+        gate.completeAnalysis(barcodeFound: false)
+        XCTAssertFalse(gate.beginAnalysis())
+
+        gate.resetCooldown()
+
+        XCTAssertTrue(gate.beginAnalysis())
+    }
+
+    func testResetKeepsInFlightAnalysisSerializedAndIgnoresItsSuccess() {
+        let now: TimeInterval = 500
+        let gate = FrameAnalysisGate(
+            successfulScanPeriodMilliseconds: 5_000,
+            currentTimeMilliseconds: { now }
+        )
+        XCTAssertTrue(gate.beginAnalysis())
+
+        gate.resetCooldown()
+        XCTAssertFalse(gate.beginAnalysis())
+        gate.completeAnalysis(barcodeFound: true)
+
+        XCTAssertTrue(gate.beginAnalysis())
+    }
+
+    func testRepeatedResetKeepsInFlightAnalysisSerializedAndIgnoresItsFailure() {
+        var now: TimeInterval = 500
+        let gate = FrameAnalysisGate(
+            successfulScanPeriodMilliseconds: 0,
+            currentTimeMilliseconds: { now }
+        )
+        XCTAssertTrue(gate.beginAnalysis())
+
+        gate.resetCooldown()
+        gate.resetCooldown()
+        XCTAssertFalse(gate.beginAnalysis())
+        gate.completeAnalysis(barcodeFound: false)
+
+        XCTAssertTrue(gate.beginAnalysis())
+        gate.completeAnalysis(barcodeFound: false)
+        now = 1_499
+        XCTAssertFalse(gate.beginAnalysis())
+        now = 1_500
+        XCTAssertTrue(gate.beginAnalysis())
+    }
+
     func testSkippedFramesDoNotPostponeTheRetryDeadline() {
         var now: TimeInterval = 0
         let gate = FrameAnalysisGate(

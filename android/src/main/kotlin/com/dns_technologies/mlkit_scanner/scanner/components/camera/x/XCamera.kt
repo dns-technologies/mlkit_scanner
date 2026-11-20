@@ -36,6 +36,7 @@ import com.dns_technologies.mlkit_scanner.PluginConstants
 import com.dns_technologies.mlkit_scanner.PluginError
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.*
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
+import com.dns_technologies.mlkit_scanner.utils.ExceptionCollector
 import com.google.common.util.concurrent.ListenableFuture
 import io.flutter.view.TextureRegistry
 import java.util.concurrent.CancellationException
@@ -71,7 +72,9 @@ internal class XCamera(
 
     /** Loaded process provider used to unbind only this adapter's use cases. */
     private var provider: ProcessCameraProvider? = null
-    /** Current SDK binding identity, visible to the analysis worker. */
+    /** Frame receiver policy retained across bindings and temporary surface loss. */
+    private var selectFrameReceiver: (Start) -> OnCameraFrame? = Start::onFrame
+    /** Current SDK binding identity, visible to camera and analysis callbacks. */
     @Volatile private var binding: Binding? = null
     /** Latest preview viewport size, published to the analysis worker. */
     @Volatile private var previewSize = Size(1, 1)
@@ -177,19 +180,6 @@ internal class XCamera(
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
                     attemptedAnalysis = analysis
-                    analysis.setAnalyzer(start.executor) { image ->
-                        var frame: XCameraFrame? = null
-                        try {
-                            if (binding?.analysis !== analysis) return@setAnalyzer
-                            val size = previewSize
-                            frame = XCameraFrame(image, nv21Converter, size.width, size.height)
-                            start.onFrame(frame)
-                        } catch (error: Exception) {
-                            Log.e(PluginConstants.LOG_TAG, "Camera analysis failed", error)
-                        } finally {
-                            frame?.close() ?: image.close()
-                        }
-                    }
                     val group =
                         UseCaseGroup.Builder()
                             .setViewPort(
@@ -215,6 +205,7 @@ internal class XCamera(
                     val current = Binding(start, camera, preview, analysis)
                     pending = null
                     binding = current
+                    current.setFrameReceiver(selectFrameReceiver(start))
                     camera.cameraInfo.cameraState.observeForever(current.observer)
                     if (binding === current && !disposed) {
                         current.initialized = true
@@ -242,18 +233,25 @@ internal class XCamera(
         )
     }
 
+    override fun setFrameReceiver(onFrame: OnCameraFrame?) {
+        selectFrameReceiver = { onFrame }
+        binding?.setFrameReceiver(onFrame)
+    }
+
     /** Creates a camera preview with frame-readiness notifications. */
     private fun createPreview(start: Start): Preview {
         val builder =
             Preview.Builder().setTargetRotation(rotation).setResolutionSelector(RESOULTION)
+        // Track captures on main only until the current surface has its first completed frame.
         Camera2Interop.Extender(builder)
             .setSessionCaptureCallback(
                 object : CameraCaptureSession.CaptureCallback() {
-                    /**
-                     * Recent real captures awaiting completion, correlated to their surface
-                     * requests.
-                     */
-                    private val frames = mutableMapOf<Long, CameraTextureOutput.PreviewFrame>()
+                    /** First-frame request being tracked on main. */
+                    private var tracking: CameraTextureOutput.FirstFrame? = null
+                    /** Camera2 session that started the candidate captures. */
+                    private var captureSession: CameraCaptureSession? = null
+                    /** Recent candidate frame numbers from that session, stored on main. */
+                    private val frames = mutableSetOf<Long>()
 
                     override fun onCaptureStarted(
                         session: CameraCaptureSession,
@@ -261,13 +259,18 @@ internal class XCamera(
                         timestamp: Long,
                         frameNumber: Long,
                     ) {
+                        val firstFrame = output.awaitedFrame ?: return
+                        if (binding?.start !== start) return
                         mainExecutor.execute {
-                            if (binding?.start === start) {
-                                output.frameStarted(frameNumber)?.let { frames[frameNumber] = it }
-                                // Keep only actual recent camera frames when a device
-                                // omits a completion callback.
-                                frames.keys.removeAll { it < frameNumber - 8 }
+                            if (binding?.start !== start || output.awaitedFrame !== firstFrame) return@execute
+                            if (tracking !== firstFrame || captureSession !== session) {
+                                tracking = firstFrame
+                                captureSession = session
+                                frames.clear()
                             }
+                            frames.add(frameNumber)
+                            // Bound retained frames if Camera2 omits a completion.
+                            frames.removeAll { it < frameNumber - 8 }
                         }
                     }
 
@@ -276,10 +279,17 @@ internal class XCamera(
                         request: CaptureRequest,
                         result: TotalCaptureResult,
                     ) {
+                        val firstFrame = output.awaitedFrame ?: return
+                        if (binding?.start !== start) return
                         mainExecutor.execute {
-                            val frame = frames.remove(result.frameNumber)
-                            if (binding?.start === start && frame != null)
-                                output.frameCaptured(frame)
+                            if (binding?.start !== start || output.awaitedFrame !== firstFrame ||
+                                tracking !== firstFrame || captureSession !== session ||
+                                !frames.remove(result.frameNumber)
+                            ) return@execute
+                            frames.clear()
+                            captureSession = null
+                            tracking = null
+                            output.frameCaptured(firstFrame)
                         }
                     }
                 }
@@ -288,9 +298,12 @@ internal class XCamera(
     }
 
     override fun resetFocus(): Deferred<Unit> {
-        val camera = requireCamera()
+        val current = binding ?: throw PluginError.CameraIsNotInitialized
+        val alreadyDefault = isReady && current.canSkipFirstFocusReset
+        current.canSkipFirstFocusReset = false
+        if (alreadyDefault) return CompletableDeferred(Unit)
         return cameraCall("Failed to reset camera focus") {
-            camera.cameraControl.cancelFocusAndMetering()
+            current.camera.cameraControl.cancelFocusAndMetering()
         }
     }
 
@@ -323,6 +336,7 @@ internal class XCamera(
                     else disableAutoCancel()
                 }
                 .build()
+        current.canSkipFirstFocusReset = false
         return cameraCall("Failed to focus camera at ($x, $y)") {
             current.camera.cameraControl.startFocusAndMetering(action)
         }
@@ -369,7 +383,7 @@ internal class XCamera(
         if (previous != null) {
             previous.camera.cameraInfo.cameraState.removeObserver(previous.observer)
             provider?.unbind(previous.preview, previous.analysis)
-            previous.analysis.clearAnalyzer()
+            previous.setFrameReceiver(null)
             output.pause()
             previous.start.onAvailability(CameraAvailability.Closed())
         }
@@ -379,13 +393,13 @@ internal class XCamera(
         if (disposed) return
         disposed = true
         suspended = null
-        try {
-            unbind()
-        } finally {
-            output.dispose()
-            displayManager.unregisterDisplayListener(displayListener)
-            nv21Converter.dispose()
-        }
+        selectFrameReceiver = { null }
+        val failures = ExceptionCollector()
+        failures.attempt(::unbind)
+        failures.attempt(output::dispose)
+        failures.attempt { displayManager.unregisterDisplayListener(displayListener) }
+        failures.attempt(nv21Converter::dispose)
+        failures.throwIfFailed()
     }
 
     private class Start(
@@ -416,14 +430,49 @@ internal class XCamera(
             private set
         /** Whether binding setup returned without disposal or callback failure. */
         var initialized = false
+        /** Whether a confirmed closed device can use its default metering on the first capture. */
+        var canSkipFirstFocusReset = false
+        /** Current analysis endpoint; queued callbacks must match it and the binding. */
+        @Volatile private var analyzer: ImageAnalysis.Analyzer? = null
         /** Converts CameraX state changes into deduplicated availability events. */
         val observer =
             Observer<AndroidXCameraState> { state ->
                 if (binding === this) updateAvailability(state)
             }
 
+        /** Changes the repeating analysis target without replacing this camera binding. */
+        fun setFrameReceiver(onFrame: OnCameraFrame?) {
+            val previous = analyzer
+            val next = onFrame?.let { deliver ->
+                object : ImageAnalysis.Analyzer {
+                    override fun analyze(image: androidx.camera.core.ImageProxy) {
+                        var frame: XCameraFrame? = null
+                        try {
+                            if (binding !== this@Binding || analyzer !== this) return
+                            val size = previewSize
+                            frame = XCameraFrame(image, nv21Converter, size.width, size.height)
+                            if (binding === this@Binding && analyzer === this) deliver(frame)
+                        } catch (error: Exception) {
+                            Log.e(PluginConstants.LOG_TAG, "Camera analysis failed", error)
+                        } finally {
+                            frame?.close() ?: image.close()
+                        }
+                    }
+                }
+            }
+            analyzer = next
+            // With no analyzer, preview can continue without delivering images to the analysis worker.
+            if (next != null) analysis.setAnalyzer(start.executor, next)
+            else if (previous != null) analysis.clearAnalyzer()
+        }
+
         /** Converts SDK state without publishing duplicate device transitions. */
         private fun updateAvailability(state: AndroidXCameraState) {
+            // A clean initial CLOSED state confirms default metering and saves waiting for a reset.
+            // An already open device can be shared and may still have a metering region.
+            if (availability == null && state.type == AndroidXCameraState.Type.CLOSED && state.error == null)
+                canSkipFirstFocusReset = true
+            if (state.error != null) canSkipFirstFocusReset = false
             val next =
                 if (state.type == AndroidXCameraState.Type.OPEN && state.error == null)
                     CameraAvailability.Open

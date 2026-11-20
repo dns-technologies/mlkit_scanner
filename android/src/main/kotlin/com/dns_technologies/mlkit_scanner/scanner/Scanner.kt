@@ -21,7 +21,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -66,6 +65,7 @@ internal class Scanner(
         camera.onPreviewChanged = { description ->
             if (!isDisposed) onPreviewChanged(this, description)
         }
+        camera.setFrameReceiver(null)
     }
     /** Currently selected consumer; null after ownership is revoked. */
     private var view: ScannerConsumer? = null
@@ -77,8 +77,8 @@ internal class Scanner(
     private var analysisExecutor: ExecutorService? = null
     /** Protects analysis eligibility and listener membership across threads. */
     private val scanJobLock = Any()
-    /** Parent job whose cancellation invalidates in-flight recognition results. */
-    private var scanJob: CompletableJob? = null
+    /** Active analysis lifetime, shared by frames until recognition pauses. */
+    private var scanJob: Job? = null
     /** Caches scan crop geometry on the single analysis worker. */
     private val scanAreaState = ScanAreaState()
     /** Last acknowledged settings of the shared camera. */
@@ -262,7 +262,7 @@ internal class Scanner(
         val executor =
             synchronized(scanJobLock) {
                 closeCause = cause
-                pauseAnalysis()
+                revokeAnalysis()
                 scanResultListeners.clear()
                 analysisExecutor.also { analysisExecutor = null }
             }
@@ -425,18 +425,31 @@ internal class Scanner(
 
     /** Resumes analysis with the period already retained by the analyzer. */
     private fun resumeAnalysis() {
-        synchronized(scanJobLock) {
+        val activeScan = synchronized(scanJobLock) {
             if (isDisposed || scanJob?.isActive == true) return
-            scanJob = Job()
+            Job().also { scanJob = it }
+        }
+        try {
+            camera.setFrameReceiver { frame -> analyzeFrame(frame, activeScan) }
+        } catch (error: Exception) {
+            synchronized(scanJobLock) {
+                if (scanJob === activeScan) revokeAnalysis()
+            }
+            throw error
         }
     }
 
     /** Pauses frame analysis without releasing analyzer resources. */
     private fun pauseAnalysis() {
-        synchronized(scanJobLock) {
-            scanJob?.cancel()
-            scanJob = null
-        }
+        if (revokeAnalysis()) camera.setFrameReceiver(null)
+    }
+
+    /** Invalidates callbacks bound to the current scan before changing frame delivery. */
+    private fun revokeAnalysis(): Boolean = synchronized(scanJobLock) {
+        val previous = scanJob ?: return@synchronized false
+        scanJob = null
+        previous.cancel()
+        true
     }
 
     /** Updates the analyzer cooldown applied after successful recognition. */
@@ -457,32 +470,26 @@ internal class Scanner(
 
     /** Processes a camera frame when scanning is active. */
     private fun analyzeFrame(frame: CameraFrame) {
-        val analysisJob = createAnalysisJob() ?: return
-
-        try {
-            val cropRect = scanAreaState.resolve(frame, cropArea)
-            if (cropRect.isEmpty) return
-            val result = analyzer.analyze(frame, cropRect) ?: return
-            emitScanResult(result, analysisJob)
-        } finally {
-            analysisJob.complete()
-        }
+        val activeScan = synchronized(scanJobLock) { scanJob } ?: return
+        analyzeFrame(frame, activeScan)
     }
 
-    /** Starts an analysis lifetime whose results become invalid when scanning pauses. */
-    private fun createAnalysisJob(): CompletableJob? =
-        synchronized(scanJobLock) {
-            val activeScanJob = scanJob?.takeIf { it.isActive } ?: return@synchronized null
-            Job(activeScanJob)
-        }
+    /** Processes only frames belonging to this scan, even after a replacement is selected. */
+    private fun analyzeFrame(frame: CameraFrame, activeScan: Job) {
+        if (!activeScan.isActive) return
+        val cropRect = scanAreaState.resolve(frame, cropArea)
+        if (cropRect.isEmpty) return
+        val result = analyzer.analyze(frame, cropRect, activeScan) ?: return
+        emitScanResult(result, activeScan)
+    }
 
     /** Delivers results to active listeners while recognition remains enabled. */
-    private fun emitScanResult(result: Barcode, analysisJob: Job) =
+    private fun emitScanResult(result: Barcode, activeScan: Job) =
         synchronized(scanJobLock) {
             // A listener can synchronously pause/restart scanning or cancel another subscription.
             // Snapshot iteration tolerates those edits; recheck eligibility before each delivery.
             for (listener in scanResultListeners.toList()) {
-                if (!analysisJob.isActive) return
+                if (!activeScan.isActive) return
                 if (listener in scanResultListeners) listener(result)
             }
         }

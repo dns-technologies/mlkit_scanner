@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mlkit_scanner/models/barcode.dart';
 import 'package:mlkit_scanner/models/crop_rect.dart';
 import 'package:mlkit_scanner/platform/ml_kit_channel.dart';
+import 'package:mlkit_scanner/platform/scanner_configuration.dart';
 import 'package:mlkit_scanner/platform/scanner_runtime.dart';
 import 'package:mlkit_scanner/src/platform/scanner_controller.dart';
 import 'package:mlkit_scanner/utils/mlkit_utils.dart';
@@ -165,9 +166,7 @@ void main() {
         if (call.method == 'updateCameraSettings') await ack.future;
         return null;
       };
-      await a.configure(zoomRatio: 2);
-      await a.configure(zoomRatio: 3);
-      await a.configure(torchEnabled: !a.configuration.torchEnabled);
+      await a.configure(zoomRatio: 2, torchEnabled: true);
       ack.completeError(PlatformException(code: 'zoom-failed'));
       await RuntimeHarness.flush();
       expect(h.errors, hasLength(1));
@@ -178,6 +177,187 @@ void main() {
         h.calls.lastWhere((c) => c.method == 'capture').arguments,
         containsPair('configuration', a.configuration.toCaptureArguments()),
       );
+    });
+
+    test('Исправленная конфигурация применяется после ошибки ожидавшего изменения', () async {
+      final controller = h.controller(1);
+      await controller.capture();
+      h.calls.clear();
+      final pending = Completer<void>();
+      addTearDown(() {
+        if (!pending.isCompleted) pending.complete();
+      });
+      h.handler = (call) async {
+        if (call.method == 'updateCameraSettings') await pending.future;
+        return null;
+      };
+      await controller.configure(zoomRatio: 2);
+      await RuntimeHarness.flush();
+      await controller.configure(zoomRatio: 3);
+      await controller.configure(torchEnabled: true);
+
+      pending.completeError(PlatformException(code: 'zoom-failed'));
+      await RuntimeHarness.flush();
+
+      expect(h.errors, hasLength(1));
+      expect(h.methods, ['updateCameraSettings', 'capture']);
+      expect(h.calls.last.arguments, containsPair('configuration', controller.configuration.toCaptureArguments()));
+    });
+
+    test('Синхронное исправление настроек из обработчика ошибки применяется в текущей очереди', () async {
+      final errors = <Object>[];
+      late final BarcodeScannerController controller;
+      controller = BarcodeScannerController(
+        viewId: 1,
+        runtime: h.runtime,
+        onError: (error, stack) {
+          errors.add(error);
+          controller.applyConfiguration(const ScannerConfiguration(zoomRatio: 3));
+        },
+      );
+      h.controllers.add(controller);
+      await controller.initialize();
+      await controller.capture();
+      h.calls.clear();
+      h.handler = (call) async {
+        if (call.method == 'updateCameraSettings') throw PlatformException(code: 'zoom-failed');
+        return null;
+      };
+
+      await controller.configure(zoomRatio: 2);
+      await RuntimeHarness.flush();
+
+      expect(errors, hasLength(1));
+      expect(h.errors, isEmpty);
+      expect(h.methods, ['updateCameraSettings', 'capture']);
+      expect(h.calls.last.arguments, containsPair('configuration', controller.configuration.toCaptureArguments()));
+    });
+
+    test('Синхронное удаление из обработчика ошибки отменяет ожидающее исправление настроек', () async {
+      final errors = <Object>[];
+      late final BarcodeScannerController controller;
+      controller = BarcodeScannerController(
+        viewId: 1,
+        runtime: h.runtime,
+        onError: (error, stack) {
+          errors.add(error);
+          controller.dispose();
+        },
+      );
+      h.controllers.add(controller);
+      await controller.initialize();
+      await controller.capture();
+      h.calls.clear();
+      final pending = Completer<void>();
+      addTearDown(() {
+        if (!pending.isCompleted) pending.complete();
+      });
+      h.handler = (call) async {
+        if (call.method == 'updateCameraSettings') await pending.future;
+        return null;
+      };
+      await controller.configure(zoomRatio: 2);
+      await RuntimeHarness.flush();
+      await controller.configure(zoomRatio: 3);
+
+      pending.completeError(PlatformException(code: 'zoom-failed'));
+      await RuntimeHarness.flush();
+
+      expect(errors, hasLength(1));
+      expect(h.errors, isEmpty);
+      expect(controller.isCurrent, isFalse);
+      expect(controller.isDisposed, isTrue);
+      expect(h.methods, ['updateCameraSettings', 'release']);
+    });
+
+    test('Фокус ожидает исправленную конфигурацию после ошибки предыдущей настройки', () async {
+      final controller = h.controller(1);
+      await controller.capture();
+      h.calls.clear();
+      final pending = Completer<void>();
+      final restored = Completer<void>();
+      addTearDown(() {
+        if (!pending.isCompleted) pending.complete();
+        if (!restored.isCompleted) restored.complete();
+      });
+      h.handler = (call) async {
+        if (call.method == 'updateCameraSettings') await pending.future;
+        if (call.method == 'capture') await restored.future;
+        return null;
+      };
+      await controller.configure(zoomRatio: 2);
+      await RuntimeHarness.flush();
+      await controller.configure(zoomRatio: 3);
+      var completed = false;
+      final focus = controller.focus(locked: true).then((_) => completed = true);
+
+      pending.completeError(PlatformException(code: 'zoom-failed'));
+      await RuntimeHarness.flush();
+
+      expect(completed, isFalse);
+      expect(h.methods, ['updateCameraSettings', 'capture']);
+
+      restored.complete();
+      await focus;
+
+      expect(completed, isTrue);
+      expect(h.methods, ['updateCameraSettings', 'capture', 'focus']);
+      expect(h.errors, hasLength(1));
+    });
+
+    test('Ошибка последней конфигурации не запускает повторные попытки без нового изменения', () async {
+      final controller = h.controller(1);
+      await controller.capture();
+      h.calls.clear();
+      final pending = Completer<void>();
+      addTearDown(() {
+        if (!pending.isCompleted) pending.complete();
+      });
+      h.handler = (call) async {
+        if (call.method != 'updateCameraSettings') return null;
+        if ((call.arguments as Map)['zoomRatio'] == 2) {
+          await pending.future;
+        } else {
+          throw PlatformException(code: 'zoom-failed');
+        }
+        return null;
+      };
+      await controller.configure(zoomRatio: 2);
+      await RuntimeHarness.flush();
+      await controller.configure(zoomRatio: 3);
+
+      pending.complete();
+      await RuntimeHarness.flush();
+
+      expect(h.errors, hasLength(1));
+      expect(h.methods, ['updateCameraSettings', 'updateCameraSettings']);
+    });
+
+    test('Ошибка настройки, изменённой при сохранении кадра, не повторяет применение', () async {
+      final frame = Completer<void>();
+      addTearDown(() {
+        if (!frame.isCompleted) frame.complete();
+      });
+      final controller = BarcodeScannerController(viewId: 1, runtime: h.runtime, retainPreview: () => frame.future);
+      h.controllers.add(controller);
+      await controller.initialize();
+      await controller.capture();
+      h.calls.clear();
+      h.handler = (call) async {
+        if (call.method == 'updateCameraSettings') throw PlatformException(code: 'zoom-failed');
+        return null;
+      };
+
+      await controller.configure(cameraPaused: true, zoomRatio: 2);
+      await RuntimeHarness.flush();
+      expect(h.calls, isEmpty);
+      await controller.configure(zoomRatio: 3);
+      frame.complete();
+      await RuntimeHarness.flush();
+
+      expect(h.errors, hasLength(1));
+      expect(h.methods, ['updateCameraSettings']);
+      expect(h.calls.single.arguments, containsPair('zoomRatio', 3.0));
     });
 
     test('disabled recognition retains delay in Dart and applies it once when started', () async {
@@ -395,6 +575,31 @@ void main() {
       expect(h.methods, contains('disposeScanner'));
       // The same terminal operation retains its failure; do not ask the fixture to await it twice.
       h.handler = null;
+    });
+
+    test('Завершение работы отклоняет захват, пока предыдущий владелец освобождает камеру', () async {
+      final outgoing = h.controller(1);
+      final incoming = h.controller(2);
+      await outgoing.capture();
+      h.calls.clear();
+      final release = Completer<void>();
+      addTearDown(() {
+        if (!release.isCompleted) release.complete();
+      });
+      h.handler = (call) async {
+        if (call.method == 'release' && (call.arguments as Map)['captureId'] == h.leases[1]) await release.future;
+        return null;
+      };
+
+      final disposal = h.runtime.dispose();
+      await incoming.capture();
+
+      expect(h.methods, ['release']);
+      expect(incoming.captureState.value, ScannerCaptureState.released);
+
+      release.complete();
+      await disposal;
+      expect(h.methods, ['release', 'unsubscribePreview', 'disposeScanner']);
     });
   });
 

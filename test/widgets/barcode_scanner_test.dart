@@ -1458,7 +1458,7 @@ void _scannerTests() {
     for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
       testWidgets('$platform lock fades in before flying to the corner', (tester) async {
         await mount(tester, platform: platform);
-        const initialX = 108.0;
+        const initialX = 74.0;
         const target = 19.2;
         await tester.longPress(overlay);
         await tester.pump();
@@ -1563,7 +1563,7 @@ void _scannerTests() {
       expect(
         painting(tester),
         paints
-          ..translate(x: 63.6, y: 83.6)
+          ..translate(x: 46.6, y: 83.6)
           ..path(color: const Color(0x80ffffff)),
       );
       await tester.pump(const Duration(seconds: 1));

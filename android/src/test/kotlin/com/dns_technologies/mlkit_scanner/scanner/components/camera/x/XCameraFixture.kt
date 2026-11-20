@@ -1,6 +1,8 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
+import android.graphics.Rect
 import android.util.Rational
+import android.util.Size
 import android.view.Surface
 import android.view.View
 import androidx.camera.core.Camera
@@ -10,16 +12,19 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraState
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
+import androidx.camera.core.SurfaceRequest
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.ViewPort
 import androidx.camera.core.ZoomState
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.core.util.Consumer
 import io.flutter.view.TextureRegistry
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Observer
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraAvailability
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraPreviewDescription
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.OnCameraFrame
 import java.util.concurrent.ExecutorService
 import kotlinx.coroutines.Deferred
@@ -44,6 +49,7 @@ internal class XCameraFixture {
     val deviceState = RecordingLiveData(CameraState.create(CameraState.Type.OPEN))
     val zoomState = MutableLiveData<ZoomState>()
     val groups = mutableListOf<UseCaseGroup>()
+    val previews = mutableListOf<CameraPreviewDescription?>()
     val errors = mutableListOf<Exception>()
     val availability = mutableListOf<CameraAvailability>()
     var initialized = 0
@@ -59,6 +65,7 @@ internal class XCameraFixture {
         doReturn(cameraInfo).`when`(nativeCamera).cameraInfo
         doReturn(control).`when`(nativeCamera).cameraControl
         doReturn(deviceState).`when`(cameraInfo).cameraState
+        doReturn(mock(Surface::class.java)).`when`(producer).surface
         doReturn(zoomState).`when`(cameraInfo).zoomState
         doAnswer { it.getArgument<TextureRegistry.SurfaceProducer.Callback?>(0)?.let { callback -> surfaceCallback = callback }; null }.`when`(producer).setCallback(anyValue())
         doAnswer {
@@ -67,7 +74,7 @@ internal class XCameraFixture {
         }.`when`(provider).bindToLifecycle(
             anyValue<LifecycleOwner>(), anyValue<CameraSelector>(), anyValue<UseCaseGroup>(),
         )
-        camera = XCamera(RuntimeEnvironment.getApplication(), producer, {}) { future }
+        camera = XCamera(RuntimeEnvironment.getApplication(), producer, previews::add) { future }
     }
 
     fun start(completeProvider: Boolean = true) {
@@ -88,12 +95,16 @@ internal class XCameraFixture {
     fun layout(width: Int = 100, height: Int = 100) { camera.updateGeometry(android.util.Size(width, height)) }
 
     fun analyzer(group: UseCaseGroup = groups.last()): ImageAnalysis.Analyzer {
+        return requireNotNull(analyzerOrNull(group))
+    }
+
+    fun analyzerOrNull(group: UseCaseGroup = groups.last()): ImageAnalysis.Analyzer? {
         val analysis = group.useCases.filterIsInstance<ImageAnalysis>().single()
         // CameraX has no analyzer getter. Capture its installed callback to simulate work queued
         // before clearAnalyzer(), without copying the adapter's frame-handling logic into a fake.
         val field = ImageAnalysis::class.java.getDeclaredField("mSubscribedAnalyzer")
         field.isAccessible = true
-        return field.get(analysis) as ImageAnalysis.Analyzer
+        return field.get(analysis) as? ImageAnalysis.Analyzer
     }
 
     class RecordingLiveData<T>(value: T) : MutableLiveData<T>(value) {
@@ -108,6 +119,35 @@ internal class XCameraFixture {
     companion object {
         fun viewPort(rotation: Int = Surface.ROTATION_0, aspect: Rational = Rational(1, 1)) =
             ViewPort.Builder(aspect, rotation).build()
+        fun <T> anyValue(): T = any<T>()
+    }
+}
+
+/** CameraX surface request with controlled transformation and return callbacks. */
+internal class PreviewSurfaceRequest {
+    val request = mock(SurfaceRequest::class.java)
+    private lateinit var completion: Consumer<SurfaceRequest.Result>
+
+    init {
+        doReturn(Size(1280, 720)).`when`(request).resolution
+        val info = mock(SurfaceRequest.TransformationInfo::class.java)
+        doReturn(90).`when`(info).rotationDegrees
+        doReturn(Rect(160, 0, 1120, 720)).`when`(info).cropRect
+        doAnswer {
+            it.getArgument<SurfaceRequest.TransformationInfoListener>(1).onTransformationInfoUpdate(info)
+            null
+        }.`when`(request).setTransformationInfoListener(anyValue(), anyValue())
+        doAnswer {
+            completion = it.getArgument(2)
+            null
+        }.`when`(request).provideSurface(anyValue(), anyValue(), anyValue())
+    }
+
+    fun finish() {
+        completion.accept(mock(SurfaceRequest.Result::class.java))
+    }
+
+    private companion object {
         fun <T> anyValue(): T = any<T>()
     }
 }

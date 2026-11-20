@@ -24,8 +24,8 @@ protocol CameraPreviewing: AnyObject {
     /// Receives changes from the active native camera.
     var cameraPreviewDelegate: CameraPreviewDelegate? { get set }
 
-    /// Configures the session before capture settings are applied; reports completion on main.
-    func initCamera(completion: @escaping (Error?) -> Void)
+    /// Configures the session with the selected camera; reports completion on main.
+    func initCamera(_ camera: CameraData, completion: @escaping (Error?) -> Void)
 
     /// Applies capture settings and viewport geometry before starting the stream.
     func prepare(_ settings: ScannerConfiguration, geometry: CGSize, completion: @escaping (Error?) -> Void)

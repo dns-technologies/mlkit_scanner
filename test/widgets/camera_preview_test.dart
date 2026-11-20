@@ -67,4 +67,22 @@ void main() {
     expect(source.width, 1280);
     expect(tester.widget<FittedBox>(find.byType(FittedBox)).fit, BoxFit.cover);
   });
+  testWidgets('full-source crop reuses the viewport clip', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: CameraPreview(
+          description: ScannerPreviewDescription(
+            textureId: 7,
+            size: Size(1280, 720),
+            cropRect: Rect.fromLTWH(0, 0, 1280, 720),
+            rotationDegrees: 90,
+            status: ScannerPreviewStatus.streaming,
+          ),
+        ),
+      ),
+    );
+    expect(find.byType(Texture), findsOneWidget);
+    expect(find.byType(ClipRect), findsOneWidget);
+    expect(tester.widget<RotatedBox>(find.byType(RotatedBox)).quarterTurns, 1);
+  });
 }

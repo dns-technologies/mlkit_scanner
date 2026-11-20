@@ -12,16 +12,16 @@ internal class TexturePluginFixture {
     val scanner = mock(Scanner::class.java)
     private var nextCapture = 0
     val channel = MethodChannel(mock(BinaryMessenger::class.java), "mlkit_channel")
+    val activityBinding = mock(io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding::class.java)
+    val permissions = com.dns_technologies.mlkit_scanner.permissions.PermissionGateway(permissionChecker = { _, _ -> true })
     init {
         doReturn(kotlinx.coroutines.CompletableDeferred(Unit)).`when`(scanner).disposal
         set("channel", channel); set("scanner", scanner)
         val activity = mock(android.app.Activity::class.java)
-        val binding = mock(io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding::class.java)
-        doReturn(activity).`when`(binding).activity
+        doReturn(activity).`when`(activityBinding).activity
         doReturn(io.flutter.embedding.engine.plugins.lifecycle.HiddenLifecycleReference(mock(androidx.lifecycle.Lifecycle::class.java)))
-            .`when`(binding).lifecycle
-        set("activityBinding", binding)
-        val permissions = com.dns_technologies.mlkit_scanner.permissions.PermissionGateway(permissionChecker = { _, _ -> true })
+            .`when`(activityBinding).lifecycle
+        set("activityBinding", activityBinding)
         permissions.attach(activity)
         set("permissions", permissions)
     }

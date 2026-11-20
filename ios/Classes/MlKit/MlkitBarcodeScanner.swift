@@ -13,19 +13,19 @@ import MLKitBarcodeScanning
 import MLKitVision
 
 /// Recognizes barcodes from camera frames using ML Kit.
-/// Accepts the first frame without an initial recognition cooldown.
+/// Accepts the first available frame of each subscription without an initial cooldown.
 class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
     /// ML Kit recognizer reused across camera frames.
     private let scanner: BarcodeScanner
     /// Limits concurrent analyses and enforces result-dependent cooldowns.
     private let analysisGate: FrameAnalysisGate
     /// Protects crop geometry and the current result subscription.
-    private let cropRectLock = NSLock()
+    private let stateLock = NSLock()
     /// Core Image context reused to crop submitted frames.
     private let imageContext = CIContext()
-    /// Optional normalized recognition area; protected by cropRectLock.
+    /// Optional normalized recognition area; protected by stateLock.
     private var cropRect: CropRect?
-    /// Protected with cropRectLock; frame submissions snapshot this actual subscription.
+    /// Active listener eligible to submit frames; protected by stateLock.
     private var subscription: ScanResultSubscription?
 
     init(delay: Int, cropRect: CropRect?) {
@@ -35,11 +35,11 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
         super.init()
     }
 
-    /// Attempts to recognize the first barcode in `sampleBuffer`.
+    /// Attempts to recognize the first barcode with a raw value in `sampleBuffer`.
     func processVideoOutput(sampleBuffer: CMSampleBuffer, viewport: CGSize) {
-        cropRectLock.lock()
+        stateLock.lock()
         let listener = subscription
-        cropRectLock.unlock()
+        stateLock.unlock()
         guard let listener = listener else { return }
         processVideoOutput(sampleBuffer: sampleBuffer, viewport: viewport, listener: listener)
     }
@@ -49,12 +49,15 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
         ScanInput(scanner: self, listener: listener)
     }
 
-    /// Submits a frame using the captured listener and viewport geometry.
+    /// Analyzes a frame if its subscription is still current and eligible.
     fileprivate func processVideoOutput(sampleBuffer: CMSampleBuffer, viewport: CGSize, listener: ScanResultSubscription) {
-        cropRectLock.lock()
+        stateLock.lock()
+        guard subscription === listener, analysisGate.beginAnalysis() else {
+            stateLock.unlock()
+            return
+        }
         let currentCropRect = cropRect
-        cropRectLock.unlock()
-        guard analysisGate.beginAnalysis() else { return }
+        stateLock.unlock()
 
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             analysisGate.completeAnalysis(barcodeFound: false)
@@ -83,7 +86,7 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
                 self.analysisGate.completeAnalysis(barcodeFound: false)
                 return
             }
-            guard let barcode = features?.first, barcode.rawValue != nil else {
+            guard let barcode = features?.first(where: { $0.rawValue != nil }) else {
                 self.analysisGate.completeAnalysis(barcodeFound: false)
                 return
             }
@@ -95,21 +98,14 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
 
     /// Subscribes to future recognition results, cancelling the previous subscription.
     func subscribe(_ onResult: @escaping (ScannerBarcode) -> Void) -> ScanResultSubscription {
-        unsubscribe()
         let listener = ScanResultSubscription(onResult)
-        cropRectLock.lock()
-        subscription = listener
-        cropRectLock.unlock()
+        replaceSubscription(with: listener)
         return listener
     }
 
     /// Called on main; cancellation also suppresses a previously queued main-thread delivery.
     func unsubscribe() {
-        cropRectLock.lock()
-        let previous = subscription
-        subscription = nil
-        cropRectLock.unlock()
-        previous?.cancel()
+        replaceSubscription(with: nil)
     }
 
     /// Updates the cooldown applied after successful recognition.
@@ -119,9 +115,19 @@ class MlkitBarcodeScanner: NSObject, RecognitionHandler, BarcodeAnalyzing {
 
     /// Updates normalized recognition geometry for future frames.
     func updateCropRect(cropRect: CropRect) {
-        cropRectLock.lock()
+        stateLock.lock()
         self.cropRect = cropRect
-        cropRectLock.unlock()
+        stateLock.unlock()
+    }
+
+    /// Replaces frame admission and its cooldown together, then revokes obsolete result delivery.
+    private func replaceSubscription(with listener: ScanResultSubscription?) {
+        stateLock.lock()
+        let previous = subscription
+        subscription = listener
+        analysisGate.resetCooldown()
+        stateLock.unlock()
+        previous?.cancel()
     }
 }
 

@@ -37,6 +37,9 @@ final class Scanner {
     /// Reusable recognizer attached to the active scan subscription.
     private var analyzer: BarcodeAnalyzing?
 
+    /// Current recognition area of the prepared camera, including before scanning starts.
+    private var recognitionCropRect: CropRect?
+
     /// Current camera capture request.
     private var capture: Capture?
 
@@ -68,7 +71,7 @@ final class Scanner {
     /// Creates the shared native session adapter when needed.
     private let cameraFactory: () -> CameraPreviewing
 
-    /// Creates the recognition backend when the first capture is prepared.
+    /// Creates the recognition backend when scanning first starts on the prepared camera.
     private let analyzerFactory: () -> BarcodeAnalyzing
 
     /// Requests camera permission before admitting a capture.
@@ -201,6 +204,7 @@ final class Scanner {
     func setCropArea(cropRect: CropRect) throws {
         if appliedConfiguration?.cropRect != cropRect { focusNeedsReset = true }
         camera?.setCropArea(cropRect)
+        if recognitionCropRect != nil { recognitionCropRect = cropRect }
         analyzer?.updateCropRect(cropRect: cropRect)
         appliedConfiguration?.cropRect = cropRect
     }
@@ -230,6 +234,7 @@ final class Scanner {
         let previous = camera
         camera = nil
         analyzer = nil
+        recognitionCropRect = nil
         appliedConfiguration = nil
         appliedGeometry = nil
         guard let previous = previous else {
@@ -274,7 +279,7 @@ final class Scanner {
         let device = cameraFactory()
         camera = device
         device.cameraPreviewDelegate = self
-        device.initCamera { [weak self, weak request, weak device] error in
+        device.initCamera(request.configuration.camera) { [weak self, weak request, weak device] error in
             Self.onMain {
                 guard let self = self, let request = request, let device = device,
                       self.isCurrent(request), self.camera === device else { return }
@@ -315,7 +320,7 @@ final class Scanner {
             self.appliedConfiguration = request.configuration
             self.appliedGeometry = request.consumer.size
             self.focusNeedsReset = false
-            if self.analyzer == nil { self.analyzer = self.analyzerFactory() }
+            self.recognitionCropRect = request.configuration.cropRect
             self.analyzer?.updateCropRect(cropRect: request.configuration.cropRect)
             camera.resumeCamera { [weak self, weak request, weak camera] error in
                 guard let self = self, let request = request, let camera = camera, self.isCurrent(request) else { return }
@@ -362,7 +367,16 @@ final class Scanner {
 
     /// Installs recognition delivery bound to the current consumer identity.
     private func beginScan(delay: Int) {
-        guard let consumer = selected, let analyzer = analyzer, let camera = camera else { return }
+        guard let consumer = selected, let camera = camera, let cropRect = recognitionCropRect else { return }
+        let analyzer: BarcodeAnalyzing
+        if let existing = self.analyzer {
+            analyzer = existing
+        } else {
+            // Keep ML Kit and Core Image initialization off the preview startup path.
+            analyzer = analyzerFactory()
+            analyzer.updateCropRect(cropRect: cropRect)
+            self.analyzer = analyzer
+        }
         analyzer.setDelay(delay: delay)
         let listener = analyzer.subscribe { [weak self, weak consumer] barcode in
             guard let self = self, let consumer = consumer, self.selected === consumer, !self.isReleased else { return }

@@ -184,9 +184,11 @@ are retained for resume and focus is unavailable. Recognition requires both `sca
 `cameraPaused: false`. Changes to `scanDelay` are retained until recognition resumes.
 `scanDelay: 0` removes the successful-result cooldown. Both platforms wait
 **1000 ms after an attempt without a barcode**, measured from completion.
-There is no initial recognition cooldown. Analysis duration and frame availability
-also affect the interval between results, so `scanDelay` is not a fixed scan rate.
-Changing it affects future successful-result cooldowns, not a deadline already scheduled.
+Starting or resuming recognition, including after a camera handoff, discards the
+previous cooldown. The first available frame can be analyzed as soon as any
+in-flight analysis finishes. Analysis duration and frame availability also affect
+the interval between results, so `scanDelay` is not a fixed scan rate. Changing
+`scanDelay` during an active scan affects future successful-result cooldowns.
 
 Zoom, flash and crop changes from the same widget update share one native
 `updateCameraSettings` call containing only changed fields. The reply waits for

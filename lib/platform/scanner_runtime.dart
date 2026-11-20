@@ -75,7 +75,7 @@ class ScannerRuntime {
   /// Cached runtime shutdown shared by concurrent dispose callers.
   Future<void>? _closing;
 
-  /// Rejects new registrations and idle scheduling after shutdown begins.
+  /// Rejects new registrations, captures and idle scheduling after shutdown begins.
   bool _disposed = false;
 
   /// Delay before releasing an idle camera; existing timers keep their deadline.
@@ -124,7 +124,7 @@ class ScannerRuntime {
   /// Transfers camera ownership to the consumer and prepares its capture.
   Future<void> capture(ScannerConsumer consumer) async {
     final registration = _consumers[consumer];
-    if (registration == null || consumer.isDisposed) {
+    if (_disposed || registration == null || consumer.isDisposed) {
       return;
     }
     if (isCurrent(consumer)) return;
@@ -220,6 +220,7 @@ class ScannerRuntime {
     }
     if (_disposed || _disposal != null || _idle != null) return;
     if (_session == null && _resources == null) return;
+    // Allow quick handoffs while bounding how long an idle camera can stay allocated.
     _idle = Timer(cameraShutdownDelay, () {
       _idle = null;
       unawaited(_disposeResources().catchError(_reportError));

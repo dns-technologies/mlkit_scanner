@@ -4,6 +4,7 @@ import com.dns_technologies.mlkit_scanner.scanner.components.analyzer.optimizati
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
+import kotlinx.coroutines.Job
 
 /**
  * Base class for barcode analyzers independent of a concrete image-analysis library.
@@ -15,7 +16,7 @@ import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
  */
 abstract class ImageBarcodeAnalyzer
 protected constructor(currentTimeMs: () -> Long = android.os.SystemClock::elapsedRealtime) {
-    /** Monotonic cooldown gate shared by all recognition attempts. */
+    /** Monotonic cooldown gate accessed by the exclusive analysis invocation. */
     private val frameAnalysisGate = FrameAnalysisGate(0, currentTimeMs)
     /** Protects analysis ownership and deferred disposal decisions. */
     private val lifecycleLock = Any()
@@ -29,18 +30,23 @@ protected constructor(currentTimeMs: () -> Long = android.os.SystemClock::elapse
      * Attempts recognition synchronously; busy, disposed or throttled calls return null. The caller
      * owns [frame] and must keep it open until this call returns.
      */
-    fun analyze(frame: CameraFrame, cropRect: Rect?): Barcode? {
+    fun analyze(frame: CameraFrame, cropRect: Rect?): Barcode? = analyze(frame, cropRect, null)
+
+    /** Attempts recognition within a scan whose cancellation revokes frame eligibility. */
+    internal fun analyze(frame: CameraFrame, cropRect: Rect?, scan: Job?): Barcode? {
         synchronized(lifecycleLock) {
-            if (isDisposed || isAnalyzing) return null
+            if (isDisposed || isAnalyzing || scan?.isActive == false) return null
             isAnalyzing = true
         }
         return try {
-            if (!frameAnalysisGate.acceptsFrame()) return null
+            if (!frameAnalysisGate.acceptsFrame(scan) || scan?.isActive == false) return null
             var result: Barcode? = null
             try {
                 analyzeFrame(frame, cropRect).also { result = it }
             } finally {
-                frameAnalysisGate.completeAnalysis(barcodeFound = result != null)
+                if (scan?.isActive != false) {
+                    frameAnalysisGate.completeAnalysis(barcodeFound = result != null)
+                }
             }
         } finally {
             val shouldClose =

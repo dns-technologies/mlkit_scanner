@@ -40,6 +40,7 @@ import org.junit.runner.RunWith
 import org.junit.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyLong
+import org.mockito.ArgumentMatchers.eq
 import org.mockito.Mockito.*
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doReturn
@@ -160,21 +161,39 @@ internal class ScannerTest {
     }
 
     @Test
-    fun `resume scan preserves successful recognition cooldown`() {
-        val fixture = Fixture(analysisResult = BARCODE)
+    fun `resumed scan analyzes immediately and keeps its own unsuccessful cooldown`() {
+        val fixture = Fixture()
         fixture.scanner.captureForTest()
         fixture.scanner.startScan(periodMs = 250)
         fixture.emitFrame()
         fixture.scanner.pauseScan()
-        fixture.setCurrentTimeMs(249)
+        fixture.setCurrentTimeMs(100)
 
         fixture.scanner.startScan(250)
         fixture.emitFrame()
 
-        assertEquals(1, fixture.analyzer.acceptedAnalysisCalls)
+        assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
+        fixture.setCurrentTimeMs(100 + FAILED_ANALYSIS_INTERVAL_MS - 1)
+        fixture.emitFrame()
+        assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
+        fixture.setCurrentTimeMs(100 + FAILED_ANALYSIS_INTERVAL_MS)
+        fixture.emitFrame()
+        assertEquals(3, fixture.analyzer.acceptedAnalysisCalls)
+    }
 
-        fixture.setCurrentTimeMs(250)
+    @Test
+    fun `new owner analyzes immediately during previous owner's successful cooldown`() {
+        val fixture = Fixture(analysisResult = BARCODE)
+        fixture.scanner.captureForTest()
+        fixture.scanner.startScan(periodMs = 5_000)
+        fixture.emitFrame()
+        val next = mock(ScannerConsumer::class.java)
+        doReturn(43).`when`(next).viewId
+        doReturn(mock(android.util.Size::class.java)).`when`(next).size
 
+        fixture.scanner.select(next)
+        fixture.scanner.captureForTest()
+        fixture.scanner.startScan(periodMs = 0)
         fixture.emitFrame()
 
         assertEquals(2, fixture.analyzer.acceptedAnalysisCalls)
@@ -199,7 +218,7 @@ internal class ScannerTest {
     }
 
     @Test
-    fun `cancelled scan job cannot publish its result after restart`() {
+    fun `cancelled analysis cannot publish or throttle a restarted scan`() {
         val analysisStarted = CountDownLatch(1)
         val allowAnalysisToFinish = CountDownLatch(1)
         val analyzer = BlockingResultAnalyzer(analysisStarted, allowAnalysisToFinish)
@@ -216,14 +235,51 @@ internal class ScannerTest {
             assertTrue(analysisStarted.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
 
             scanner.pauseScan()
-            scanner.startScan(0)
+            scanner.startScan(5_000)
             allowAnalysisToFinish.countDown()
             analysis.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
             assertTrue(received.isEmpty())
+            camera.emitFrame(testFrame())
+            assertEquals(listOf(BARCODE), received)
         } finally {
             allowAnalysisToFinish.countDown()
             executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `cancelled frame still preparing its crop does not enter recognition`() {
+        val cropRequested = CountDownLatch(1)
+        val allowCrop = CountDownLatch(1)
+        val analyzer = FakeAnalyzer({ 0L }, BARCODE)
+        val camera = FakeCamera()
+        val scanner = scannerForTest(camera, analyzer)
+        scanner.captureForTest()
+        scanner.startScan(periodMs = 5_000)
+        val executor = Executors.newSingleThreadExecutor()
+
+        try {
+            val stale = executor.submit {
+                camera.emitFrame(testFrame {
+                    cropRequested.countDown()
+                    assertTrue(allowCrop.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+                })
+            }
+            assertTrue(cropRequested.await(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+
+            scanner.pauseScan()
+            scanner.startScan(periodMs = 5_000)
+            allowCrop.countDown()
+            stale.get(TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+
+            assertEquals(0, analyzer.acceptedAnalysisCalls)
+            camera.emitFrame(testFrame())
+            assertEquals(1, analyzer.acceptedAnalysisCalls)
+        } finally {
+            allowCrop.countDown()
+            executor.shutdownNow()
+            scanner.dispose()
         }
     }
 
@@ -393,10 +449,15 @@ internal class ScannerTest {
             valueType = 1,
         )
 
-        fun testFrame(): CameraFrame = object : CameraFrame {
+        fun testFrame(beforeCrop: () -> Unit = {}): CameraFrame = object : CameraFrame {
             override val width = 720
             override val height = 1280
             override val rotationDegree = 0
+            override val cropRect: Rect
+                get() {
+                    beforeCrop()
+                    return Rect(0, 0, width, height)
+                }
 
             override fun <T> useNv21(
                 cropRect: Rect?,
@@ -765,7 +826,7 @@ internal class ScannerCaptureTest {
             verify(f.camera).setTorch(true)
             f.scanner.startScan(120)
             f.emitFrame()
-            verify(f.analyzer).analyze(anyValue(), anyValue())
+            verify(f.analyzer).analyze(anyValue(), anyValue(), anyValue())
         } finally { f.close() }
     }
 
@@ -829,7 +890,7 @@ internal class ScannerCaptureTest {
             f.emitFrame()
             f.availability(CameraAvailability.Closed())
             f.emitFrame()
-            verify(f.analyzer).analyze(anyValue(), anyValue())
+            verify(f.analyzer).analyze(anyValue(), anyValue(), anyValue())
             f.availability(CameraAvailability.Open)
             f.drain()
             assertTrue(f.results.isEmpty())
@@ -1132,7 +1193,7 @@ internal class ScannerCaptureTest {
                 }
                 readiness
             }.`when`(camera).bind(anyValue(), anyValue(), anyValue(), anyValue(), anyValue())
-            doReturn(BARCODE).`when`(analyzer).analyze(anyValue(), anyValue())
+            doReturn(BARCODE).`when`(analyzer).analyze(anyValue(), anyValue(), anyValue())
 
             scanner = Scanner(camera, analyzer, handler, { _, cause -> released += cause },
                 { id, barcode -> results += id to barcode }, CoroutineScope(SupervisorJob() + dispatcher))
@@ -1262,7 +1323,7 @@ internal class ScannerLifetimeTest {
 
         f.emitFrame()
 
-        verify(f.analyzer, never()).analyze(f.frame, BOUNDS)
+        verify(f.analyzer, never()).analyze(equalTo(f.frame), equalTo(BOUNDS), anyValue())
     }
 
     @Test
@@ -1363,7 +1424,7 @@ internal class ScannerLifetimeTest {
             started.countDown()
             assertTrue(finish.await(1, TimeUnit.SECONDS))
             BARCODE
-        }.`when`(f.analyzer).analyze(f.frame, BOUNDS)
+        }.`when`(f.analyzer).analyze(equalTo(f.frame), equalTo(BOUNDS), anyValue())
         try {
             val work = executor.submit { f.emitFrame() }
             assertTrue(started.await(1, TimeUnit.SECONDS))
@@ -1405,7 +1466,7 @@ internal class ScannerLifetimeTest {
             doReturn(kotlinx.coroutines.CompletableDeferred(Unit)).`when`(camera).setTorch(org.mockito.ArgumentMatchers.anyBoolean())
             scanner = scannerForTest(camera, analyzer, view)
             doReturn(BOUNDS).`when`(frame).cropRect
-            doReturn(BARCODE).`when`(analyzer).analyze(frame, BOUNDS)
+            doReturn(BARCODE).`when`(analyzer).analyze(equalTo(frame), equalTo(BOUNDS), anyValue())
             doAnswer {
                 bindCount++
                 executor = it.getArgument(1)
@@ -1427,6 +1488,7 @@ internal class ScannerLifetimeTest {
         val BOUNDS = Rect(0, 0, 100, 100)
         val BARCODE = Barcode("value", "value", 1, 1)
         fun <T> anyValue(): T = any<T>()
+        fun <T> equalTo(value: T): T = eq(value) ?: value
     }
 }
 // endregion

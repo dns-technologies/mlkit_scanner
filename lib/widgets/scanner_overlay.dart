@@ -44,7 +44,7 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
   /// Fades the lock at its current position when autofocus is restored.
   late final _unlockAnimation = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
 
-  /// Rebuilds only the overlay when any feedback animation advances.
+  /// Routes focus animation ticks straight to paint, bypassing widget build and layout.
   late final _animations = Listenable.merge([_circleAnimation, _lockAnimation, _unlockAnimation]);
 
   /// Keeps repeat long presses from restarting a settled lock's flight.
@@ -116,25 +116,17 @@ class _ScannerOverlayState extends State<ScannerOverlay> with TickerProviderStat
     behavior: HitTestBehavior.opaque,
     onTap: widget.focusEnabled ? () => _focus(false) : null,
     onLongPress: widget.focusEnabled ? () => _focus(true) : null,
-    child: AnimatedBuilder(animation: _animations, builder: _buildFeedback),
-  );
-
-  /// Converts animation progress into circle opacity, lock opacity and flight position.
-  Widget _buildFeedback(BuildContext context, Widget? child) {
-    const curve = _FocusCurve();
-    final pulse = _circleAnimation.value <= .5 ? _circleAnimation.value * 2 : (1 - _circleAnimation.value) * 2;
-    // The lock fades in for 300 ms, then flies to the corner for 500 ms.
-    const fadeEnd = .375;
-    return CustomPaint(
+    child: CustomPaint(
       painter: _OverlayPainter(widget.crop, widget.scanning),
       foregroundPainter: _FocusPainter(
         crop: widget.crop,
-        circleOpacity: curve.transform(pulse),
-        lockOpacity: Interval(0, fadeEnd, curve: curve).transform(_lockAnimation.value) * (1 - curve.transform(_unlockAnimation.value)),
-        lockTravel: Interval(fadeEnd, 1, curve: curve).transform(_lockAnimation.value),
+        circleAnimation: _circleAnimation,
+        lockAnimation: _lockAnimation,
+        unlockAnimation: _unlockAnimation,
+        repaint: _animations,
       ),
-    );
-  }
+    ),
+  );
 
   @override
   void dispose() {
@@ -202,7 +194,19 @@ class _OverlayPainter extends CustomPainter {
 
 /// Paints one frame of focus feedback without changing its animation state.
 class _FocusPainter extends CustomPainter {
-  _FocusPainter({required this.crop, required this.circleOpacity, required this.lockOpacity, required this.lockTravel});
+  _FocusPainter({
+    required this.crop,
+    required this.circleAnimation,
+    required this.lockAnimation,
+    required this.unlockAnimation,
+    required super.repaint,
+  });
+
+  /// Easing shared by the circle pulse and the lock.
+  static const _curve = _FocusCurve();
+
+  /// The lock fades in for 300 ms and then flies to the corner for 500 ms.
+  static const _fadeEnd = .375;
 
   /// Shared focus-circle radius in logical pixels.
   static const _radius = 35.0;
@@ -211,7 +215,7 @@ class _FocusPainter extends CustomPainter {
   static const _lockOffset = 19.2;
 
   /// Distance from focus center to the lock's initial center.
-  static const _lockDistance = 30.0;
+  static const _lockDistance = 64.0;
 
   /// Lock outline in local icon coordinates, before placement in the preview.
   static final _lockPath =
@@ -235,17 +239,24 @@ class _FocusPainter extends CustomPainter {
   /// Recognition geometry whose center anchors the circle and initial lock.
   final CropRect crop;
 
-  /// Current circle alpha, independent of the focus lock state.
-  final double circleOpacity;
+  /// Timeline of the circle pulse.
+  final Animation<double> circleAnimation;
 
-  /// Combined appearance and unlock alpha for the lock icon.
-  final double lockOpacity;
+  /// Timeline for the lock appearance and travel.
+  final Animation<double> lockAnimation;
 
-  /// Progress from the focus point to the upper-left preview corner.
-  final double lockTravel;
+  /// Timeline for the fade when autofocus is restored.
+  final Animation<double> unlockAnimation;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final circleProgress = circleAnimation.value;
+    final pulse = circleProgress <= .5 ? circleProgress * 2 : (1 - circleProgress) * 2;
+    final circleOpacity = _curve.transform(pulse);
+    final lockProgress = lockAnimation.value;
+    final lockOpacity = const Interval(0, _fadeEnd, curve: _curve).transform(lockProgress) * (1 - _curve.transform(unlockAnimation.value));
+    if (circleOpacity == 0 && lockOpacity == 0) return;
+
     final center = Offset(size.width * (1 + crop.offsetX) / 2, size.height * (1 + crop.offsetY) / 2);
     canvas.save();
     canvas.clipRect(Offset.zero & size);
@@ -260,6 +271,7 @@ class _FocusPainter extends CustomPainter {
       );
     }
     if (lockOpacity > 0) {
+      final lockTravel = const Interval(_fadeEnd, 1, curve: _curve).transform(lockProgress);
       final origin = Offset.lerp(center.translate(-_lockDistance - 12, -12), const Offset(_lockOffset, _lockOffset), lockTravel)!;
       canvas.translate(origin.dx, origin.dy);
       canvas.drawPath(_lockPath, Paint()..color = Colors.white.withAlpha((255 * lockOpacity).round()));
@@ -269,5 +281,8 @@ class _FocusPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_FocusPainter old) =>
-      old.crop != crop || old.circleOpacity != circleOpacity || old.lockOpacity != lockOpacity || old.lockTravel != lockTravel;
+      old.crop != crop ||
+      old.circleAnimation != circleAnimation ||
+      old.lockAnimation != lockAnimation ||
+      old.unlockAnimation != unlockAnimation;
 }

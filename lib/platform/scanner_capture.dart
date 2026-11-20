@@ -180,18 +180,17 @@ class ScannerCaptureSession {
   Future<void> _drain(Completer<void> done) async {
     try {
       do {
-        _reconcileRequested = false;
-        await _applyChanges();
+        try {
+          await _applyChanges();
+        } catch (error, stack) {
+          _applied = null;
+          if (!_initialized) rethrow;
+          if (active) onError(error, stack);
+        }
       } while (_reconcileRequested && active);
       done.complete();
     } catch (error, stack) {
-      _applied = null;
-      if (!_initialized) {
-        done.completeError(error, stack);
-      } else {
-        if (active) onError(error, stack);
-        done.complete();
-      }
+      done.completeError(error, stack);
     } finally {
       _draining = null;
     }
@@ -200,11 +199,14 @@ class ScannerCaptureSession {
   /// Applies the latest camera and recognition settings to the active capture.
   Future<void> _applyChanges() async {
     while (active) {
+      _reconcileRequested = false;
       // Stop recognition first, then finish copying paused pixels before any
       // camera changes. Re-read ownership and intent after rasterization.
       if (_desired.cameraPaused && _applied?.scanEnabled != true) {
         await consumer.retainPreview?.call();
         if (!active) return;
+        // The settings read below already include changes made during the copy.
+        _reconcileRequested = false;
       }
       final desired = _desired;
       final applied = _applied;
