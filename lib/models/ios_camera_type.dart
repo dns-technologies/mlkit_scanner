@@ -1,31 +1,27 @@
-/// Ios camera type.
+/// Hardware type of an iOS camera.
 enum IosCameraType {
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/2361449-builtinwideanglecamera.
+  /// Single wide-angle camera.
   builtInWideAngleCamera,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/2361478-builtintelephotocamera.
+  /// Single telephoto camera.
   builtInTelephotoCamera,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/2727142-builtindualcamera.
+  /// Combined dual-camera device.
   builtInDualCamera,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/3377622-builtinultrawidecamera.
+  /// Single ultra-wide camera.
   builtInUltraWideCamera,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/3377620-builtindualwidecamera.
+  /// Combined wide and ultra-wide camera device.
   builtInDualWideCamera,
 
-  /// See https://developer.apple.com/documentation/avfoundation/avcapturedevice/devicetype/3377621-builtintriplecamera.
+  /// Combined wide, ultra-wide, and telephoto camera device.
   builtInTripleCamera,
 }
 
+/// Converts between [IosCameraType] values and native platform codes.
 extension IosCameraTypeCode on IosCameraType {
-  /// Code of type for transmission over the platform channel.
-  int get code => _typeToCode[this]!;
-
-  /// Returns the type corresponding to the [code].
-  static IosCameraType fromCode(int code) => _codeToType[code]!;
-
+  /// Stable numeric device-type codes used for iOS camera selection.
   static final _typeToCode = {
     IosCameraType.builtInWideAngleCamera: 0,
     IosCameraType.builtInTelephotoCamera: 1,
@@ -35,7 +31,12 @@ extension IosCameraTypeCode on IosCameraType {
     IosCameraType.builtInTripleCamera: 5,
   };
 
-  static final _codeToType = {
-    for (final entry in _typeToCode.entries) entry.value: entry.key,
-  };
+  /// Reverse lookup for device types returned by native camera discovery.
+  static final _codeToType = {for (final entry in _typeToCode.entries) entry.value: entry.key};
+
+  /// Code of type for transmission over the platform channel.
+  int get code => _typeToCode[this]!;
+
+  /// Decodes a supported native camera type; [code] must belong to this mapping.
+  static IosCameraType fromCode(int code) => _codeToType[code]!;
 }

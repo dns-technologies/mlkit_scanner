@@ -9,6 +9,7 @@
 #endif
 
 @implementation MlkitScannerPlugin
+/// Registers the Swift implementation with the owning Flutter engine.
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
   [SwiftMlkitScannerPlugin registerWithRegistrar:registrar];
 }
