@@ -26,3 +26,9 @@ interface CameraFrame : AutoCloseable {
         block: (bytes: ByteArray, width: Int, height: Int, rotationDegree: Int) -> T,
     ): T
 }
+
+/** Camera frame that can expose a sparse luminance sample. */
+internal interface LumaSamplingFrame : CameraFrame {
+    /** Writes into caller-owned storage and returns false if the frame or crop cannot be sampled. */
+    fun sampleLuma(cropRect: Rect?, destination: ByteArray): Boolean
+}

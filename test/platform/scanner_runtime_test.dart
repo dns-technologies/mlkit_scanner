@@ -179,7 +179,7 @@ void main() {
       );
     });
 
-    test('Исправленная конфигурация применяется после ошибки ожидавшего изменения', () async {
+    test('a corrected configuration is applied after a pending update fails', () async {
       final controller = h.controller(1);
       await controller.capture();
       h.calls.clear();
@@ -204,7 +204,7 @@ void main() {
       expect(h.calls.last.arguments, containsPair('configuration', controller.configuration.toCaptureArguments()));
     });
 
-    test('Синхронное исправление настроек из обработчика ошибки применяется в текущей очереди', () async {
+    test('a synchronous settings correction from the error handler runs in the current queue', () async {
       final errors = <Object>[];
       late final BarcodeScannerController controller;
       controller = BarcodeScannerController(
@@ -233,7 +233,7 @@ void main() {
       expect(h.calls.last.arguments, containsPair('configuration', controller.configuration.toCaptureArguments()));
     });
 
-    test('Синхронное удаление из обработчика ошибки отменяет ожидающее исправление настроек', () async {
+    test('synchronous disposal from the error handler cancels a pending settings correction', () async {
       final errors = <Object>[];
       late final BarcodeScannerController controller;
       controller = BarcodeScannerController(
@@ -270,7 +270,7 @@ void main() {
       expect(h.methods, ['updateCameraSettings', 'release']);
     });
 
-    test('Фокус ожидает исправленную конфигурацию после ошибки предыдущей настройки', () async {
+    test('focus waits for the corrected configuration after a settings update fails', () async {
       final controller = h.controller(1);
       await controller.capture();
       h.calls.clear();
@@ -305,7 +305,7 @@ void main() {
       expect(h.errors, hasLength(1));
     });
 
-    test('Ошибка последней конфигурации не запускает повторные попытки без нового изменения', () async {
+    test('a failed configuration is retried only after settings change', () async {
       final controller = h.controller(1);
       await controller.capture();
       h.calls.clear();
@@ -333,7 +333,7 @@ void main() {
       expect(h.methods, ['updateCameraSettings', 'updateCameraSettings']);
     });
 
-    test('Ошибка настройки, изменённой при сохранении кадра, не повторяет применение', () async {
+    test('settings changed during frame retention are applied once even if the update fails', () async {
       final frame = Completer<void>();
       addTearDown(() {
         if (!frame.isCompleted) frame.complete();
@@ -447,7 +447,7 @@ void main() {
     setUp(() => h = RuntimeHarness());
     tearDown(() => h.dispose());
 
-    test('Передача A → B → A использует только release и capture на каждую смену', () async {
+    test('handoff from A to B and back to A only releases and captures at each switch', () async {
       final results = <String?>[];
       final a = h.controller(1, scanning: true, onScan: (barcode) => results.add(barcode.rawValue));
       final b = h.controller(2, scanning: true);
@@ -499,7 +499,7 @@ void main() {
       expect(captures.single.arguments, containsPair('captureId', h.leases[1]));
     });
 
-    test('Поздний ответ захвата не восстанавливает предыдущего владельца', () async {
+    test('a late capture reply does not restore the previous owner', () async {
       final a = h.controller(1);
       final b = h.controller(2);
       final activation = Completer<void>();
@@ -577,7 +577,7 @@ void main() {
       h.handler = null;
     });
 
-    test('Завершение работы отклоняет захват, пока предыдущий владелец освобождает камеру', () async {
+    test('shutdown rejects capture while the previous owner is releasing the camera', () async {
       final outgoing = h.controller(1);
       final incoming = h.controller(2);
       await outgoing.capture();
@@ -1239,7 +1239,7 @@ void main() {
       await runtime.dispose();
     });
 
-    testWidgets('Локальная регистрация возможна во время освобождения, захват ждёт завершения', (tester) async {
+    testWidgets('local registration can proceed during release while capture waits', (tester) async {
       final a = BarcodeScannerController(viewId: 1);
       runtime.register(a);
       final capture = runtime.capture(a);

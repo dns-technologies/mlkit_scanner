@@ -62,7 +62,12 @@ internal constructor(
                 try {
                     val barcodes = Tasks.await(task)
                     if (interrupted || Thread.currentThread().isInterrupted) return null
-                    return barcodes.firstNotNullOfOrNull { it.toScannerBarcode() }
+                    return barcodes.firstNotNullOfOrNull { barcode ->
+                        val result = barcode.toScannerBarcode() ?: return@firstNotNullOfOrNull null
+                        // A wholly outside UPC-E can be an SDK false positive, so treat the frame as a miss
+                        if (result.format == MlkitBarcode.FORMAT_UPC_E && barcode.isWhollyOutside(image)) return null
+                        result
+                    }
                 } catch (_: InterruptedException) {
                     // Interrupting await does not stop ML Kit from reading the borrowed bytes.
                     // Finish this same task before releasing its buffer or closing the scanner.
@@ -75,6 +80,20 @@ internal constructor(
         } finally {
             if (interrupted) Thread.currentThread().interrupt()
         }
+    }
+
+    private fun MlkitBarcode.isWhollyOutside(image: InputImage): Boolean {
+        val box = boundingBox ?: return false
+        if (box.isEmpty || image.width <= 0 || image.height <= 0) return false
+        // ML Kit boxes use upright coordinates, while InputImage dimensions describe the packed input
+        val swapAxes = when (image.rotationDegrees) {
+            0, 180 -> false
+            90, 270 -> true
+            else -> return false
+        }
+        val width = if (swapAxes) image.height else image.width
+        val height = if (swapAxes) image.width else image.height
+        return box.right <= 0 || box.bottom <= 0 || box.left >= width || box.top >= height
     }
 
     /** Maps the recognition result at the adapter boundary without leaking backend types. */

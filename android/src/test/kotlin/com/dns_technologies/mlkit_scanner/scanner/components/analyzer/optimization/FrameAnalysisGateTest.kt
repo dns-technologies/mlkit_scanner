@@ -1,5 +1,8 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.analyzer.optimization
 
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.LumaGrid
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.LumaSamplingFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -98,6 +101,93 @@ internal class FrameAnalysisGateTest {
         gate.completeAnalysis(barcodeFound = true)
 
         assertTrue(gate.acceptsFrame())
+    }
+
+    @Test
+    fun `three matching changes allow one early retry and keep the scheduled deadline`() {
+        val clock = MutableClock()
+        val gate = FrameAnalysisGate(0, clock::read)
+        val frame = SampledFrame()
+        assertTrue(gate.acceptsFrame(frame = frame))
+        gate.completeAnalysis(barcodeFound = false)
+
+        frame.setChangedSamples(64, 0, 8, 16)
+        clock.timeMs = 150
+        assertFalse(gate.acceptsFrame(frame = frame))
+        clock.timeMs = 249
+        assertFalse(gate.acceptsFrame(frame = frame))
+        clock.timeMs = 250
+        assertTrue(gate.acceptsFrame(frame = frame))
+        gate.completeAnalysis(barcodeFound = false)
+
+        clock.timeMs = 999
+        assertFalse(gate.acceptsFrame(frame = frame))
+        clock.timeMs = 1000
+        assertTrue(gate.acceptsFrame(frame = frame))
+    }
+
+    @Test
+    fun `three changes must match both positions and directions`() {
+        val clock = MutableClock()
+        val gate = FrameAnalysisGate(0, clock::read)
+        val frame = SampledFrame()
+        assertTrue(gate.acceptsFrame(frame = frame))
+        gate.completeAnalysis(barcodeFound = false)
+
+        frame.setChangedSamples(64, 0, 8, 16)
+        clock.timeMs = 150
+        assertFalse(gate.acceptsFrame(frame = frame))
+        frame.setChangedSamples(192, 0, 8, 16)
+        clock.timeMs = 250
+        assertFalse(gate.acceptsFrame(frame = frame))
+        frame.setChangedSamples(192, 0, 8, 17)
+        clock.timeMs = 350
+        assertFalse(gate.acceptsFrame(frame = frame))
+        clock.timeMs = 450
+        assertTrue(gate.acceptsFrame(frame = frame))
+    }
+
+    @Test
+    fun `a probe without three changes clears their previous observation`() {
+        val clock = MutableClock()
+        val gate = FrameAnalysisGate(0, clock::read)
+        val frame = SampledFrame()
+        assertTrue(gate.acceptsFrame(frame = frame))
+        gate.completeAnalysis(barcodeFound = false)
+
+        frame.setChangedSamples(64, 0, 8, 16)
+        clock.timeMs = 150
+        assertFalse(gate.acceptsFrame(frame = frame))
+        frame.setChangedSamples(64, 0, 8)
+        clock.timeMs = 250
+        assertFalse(gate.acceptsFrame(frame = frame))
+        frame.setChangedSamples(64, 0, 8, 16)
+        clock.timeMs = 350
+        assertFalse(gate.acceptsFrame(frame = frame))
+        clock.timeMs = 450
+        assertTrue(gate.acceptsFrame(frame = frame))
+    }
+
+    private class SampledFrame : LumaSamplingFrame {
+        override val width = 128
+        override val height = 128
+        override val rotationDegree = 0
+        private val samples = ByteArray(LumaGrid.SAMPLE_COUNT) { 128.toByte() }
+
+        fun setChangedSamples(value: Int, vararg indices: Int) {
+            samples.fill(128.toByte())
+            for (index in indices) samples[index] = value.toByte()
+        }
+
+        override fun sampleLuma(cropRect: Rect?, destination: ByteArray): Boolean {
+            samples.copyInto(destination)
+            return true
+        }
+
+        override fun <T> useNv21(cropRect: Rect?, block: (ByteArray, Int, Int, Int) -> T): T =
+            error("The gate only samples luma")
+
+        override fun close() = Unit
     }
 
     private class MutableClock(var timeMs: Long = 0L) {

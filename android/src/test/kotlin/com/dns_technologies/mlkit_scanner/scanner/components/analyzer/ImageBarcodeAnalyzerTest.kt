@@ -1,8 +1,10 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.analyzer
 
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.LumaSamplingFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
+import kotlinx.coroutines.Job
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -339,6 +341,243 @@ internal class ImageBarcodeAnalyzerTest {
         assertEquals(2, analyzer.analysisCalls.get())
     }
 
+
+    @Test
+    fun `scene change can retry only after the earliest probe time`() {
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock)
+        val frame = SceneFrame()
+
+        analyzer.analyze(frame, SCENE_ROI)
+        frame.changedCells = 4
+        clock.timeMs = 149
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(1, analyzer.analysisCalls.get())
+
+        clock.timeMs = 150
+        analyzer.analyze(frame, SCENE_ROI)
+
+        assertEquals(2, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `static or small changes do not delay normal fallback and probes are bounded`() {
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock)
+        val frame = SceneFrame()
+
+        analyzer.analyze(frame, SCENE_ROI)
+        frame.changedCells = 2
+        for (time in listOf(150L, 151L, 249L)) {
+            clock.timeMs = time
+            analyzer.analyze(frame, SCENE_ROI)
+        }
+        assertEquals(1, analyzer.analysisCalls.get())
+        assertEquals(2, frame.samples)
+
+        clock.timeMs = 250
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(3, frame.samples)
+        clock.timeMs = 1_000
+        analyzer.analyze(frame, SCENE_ROI)
+
+        assertEquals(2, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `empty early retry keeps the fixed deadline and spends one retry`() {
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock)
+        val frame = SceneFrame()
+
+        analyzer.analyze(frame, SCENE_ROI)
+        frame.changedCells = 4
+        clock.timeMs = 500
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(2, analyzer.analysisCalls.get())
+
+        frame.changedCells = 8
+        clock.timeMs = 750
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(2, analyzer.analysisCalls.get())
+
+        clock.timeMs = 1_000
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(3, analyzer.analysisCalls.get())
+
+        frame.changedCells = 12
+        clock.timeMs = 1_150
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(4, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `scene probe leaves time for upcoming scheduled analysis`() {
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock)
+        val frame = SceneFrame()
+
+        analyzer.analyze(frame, SCENE_ROI)
+        frame.changedCells = 4
+        clock.timeMs = 901
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(1, analyzer.analysisCalls.get())
+        assertEquals(1, frame.samples)
+
+        clock.timeMs = 1_000
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(2, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `successful early retry starts the configured success cooldown`() {
+        val clock = MutableClock()
+        var barcode = false
+        val analyzer = TestAnalyzer(clock) { if (barcode) TEST_BARCODE else null }
+        val frame = SceneFrame()
+        analyzer.updatePeriod(2_000)
+
+        analyzer.analyze(frame, SCENE_ROI)
+        barcode = true
+        frame.changedCells = 4
+        clock.timeMs = 200
+        assertEquals(TEST_BARCODE, analyzer.analyze(frame, SCENE_ROI))
+
+        clock.timeMs = 1_000
+        analyzer.analyze(frame, SCENE_ROI)
+        clock.timeMs = 2_199
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(2, analyzer.analysisCalls.get())
+
+        clock.timeMs = 2_200
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(3, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `unsupported sample keeps the fallback interval`() {
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock)
+        val frame = SceneFrame(supported = false)
+
+        analyzer.analyze(frame, SCENE_ROI)
+        frame.changedCells = 20
+        clock.timeMs = 150
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(1, analyzer.analysisCalls.get())
+        assertEquals(1, frame.samples)
+
+        clock.timeMs = 1_000
+        analyzer.analyze(frame, SCENE_ROI)
+
+        assertEquals(2, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `successful result disables scene probes for its full period`() {
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock) { TEST_BARCODE }
+        val frame = SceneFrame()
+        analyzer.updatePeriod(2_000)
+
+        analyzer.analyze(frame, SCENE_ROI)
+        frame.changedCells = 20
+        clock.timeMs = 1_999
+        analyzer.analyze(frame, SCENE_ROI)
+        assertEquals(1, analyzer.analysisCalls.get())
+        assertEquals(1, frame.samples)
+
+        clock.timeMs = 2_000
+        analyzer.analyze(frame, SCENE_ROI)
+
+        assertEquals(2, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `a new scan discards the previous scene and ignores the cancelled job`() {
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock)
+        val oldScan = Job()
+        val newScan = Job()
+        val frame = SceneFrame()
+        analyzer.analyze(frame, SCENE_ROI, oldScan)
+        oldScan.cancel()
+        frame.changedCells = 20
+        clock.timeMs = 50
+
+        analyzer.analyze(frame, SCENE_ROI, oldScan)
+        assertEquals(1, analyzer.analysisCalls.get())
+        analyzer.analyze(frame, SCENE_ROI, newScan)
+        assertEquals(2, analyzer.analysisCalls.get())
+        clock.timeMs = 200
+        analyzer.analyze(frame, SCENE_ROI, newScan)
+
+        assertEquals(2, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `cancelled early retry leaves the replacement scan with its normal cooldown`() {
+        val clock = MutableClock()
+        val previous = Job()
+        val replacement = Job()
+        val analyzer = TestAnalyzer(clock) {
+            if (clock.timeMs == 200L) previous.cancel()
+            null
+        }
+        val frame = SceneFrame()
+
+        analyzer.analyze(frame, SCENE_ROI, previous)
+        frame.changedCells = 4
+        clock.timeMs = 200
+        analyzer.analyze(frame, SCENE_ROI, previous)
+        assertEquals(2, analyzer.analysisCalls.get())
+
+        clock.timeMs = 201
+        analyzer.analyze(frame, SCENE_ROI, replacement)
+        clock.timeMs = 202
+        analyzer.analyze(frame, SCENE_ROI, replacement)
+
+        assertEquals(3, analyzer.analysisCalls.get())
+    }
+
+    @Test
+    fun `different ROI cannot use an old scene sample`() {
+        val clock = MutableClock()
+        val analyzer = TestAnalyzer(clock)
+        val frame = SceneFrame()
+        analyzer.analyze(frame, SCENE_ROI)
+        frame.changedCells = 20
+
+        clock.timeMs = 150
+        analyzer.analyze(frame, Rect(10, 10, 90, 90))
+
+        assertEquals(1, analyzer.analysisCalls.get())
+        assertEquals(1, frame.samples)
+    }
+
+    private class SceneFrame(private val supported: Boolean = true) : LumaSamplingFrame {
+        override val width = 100
+        override val height = 100
+        override val rotationDegree = 0
+        var changedCells = 0
+        var samples = 0
+
+        override fun sampleLuma(cropRect: Rect?, destination: ByteArray): Boolean {
+            samples++
+            if (!supported) return false
+            destination.fill(100)
+            destination.fill(70, 0, changedCells)
+            return true
+        }
+
+        override fun <T> useNv21(
+            cropRect: Rect?,
+            block: (ByteArray, Int, Int, Int) -> T,
+        ): T = error("Probe or test analyzer requested a full conversion")
+
+        override fun close() = Unit
+    }
+
     private class TestAnalyzer(
         clock: MutableClock = MutableClock(),
         currentTimeMs: () -> Long = clock::read,
@@ -366,6 +605,7 @@ internal class ImageBarcodeAnalyzerTest {
     }
 
     private companion object {
+        val SCENE_ROI = Rect(0, 0, 80, 80)
         const val TEST_TIMEOUT_MS = 1_000L
         const val SHORT_WAIT_MS = 100L
         const val FAILED_ANALYSIS_INTERVAL_MS = 1_000L

@@ -74,6 +74,7 @@ internal class CameraTextureOutput(
             next.willNotProvideSurface()
             return
         }
+        if (request === next || next in provided) return
         clearRequest()
         hasFrame = false
         request = next

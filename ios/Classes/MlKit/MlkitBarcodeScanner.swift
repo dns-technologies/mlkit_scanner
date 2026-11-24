@@ -2,7 +2,7 @@
 //  MlkitBarcodeScanner.swift
 //  mlkit_scanner
 //
-//  Created by ООО "ДНС Технологии" on 05.03.2021.
+//  Created by DNS Technologies LLC on 05.03.2021.
 //
 
 import Foundation

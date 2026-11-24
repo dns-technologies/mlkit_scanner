@@ -2,7 +2,7 @@
 //  CropRect.swift
 //  mlkit_scanner
 //
-//  Created by ООО "ДНС Технологии" on 12.03.2021.
+//  Created by DNS Technologies LLC on 12.03.2021.
 //
 
 import Foundation

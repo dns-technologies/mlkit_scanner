@@ -25,10 +25,8 @@ import io.flutter.plugin.common.PluginRegistry
 import io.flutter.view.TextureRegistry
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
 
 /** Routes scanner commands and events and manages engine and Activity attachment. */
 class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallHandler {
@@ -179,16 +177,21 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                     val id = values["subscriptionId"] as? String ?: throw PluginError.InvalidArguments
                     val delay = values.requireInt("delay")
                     if (delay < 0) throw PluginError.InvalidArguments
-                    val subscription = lease.startScan(id)
-                    current().pauseScan()
-                    subscription.enabled = true
-                    current().startScan(delay)
+                    if (!lease.configured && !lease.configurationInProgress)
+                        throw PluginError.CameraIsNotInitialized
+                    // Flutter can subscribe while camera controls are pending. Start analysis after they are confirmed.
+                    val subscription = lease.startScan(id, delay)
+                    scanner?.pauseScan()
+                    if (lease.configured) startScan(current(), subscription)
                     reply.success(null)
                 }
                 "cancelScan" -> {
                     lease.scanLease?.close()
                     lease.scanLease = null
-                    CancelScanCommand(current).execute(call, reply)
+                    if (!lease.configured && lease.configurationInProgress) {
+                        scanner?.pauseScan()
+                        reply.success(true)
+                    } else CancelScanCommand(current).execute(call, reply)
                 }
                 "setZoomRatio" ->
                     SetZoomRatioCommand(current, lease.scope).execute(call, reply)
@@ -197,7 +200,11 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                 "toggleFlash" ->
                     ToggleFlashCommand(current, lease.scope).execute(call, reply)
                 "setScanDelay" ->
-                    SetScanDelayCommand(current).execute(call, reply)
+                    if (!lease.configured && lease.configurationInProgress) {
+                        val delay = values.requireInt("delay")
+                        lease.scanLease?.periodMs = delay
+                        reply.success(true)
+                    } else SetScanDelayCommand(current).execute(call, reply)
                 "setCropAreaMethod" ->
                     SetCropAreaCommand(current).execute(call, reply)
                 else -> reply.notImplemented()
@@ -257,9 +264,10 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         lease.consumer.updateGeometry(geometry)
         lease.scanLease?.close()
         lease.scanLease = null
-        val subscription = (scanId as? String)?.let(lease::startScan)
+        if (lease.configured) scanner?.pauseScan()
+        (scanId as? String)?.let { lease.startScan(it, delay) }
         val reply = lease.reply(result)
-        lease.scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        lease.launchCapture(reply) {
             try {
                 if (!permissions.requestCameraPermission())
                     throw PluginError.AuthorizationCameraError
@@ -280,10 +288,8 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
                 device.capture(configuration)
                 currentCoroutineContext().ensureActive()
                 if (selected !== lease) throw PluginError.CameraSessionDisposed
-                if (subscription != null && lease.scanLease === subscription && !subscription.closed) {
-                    subscription.enabled = true
-                    device.startScan(delay)
-                }
+                lease.markConfigured()
+                lease.scanLease?.let { startScan(device, it) }
                 reply.success(null)
             } catch (error: Exception) {
                 BaseScannerCommand.reportScannerError(
@@ -294,12 +300,19 @@ class MlkitScannerPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCal
         }
     }
 
+    private fun startScan(device: Scanner, subscription: ScanLease) {
+        device.startScan(subscription.periodMs)
+        subscription.enabled = true
+    }
+
     /** Releases camera ownership and cancels outstanding capture work. */
     private fun closeSelected() {
         val old = selected ?: return
         selected = null
-        old.close()
-        scanner?.releaseCapture()
+        val failures = ExceptionCollector()
+        failures.attempt(old::close)
+        failures.attempt { scanner?.releaseCapture() }
+        failures.throwIfFailed()
     }
 
     /** Attempts independent scanner cleanup steps and reports the first failure. */

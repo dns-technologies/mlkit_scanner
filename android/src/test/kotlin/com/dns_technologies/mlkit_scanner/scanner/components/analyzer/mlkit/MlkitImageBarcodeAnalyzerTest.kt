@@ -1,5 +1,6 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.analyzer.mlkit
 
+import android.graphics.Rect as AndroidRect
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.models.Barcode
@@ -55,6 +56,63 @@ internal class MlkitImageBarcodeAnalyzerTest {
         val analyzer = analyzer(barcodeScanner(listOf(missing, valid, tail)))
 
         assertEquals(BARCODE_VALUE, analyzer.analyzeOnWorker(FakeFrame(), null)?.rawValue)
+        verify(tail, never()).rawValue
+    }
+
+    @Test
+    fun `first UPC-E wholly outside the rotated NV21 crop rejects the frame without using its neighbor`() {
+        val outside = upce(AndroidRect(262, -13, 381, -1))
+        val neighbor = mock(MlkitBarcode::class.java)
+        doReturn("next-symbol").`when`(neighbor).rawValue
+        val analyzer = analyzerWithGeometry(listOf(outside, neighbor))
+        val crop = Rect(522, 94, 758, 626)
+        val frame = FakeFrame(ByteArray(crop.width * crop.height * 3 / 2), width = 1280, height = 720)
+
+        assertNull(analyzer.analyzeOnWorker(frame, crop))
+        verify(neighbor, never()).rawValue
+    }
+
+    @Test
+    fun `upright frame dimensions protect clipped UPC-E and reject an outside box for each rotation`() {
+        for (rotation in listOf(0, 90, 180, 270)) {
+            val swapsAxes = rotation == 90 || rotation == 270
+            val width = if (swapsAxes) 4 else 6
+            val height = if (swapsAxes) 6 else 4
+            val clipped = analyzerWithGeometry(listOf(upce(AndroidRect(5, 1, 7, 3))))
+            val outside = analyzerWithGeometry(listOf(upce(AndroidRect(6, 1, 7, 3))))
+            fun frame() = FakeFrame(ByteArray(width * height * 3 / 2), width, height, rotation)
+
+            assertEquals("rotation $rotation", BARCODE_VALUE, clipped.analyzeOnWorker(frame(), null)?.rawValue)
+            assertNull("rotation $rotation", outside.analyzeOnWorker(frame(), null))
+        }
+    }
+
+    @Test
+    fun `missing and degenerate UPC-E boxes stay readable`() {
+        for (box in listOf(null, AndroidRect(10, 1, 10, 3), AndroidRect(11, 1, 10, 3))) {
+            val analyzer = analyzerWithGeometry(listOf(upce(box)))
+
+            assertEquals(BARCODE_VALUE, analyzer.analyzeOnWorker(FakeFrame(), null)?.rawValue)
+        }
+    }
+
+    @Test
+    fun `undecoded UPC-E is skipped and other formats retain their first usable result`() {
+        val outside = AndroidRect(10, 1, 11, 3)
+        val withoutRaw = upce(outside, rawValue = null)
+        val ean = mock(MlkitBarcode::class.java).also {
+            doReturn(BARCODE_VALUE).`when`(it).rawValue
+            doReturn(MlkitBarcode.FORMAT_EAN_13).`when`(it).format
+            doReturn(outside).`when`(it).boundingBox
+        }
+        val tail = upce(outside)
+        val analyzer = analyzerWithGeometry(listOf(withoutRaw, ean, tail))
+
+        val result = analyzer.analyzeOnWorker(FakeFrame(), null)
+
+        assertEquals(MlkitBarcode.FORMAT_EAN_13, result?.format)
+        verify(withoutRaw, never()).boundingBox
+        verify(ean, never()).boundingBox
         verify(tail, never()).rawValue
     }
 
@@ -252,6 +310,22 @@ internal class MlkitImageBarcodeAnalyzerTest {
         return scanner
     }
 
+    private fun upce(box: AndroidRect?, rawValue: String? = BARCODE_VALUE): MlkitBarcode =
+        mock(MlkitBarcode::class.java).also {
+            doReturn(rawValue).`when`(it).rawValue
+            doReturn(MlkitBarcode.FORMAT_UPC_E).`when`(it).format
+            doReturn(box).`when`(it).boundingBox
+        }
+
+    private fun analyzerWithGeometry(barcodes: List<MlkitBarcode>): MlkitImageBarcodeAnalyzer =
+        analyzer(barcodeScanner(barcodes), fromByteArray = { _, width, height, rotation, _ ->
+            mock(InputImage::class.java).also {
+                doReturn(width).`when`(it).width
+                doReturn(height).`when`(it).height
+                doReturn(rotation).`when`(it).rotationDegrees
+            }
+        })
+
     private fun analyzer(
         scanner: BarcodeScanner,
         currentTimeMs: () -> Long = { 0L },
@@ -271,10 +345,10 @@ internal class MlkitImageBarcodeAnalyzerTest {
 
     private class FakeFrame(
         private val nv21Bytes: ByteArray = ByteArray(FRAME_WIDTH * FRAME_HEIGHT * 3 / 2),
+        override val width: Int = FRAME_WIDTH,
+        override val height: Int = FRAME_HEIGHT,
+        override val rotationDegree: Int = ROTATION_DEGREES,
     ) : CameraFrame {
-        override val width = FRAME_WIDTH
-        override val height = FRAME_HEIGHT
-        override val rotationDegree = ROTATION_DEGREES
         var accessCalls = 0
             private set
         var receivedCropRect: Rect? = null

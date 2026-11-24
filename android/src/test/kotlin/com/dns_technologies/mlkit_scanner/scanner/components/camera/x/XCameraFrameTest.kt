@@ -1,10 +1,13 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
+import android.graphics.ImageFormat
 import android.graphics.Rect as AndroidRect
 import androidx.camera.core.ImageInfo
 import androidx.camera.core.ImageProxy
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.LumaGrid
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
+import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -125,6 +128,46 @@ internal class XCameraFrameTest {
 
         frame.close()
         verify(imageProxy).close()
+    }
+
+    @Test
+    fun `samples the padded y plane within the requested source crop before conversion`() {
+        val width = 96
+        val height = 88
+        val rowStride = 108
+        val offset = 17
+        val y = ByteBuffer.allocate(offset + rowStride * height)
+        for (row in 0 until height) {
+            for (column in 0 until width) {
+                y.put(offset + row * rowStride + column, (column + 3 * row).toByte())
+            }
+        }
+        val yView = y.asReadOnlyBuffer().apply { position(offset) }
+        val luma = mock(ImageProxy.PlaneProxy::class.java)
+        val chroma = mock(ImageProxy.PlaneProxy::class.java)
+        doReturn(yView).`when`(luma).buffer
+        doReturn(rowStride).`when`(luma).rowStride
+        doReturn(1).`when`(luma).pixelStride
+        val image = imageProxy(cameraCropRect(0, 0, width, height))
+        doReturn(width).`when`(image).width
+        doReturn(height).`when`(image).height
+        doReturn(ImageFormat.YUV_420_888).`when`(image).format
+        doReturn(arrayOf(luma, chroma, chroma)).`when`(image).planes
+        val crop = Rect(8, 10, 88, 78)
+        val nv21 = ByteArray(crop.width * crop.height * 3 / 2)
+        val converter = mock(ImageProxyNv21Converter::class.java)
+        stubConversion(converter, nv21, crop.width, crop.height)
+
+        createFrame(image, converter).use { frame ->
+            val samples = ByteArray(LumaGrid.SAMPLE_COUNT)
+            assertTrue(frame.sampleLuma(crop, samples))
+            assertEquals(55, samples[0].toInt() and 0xff)
+            assertEquals(46, samples[63].toInt() and 0xff)
+            assertEquals(147, samples[64].toInt() and 0xff)
+            assertEquals(offset, yView.position())
+            frame.useNv21(crop) { bytes, _, _, _ -> assertSame(nv21, bytes) }
+        }
+        verify(image).close()
     }
 
     @Test

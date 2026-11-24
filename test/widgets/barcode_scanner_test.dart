@@ -619,7 +619,7 @@ void _scannerTests() {
       await close(tester);
     });
 
-    testWidgets('Изменение sessionId повторяет запуск после ошибки с текущими настройками', (tester) async {
+    testWidgets('changing sessionId retries startup after an error with the current settings', (tester) async {
       final errors = <Object>[];
       final values = <Barcode>[];
       harness.handler = (call) async {
@@ -648,7 +648,7 @@ void _scannerTests() {
       await close(tester);
     });
 
-    testWidgets('Равные sessionId сохраняют сеанс при обновлении настроек', (tester) async {
+    testWidgets('equal session IDs preserve the session when settings change', (tester) async {
       await tester.pumpWidget(page(sessionId: ValueKey('test-session')));
       await tester.pump();
       harness.calls.clear();
@@ -661,7 +661,7 @@ void _scannerTests() {
       await close(tester);
     });
 
-    testWidgets('Новая сессия с неверными настройками ждёт их исправления', (tester) async {
+    testWidgets('a new session waits for invalid settings to be corrected', (tester) async {
       final errors = <Object>[];
       await tester.pumpWidget(page(sessionId: 0, zoom: 2));
       await tester.pump();
@@ -683,7 +683,7 @@ void _scannerTests() {
       await close(tester);
     });
 
-    testWidgets('Смена sessionId на паузе удаляет старый кадр и ждёт возобновления', (tester) async {
+    testWidgets('changing sessionId while paused clears the old frame and waits for resume', (tester) async {
       await tester.pumpWidget(page(sessionId: 0));
       await tester.pump();
       await harness.send(
@@ -713,7 +713,7 @@ void _scannerTests() {
       await close(tester);
     });
 
-    testWidgets('Смена sessionId отбрасывает события предыдущих сеансов, включая null', (tester) async {
+    testWidgets('changing sessionId drops events from previous sessions, including a null session ID', (tester) async {
       final values = <Barcode>[];
       for (final sessionId in [null, 'test-session', null]) {
         await tester.pumpWidget(page(sessionId: sessionId, scanning: true, onScan: values.add));
@@ -732,7 +732,7 @@ void _scannerTests() {
       await close(tester);
     });
 
-    testWidgets('Новая сессия запускается до завершения старой и игнорирует её позднюю ошибку', (tester) async {
+    testWidgets('a new session starts before the previous one finishes and ignores its late error', (tester) async {
       final start = Completer<void>();
       final errors = <Object>[];
       harness.handler = (call) async {
@@ -880,6 +880,33 @@ void _scannerTests() {
       await tester.pump(const Duration(milliseconds: 300));
       await harness.dispose();
     }
+
+    testWidgets('a successful route pop cancels recognition before its exit frame', (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      final values = <Barcode>[];
+      await tester.pumpWidget(MaterialApp(navigatorKey: navigator, home: const Scaffold(body: Text('Document'))));
+      unawaited(
+        navigator.currentState!.push(
+          PageRouteBuilder<void>(
+            reverseTransitionDuration: const Duration(milliseconds: 350),
+            pageBuilder: (_, _, _) => BarcodeScanner(scanning: true, onScan: values.add),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final viewId = harness.leases.keys.single;
+      harness.calls.clear();
+
+      navigator.currentState!.pop();
+      await tester.idle();
+      await harness.event(viewId, 'queued after pop');
+
+      expect(harness.methods.where((method) => method == 'cancelScan'), hasLength(1));
+      expect(harness.methods, isNot(contains('release')));
+      expect(values, isEmpty);
+      await tester.pumpAndSettle();
+      await close(tester);
+    });
 
     testWidgets('delay dropdown pauses recognition without replacing the camera session', (tester) async {
       var delay = 0;

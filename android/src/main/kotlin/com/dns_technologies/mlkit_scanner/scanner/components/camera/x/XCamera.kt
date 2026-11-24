@@ -281,10 +281,12 @@ internal class XCamera(
                     ) {
                         val firstFrame = output.awaitedFrame ?: return
                         if (binding?.start !== start) return
+                        // Pass only the frame number so the main-thread queue does not retain Camera2 metadata.
+                        val frameNumber = result.frameNumber
                         mainExecutor.execute {
                             if (binding?.start !== start || output.awaitedFrame !== firstFrame ||
                                 tracking !== firstFrame || captureSession !== session ||
-                                !frames.remove(result.frameNumber)
+                                !frames.remove(frameNumber)
                             ) return@execute
                             frames.clear()
                             captureSession = null

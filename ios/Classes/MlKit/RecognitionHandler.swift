@@ -1,7 +1,7 @@
 //
 //  RecognitionHandler.swift
 //
-//  Created by ООО "ДНС Технологии" on 10.03.2021.
+//  Created by DNS Technologies LLC on 10.03.2021.
 //
 
 import Foundation

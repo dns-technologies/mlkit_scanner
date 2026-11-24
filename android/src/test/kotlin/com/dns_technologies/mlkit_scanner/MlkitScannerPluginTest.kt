@@ -63,11 +63,12 @@ internal class MlkitScannerPluginTest {
         verifyNoInteractions(f.plugin.scanner)
     }
 
-    @Test fun `Отмена распознавания во время захвата закрывает его незавершённый lease`() {
+    @Test fun `canceling recognition during capture closes the pending scan lease`() {
         val f = PermissionFixture()
         val reply = f.capture(1, "scan")
         assertEquals(0, reply.replies)
-        f.plugin.call("cancelScan", mapOf("captureId" to "permission-1"))
+        val cancel = f.plugin.call("cancelScan", mapOf("captureId" to "permission-1"))
+        assertEquals(true, cancel.value)
         clearInvocations(f.plugin.scanner)
 
         f.complete(true)
@@ -76,6 +77,66 @@ internal class MlkitScannerPluginTest {
         assertNull(reply.error)
         verify(f.plugin.scanner, never()).startScan(anyInt())
     }
+
+
+    @Test
+    fun `recapturing with the same ID cancels the previous wait for permission`() {
+        val f = PermissionFixture()
+        val first = f.capture(1, "first")
+        val replacement = f.capture(1, "second")
+
+        assertEquals(1, f.prompts)
+        assertEquals(1, first.replies)
+        assertEquals(PluginError.CameraSessionDisposed.errorCode, first.error)
+        assertEquals(0, replacement.replies)
+
+        f.complete(true)
+
+        assertEquals(1, first.replies)
+        assertEquals(1, replacement.replies)
+        assertNull(replacement.error)
+        assertEquals(1, mockingDetails(f.plugin.scanner).invocations.count { it.method.name == "select" })
+        verify(f.plugin.scanner, times(1)).startScan(0)
+    }
+
+    @Test
+    fun `deferred scanning starts only the latest subscription with its delay`() {
+        val f = PermissionFixture()
+        val capture = f.capture(1, "initial")
+
+        val scan = f.plugin.call("startScan",
+            mapOf("captureId" to "permission-1", "subscriptionId" to "replacement", "delay" to 215))
+        val delay = f.plugin.call("setScanDelay", mapOf("captureId" to "permission-1", "delay" to 325))
+
+        assertEquals(1, scan.replies)
+        assertEquals(1, delay.replies)
+        assertNull(scan.error)
+        assertEquals(true, delay.value)
+        verify(f.plugin.scanner, never()).startScan(anyInt())
+
+        f.complete(true)
+
+        assertEquals(1, capture.replies)
+        assertNull(capture.error)
+        verify(f.plugin.scanner).startScan(325)
+        verify(f.plugin.scanner, never()).startScan(0)
+        verify(f.plugin.scanner, never()).startScan(215)
+    }
+
+    @Test
+    fun `an invalid delay is rejected while capture without a subscription is pending`() {
+        val f = PermissionFixture()
+        val capture = f.capture(1)
+
+        val delay = f.plugin.call("setScanDelay", mapOf("captureId" to "permission-1"))
+
+        assertEquals(1, delay.replies)
+        assertEquals(PluginError.InvalidArguments.errorCode, delay.error)
+        assertEquals(0, capture.replies)
+        verify(f.plugin.scanner, never()).setScanPeriod(anyInt())
+        f.complete(false)
+    }
+
 
     private class PermissionFixture {
         val plugin = TexturePluginFixture()
@@ -384,7 +445,7 @@ internal class ScannerPluginTransportTest {
         verify(channel, times(1)).invokeMethod(eq("onPreviewState"), any())
     }
 
-    @Test fun `Отмена закрывает владение результатами и сохраняет захват`() {
+    @Test fun `canceling a scan stops result delivery and preserves capture`() {
         val f = TexturePluginFixture()
         val capture = f.open(1)
         f.call("startScan", mapOf("captureId" to capture, "subscriptionId" to "first", "delay" to 0))
@@ -403,7 +464,7 @@ internal class ScannerPluginTransportTest {
         assertTrue(lease.scanLease!!.enabled)
     }
 
-    @Test fun `Некорректная задержка не изменяет текущий поток`() {
+    @Test fun `an invalid delay leaves the active scan unchanged`() {
         val f = TexturePluginFixture()
         val capture = f.open(1)
         clearInvocations(f.scanner)
@@ -440,7 +501,7 @@ internal class ScannerPluginTransportTest {
         verifyNoInteractions(f.scanner)
     }
 
-    @Test fun `Новый поток закрывает предыдущий lease без остановки камеры`() {
+    @Test fun `a new scan closes the previous lease without stopping the camera`() {
         val f = TexturePluginFixture()
         val capture = f.open(1)
         f.call("startScan", mapOf("captureId" to capture, "subscriptionId" to "first", "delay" to 0))

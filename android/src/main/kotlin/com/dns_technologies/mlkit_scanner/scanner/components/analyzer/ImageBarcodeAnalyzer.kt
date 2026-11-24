@@ -39,7 +39,7 @@ protected constructor(currentTimeMs: () -> Long = android.os.SystemClock::elapse
             isAnalyzing = true
         }
         return try {
-            if (!frameAnalysisGate.acceptsFrame(scan) || scan?.isActive == false) return null
+            if (!frameAnalysisGate.acceptsFrame(scan, frame, cropRect) || scan?.isActive == false) return null
             var result: Barcode? = null
             try {
                 analyzeFrame(frame, cropRect).also { result = it }

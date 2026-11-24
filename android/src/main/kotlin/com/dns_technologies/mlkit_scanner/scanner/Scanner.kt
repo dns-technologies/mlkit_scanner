@@ -98,6 +98,10 @@ internal class Scanner(
     private var operationIsFocus = false
     /** Active subscription lifetime used to reject queued results from older scans. */
     private var scan: Scan? = null
+    /** Identity of the capture whose settings are still unconfirmed. */
+    private var pendingCapture: Any? = null
+    /** Configuration work that must be cancelled when the camera closes. */
+    private var captureControls: Job? = null
     /** Borrows the Activity's real lifecycle without mirroring its state or observing events. */
     private var lifecycleOwner: LifecycleOwner? = null
     /** Whether terminal cleanup has revoked further scanner work. */
@@ -108,6 +112,7 @@ internal class Scanner(
     fun select(target: ScannerConsumer) {
         check(!isDisposed) { "Scanner is disposed" }
 
+        pendingCapture = null
         cancelOperation()
         pauseScan()
 
@@ -116,24 +121,44 @@ internal class Scanner(
     }
 
     /** Applies capture settings and starts the camera; requires granted camera permission. */
-    suspend fun capture(configuration: ScannerConfiguration) =
+    suspend fun capture(configuration: ScannerConfiguration) {
+        if (viewId == null) return
+        val capture = Any()
+        pendingCapture = capture
+        // Camera2 may still deliver frames from the previous zoom, AF or torch configuration.
+        pauseAnalysis()
         runOperation { id ->
-            currentCoroutineContext().ensureActive()
+            val context = currentCoroutineContext()
+            context.ensureActive()
             awaitCameraReady()
-            val previous = appliedConfiguration
-            cropArea = configuration.cropArea
-            // Focus reset can wait for a camera frame; apply framing before that wait.
-            if (previous?.zoomRatio != configuration.zoomRatio)
-                control(id) { camera.setZoomRatio(configuration.zoomRatio) }
-            if (focusNeedsReset) control(id, camera::resetFocus)
-            if (previous?.torchEnabled != configuration.torchEnabled || camera.torchEnabled != configuration.torchEnabled)
-                control(id) { camera.setTorch(configuration.torchEnabled) }
-            appliedConfiguration = configuration
-            focusNeedsReset = false
-
-            currentCoroutineContext().ensureActive()
-            // Analysis remains disabled until a result endpoint is installed.
+            val controls = context[Job]
+            captureControls = controls
+            try {
+                val previous = appliedConfiguration
+                cropArea = configuration.cropArea
+                // Focus reset can wait for a camera frame; apply framing before that wait.
+                if (previous?.zoomRatio != configuration.zoomRatio)
+                    control(id) { camera.setZoomRatio(configuration.zoomRatio) }
+                if (focusNeedsReset) control(id, camera::resetFocus)
+                if (previous?.torchEnabled != configuration.torchEnabled ||
+                    camera.torchEnabled != configuration.torchEnabled
+                ) {
+                    control(id) { camera.setTorch(configuration.torchEnabled) }
+                }
+                context.ensureActive()
+                // A ready camera may belong to a different session after a background transition.
+                if (pendingCapture !== capture || !camera.isReady)
+                    throw CancellationException("Camera configuration was interrupted")
+                appliedConfiguration = configuration
+                focusNeedsReset = false
+                pendingCapture = null
+                scan?.resumeIfReady()
+            } finally {
+                if (captureControls === controls) captureControls = null
+            }
         }
+        if (pendingCapture === capture) throw CancellationException("Camera configuration was interrupted")
+    }
 
     /** Applies the requested camera zoom ratio. */
     suspend fun setZoomRatio(value: Float) = runOperation { id ->
@@ -203,6 +228,7 @@ internal class Scanner(
     fun releaseCapture() {
         if (viewId == null) return
         view = null
+        pendingCapture = null
 
         val failures = ExceptionCollector()
         failures.attempt(::cancelOperation)
@@ -267,6 +293,7 @@ internal class Scanner(
                 analysisExecutor.also { analysisExecutor = null }
             }
         view = null
+        pendingCapture = null
         lifecycleOwner = null
         val failures = ExceptionCollector()
         failures.attempt(::cancelOperation)
@@ -288,7 +315,10 @@ internal class Scanner(
                 analysisExecutor = getOrCreateAnalysisExecutor(),
                 onFrame = this::analyzeFrame,
                 onAvailabilityChanged = { availability ->
-                    if (availability is CameraAvailability.Closed) invalidateCameraSettings()
+                    if (availability is CameraAvailability.Closed) {
+                        invalidateCameraSettings()
+                        captureControls?.cancel()
+                    }
                     if (!isDisposed) scan?.resumeIfReady()
                 },
                 onError = { error -> if (!isDisposed) dispose(error) },
@@ -398,7 +428,7 @@ internal class Scanner(
         /** Enables analysis only for this selected, ready scan and drops stale deliveries. */
         fun resumeIfReady() {
             if (scan === this && viewId == id && camera.isReady) {
-                resumeAnalysis()
+                if (pendingCapture == null) resumeAnalysis()
             } else {
                 // Closing and reopening must not revive results from the previous camera stream.
                 pauseAnalysis()

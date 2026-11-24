@@ -62,7 +62,7 @@ void main() {
       expect(harness.methods, isNot(contains('unregisterScanner')));
     });
 
-    test('Инициализация локальна и повторные вызовы разделяют завершение', () async {
+    test('initialization is local and repeated calls share completion', () async {
       final scanner = BarcodeScannerController(
         viewId: 42,
         runtime: harness.runtime,
@@ -79,7 +79,7 @@ void main() {
       expect(harness.errors, isEmpty);
     });
 
-    test('Удаление после инициализации предотвращает последующий захват', () async {
+    test('disposal after initialization prevents a later capture', () async {
       final scanner = BarcodeScannerController(viewId: 42, runtime: harness.runtime);
       harness.controllers.add(scanner);
       final initialization = scanner.initialize();

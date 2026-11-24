@@ -1,9 +1,12 @@
 package com.dns_technologies.mlkit_scanner.scanner.components.camera.x
 
+import android.graphics.ImageFormat
 import androidx.camera.core.ImageProxy
-import com.dns_technologies.mlkit_scanner.scanner.components.camera.CameraFrame
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.LumaGrid
+import com.dns_technologies.mlkit_scanner.scanner.components.camera.LumaSamplingFrame
 import com.dns_technologies.mlkit_scanner.scanner.components.camera.Rect
 import com.dns_technologies.mlkit_scanner.scanner.utils.ImageProxyNv21Converter
+import java.nio.ByteBuffer
 import kotlin.math.roundToInt
 
 /** Camera frame that materializes full or cropped images as scoped NV21 buffers. */
@@ -14,7 +17,7 @@ internal class XCameraFrame(
     private val nv21Converter: ImageProxyNv21Converter,
     previewWidth: Int,
     previewHeight: Int,
-) : CameraFrame {
+) : LumaSamplingFrame {
     override val rotationDegree: Int = imageProxy.imageInfo.rotationDegrees
 
     override val cropRect: Rect = calculatePreviewCrop(previewWidth, previewHeight)
@@ -27,6 +30,23 @@ internal class XCameraFrame(
     private var isAccessed = false
     /** Whether the borrowed CameraX image has already been released. */
     private var isClosed = false
+
+    @Synchronized
+    override fun sampleLuma(cropRect: Rect?, destination: ByteArray): Boolean {
+        if (isClosed || isAccessed) return false
+        return try {
+            if (imageProxy.format != ImageFormat.YUV_420_888) return false
+            val planes: Array<ImageProxy.PlaneProxy>? = imageProxy.planes
+            if (planes == null || planes.size < 3) return false
+            val y = planes[0]
+            val buffer: ByteBuffer? = y.buffer
+            if (buffer == null) return false
+            LumaGrid.samplePlane(buffer, width, height, y.rowStride, y.pixelStride, cropRect, destination)
+        } catch (_: RuntimeException) {
+            // Unusable luma metadata disables the early retry while keeping scheduled NV21 analysis available.
+            false
+        }
+    }
 
     @Synchronized
     override fun <T> useNv21(cropRect: Rect?, block: (ByteArray, Int, Int, Int) -> T): T {

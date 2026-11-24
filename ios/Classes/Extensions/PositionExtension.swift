@@ -2,7 +2,7 @@
 //  DevicePositionCodeExtension.swift
 //  mlkit_scanner
 //
-//  Created by ООО "ДНС Технологии" on 14.03.2023.
+//  Created by DNS Technologies LLC on 14.03.2023.
 //
 
 import Foundation

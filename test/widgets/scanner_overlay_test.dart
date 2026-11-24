@@ -7,8 +7,39 @@ import 'package:mlkit_scanner/mlkit_scanner.dart';
 import 'package:mlkit_scanner/widgets/scanner_overlay.dart';
 
 void main() => group('$ScannerOverlay', () {
+  testWidgets('draws the dimming mask as four bands outside the crop', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: SizedBox(
+            width: 200,
+            height: 100,
+            child: ScannerOverlay(
+              crop: const CropRect(scaleWidth: .5, scaleHeight: .5, offsetX: .25, offsetY: -.25),
+              scanning: false,
+              focusEnabled: false,
+              onFocus: () {},
+              onLockFocus: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final overlay = find.descendant(of: find.byType(ScannerOverlay), matching: find.byType(CustomPaint));
+    const dimming = Color(0x78000000);
+    expect(
+      overlay,
+      paints
+        ..rect(rect: const Rect.fromLTRB(0, 0, 75, 100), color: dimming)
+        ..rect(rect: const Rect.fromLTRB(175, 0, 200, 100), color: dimming)
+        ..rect(rect: const Rect.fromLTRB(75, 0, 175, 12.5), color: dimming)
+        ..rect(rect: const Rect.fromLTRB(75, 62.5, 175, 100), color: dimming),
+    );
+  }, variant: TargetPlatformVariant.all());
+
   for (final size in [const Size(300, 400), const Size(400, 800)]) {
-    testWidgets('Замок появляется сбоку от кружка без пересечения при размере $size', (tester) async {
+    testWidgets('the lock appears beside the circle without overlap at size $size', (tester) async {
       const crop = CropRect(scaleWidth: .8, scaleHeight: .6, offsetX: .2, offsetY: -.2);
       await tester.binding.setSurfaceSize(size);
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -41,7 +72,7 @@ void main() => group('$ScannerOverlay', () {
       final center = Offset(size.width * (1 + crop.offsetX) / 2, size.height * (1 + crop.offsetY) / 2);
       final circle = components!.singleWhere((rect) => rect.contains(center));
       final lock = components.where((rect) => rect != circle).fold<Rect?>(null, (bounds, rect) => bounds?.expandToInclude(rect) ?? rect);
-      expect(lock, isNotNull, reason: 'Кружок и замок должны быть раздельными фигурами');
+      expect(lock, isNotNull, reason: 'The circle and lock should be separate shapes');
       expect(lock!.right, lessThan(circle.left - 8));
       expect(lock.center.dy, closeTo(circle.center.dy, 2));
       await tester.pumpWidget(const SizedBox());
@@ -50,9 +81,17 @@ void main() => group('$ScannerOverlay', () {
 
   for (final reduceMotion in [false, true]) {
     testWidgets('Android and iOS paint identical focus feedback with reduced motion $reduceMotion', (tester) async {
-      final android = await _feedbackFrames(tester, TargetPlatform.android, reduceMotion: reduceMotion);
-
-      final ios = await _feedbackFrames(tester, TargetPlatform.iOS, reduceMotion: reduceMotion);
+      final previousPlatform = debugDefaultTargetPlatformOverride;
+      late final List<Uint8List> android;
+      late final List<Uint8List> ios;
+      try {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        android = await _feedbackFrames(tester, TargetPlatform.android, reduceMotion: reduceMotion);
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        ios = await _feedbackFrames(tester, TargetPlatform.iOS, reduceMotion: reduceMotion);
+      } finally {
+        debugDefaultTargetPlatformOverride = previousPlatform;
+      }
 
       expect(ios.length, android.length);
       for (var index = 0; index < android.length; index++) {

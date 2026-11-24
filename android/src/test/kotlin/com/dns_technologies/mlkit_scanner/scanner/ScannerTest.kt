@@ -628,6 +628,79 @@ internal class ScannerCaptureTest {
     }
 
     @Test
+    fun `recognition waits for capture settings to be confirmed`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            val pendingZoom = CompletableDeferred<Unit>()
+            f.zoom += pendingZoom
+            val capture = f.capture()
+            f.open()
+
+            f.scanner.startScan(1000)
+            f.emitFrame()
+
+            assertFalse(capture.isCompleted)
+            verify(f.analyzer, never()).analyze(anyValue(), anyValue(), anyValue())
+
+            pendingZoom.complete(Unit)
+            capture.await()
+            f.emitFrame()
+            f.drain()
+
+            assertEquals(listOf(42 to BARCODE), f.results)
+            verify(f.analyzer).analyze(anyValue(), anyValue(), anyValue())
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `closing the camera during configuration cancels capture and keeps analysis stopped on reopen`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            val pendingZoom = CompletableDeferred<Unit>()
+            f.zoom += pendingZoom
+            val capture = f.capture()
+            f.open()
+            f.scanner.startScan(1000)
+
+            f.availability(CameraAvailability.Closed())
+
+            assertTrue(pendingZoom.isCancelled)
+            assertTrue(runCatching { capture.await() }.exceptionOrNull() is CancellationException)
+
+            f.open()
+            f.emitFrame()
+            f.drain()
+
+            assertTrue(f.results.isEmpty())
+            verify(f.analyzer, never()).analyze(anyValue(), anyValue(), anyValue())
+        } finally { f.close() }
+    }
+
+    @Test
+    fun `a superseded capture cannot confirm settings for the same owner`() = runBlocking<Unit> {
+        val f = Fixture()
+        try {
+            val pendingZoom = CompletableDeferred<Unit>()
+            f.zoom += pendingZoom
+            val capture = f.capture()
+            f.open()
+
+            f.scanner.setZoomRatio(2F)
+
+            assertTrue(pendingZoom.isCancelled)
+            assertTrue(runCatching { capture.await() }.exceptionOrNull() is CancellationException)
+
+            f.scanner.startScan(1000)
+            f.emitFrame()
+            f.drain()
+
+            assertTrue(f.results.isEmpty())
+            verify(f.analyzer, never()).analyze(anyValue(), anyValue(), anyValue())
+        } finally { f.close() }
+    }
+
+
+    @Test
     fun `release cancels actual SDK future and prevents remaining capture controls`() = runBlocking<Unit> {
         val f = Fixture()
         try {
@@ -742,7 +815,7 @@ internal class ScannerCaptureTest {
     }
 
     @Test
-    fun `Одинаковые настройки переиспользуются при смене владельца`() = runBlocking<Unit> {
+    fun `unchanged settings are reused during camera handoff`() = runBlocking<Unit> {
         val f = Fixture()
         try {
             f.activate()
@@ -759,7 +832,7 @@ internal class ScannerCaptureTest {
     }
 
     @Test
-    fun `Смена только фонаря не применяет zoom и фокус повторно`() = runBlocking<Unit> {
+    fun `changing only the torch does not reapply zoom or focus`() = runBlocking<Unit> {
         val f = Fixture()
         try {
             f.activate()
@@ -776,7 +849,7 @@ internal class ScannerCaptureTest {
     }
 
     @Test
-    fun `Фактическое выключение фонаря требует повторного применения`() = runBlocking<Unit> {
+    fun `a torch that turned off must be enabled again`() = runBlocking<Unit> {
         val f = Fixture()
         try {
             f.activate()
@@ -794,7 +867,7 @@ internal class ScannerCaptureTest {
     }
 
     @Test
-    fun `Прерванный control требует полного восстановления настроек`() = runBlocking<Unit> {
+    fun `an interrupted camera control requires all settings to be reapplied`() = runBlocking<Unit> {
         val f = Fixture()
         try {
             f.activate()

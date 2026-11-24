@@ -212,28 +212,35 @@ class _BarcodeScannerState extends State<BarcodeScanner> with WidgetsBindingObse
         if (mounted) controller.updateGeometry(size);
       });
 
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          ValueListenableBuilder(
-            valueListenable: controller.preview,
-            builder:
-                (context, preview, _) => CameraPreview(
-                  description: preview,
-                  frameKey: _previewKey,
-                  canRetainFrame: () => controller.isCurrent,
-                  paused: configuration.cameraPaused || controller.captureState.value == ScannerCaptureState.released,
-                  onError: controller.reportError,
-                ),
-          ),
-          ScannerOverlay(
-            crop: configuration.cropRect ?? const CropRect(),
-            scanning: cameraActive && configuration.scanEnabled,
-            focusEnabled: controller.captureState.value == ScannerCaptureState.ready && _canFocus,
-            onFocus: () => _focus(false),
-            onLockFocus: () => _focus(true),
-          ),
-        ],
+      return PopScope<Object?>(
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) return;
+          // The outgoing route keeps its preview mounted during the exit transition.
+          _controller.setForeground(false);
+        },
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ValueListenableBuilder(
+              valueListenable: controller.preview,
+              builder:
+                  (context, preview, _) => CameraPreview(
+                    description: preview,
+                    frameKey: _previewKey,
+                    canRetainFrame: () => controller.isCurrent,
+                    paused: configuration.cameraPaused || controller.captureState.value == ScannerCaptureState.released,
+                    onError: controller.reportError,
+                  ),
+            ),
+            ScannerOverlay(
+              crop: configuration.cropRect ?? const CropRect(),
+              scanning: cameraActive && configuration.scanEnabled,
+              focusEnabled: controller.captureState.value == ScannerCaptureState.ready && _canFocus,
+              onFocus: () => _focus(false),
+              onLockFocus: () => _focus(true),
+            ),
+          ],
+        ),
       );
     },
   );

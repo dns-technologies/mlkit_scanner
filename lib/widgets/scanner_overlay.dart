@@ -157,16 +157,12 @@ class _OverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final bounds = Offset.zero & size;
     final center = Offset(size.width * (1 + crop.offsetX) / 2, size.height * (1 + crop.offsetY) / 2);
     final area = Rect.fromCenter(center: center, width: size.width * crop.scaleWidth, height: size.height * crop.scaleHeight);
     canvas.save();
-    canvas.clipRect(Offset.zero & size);
-    final mask =
-        Path()
-          ..fillType = PathFillType.evenOdd
-          ..addRect(Offset.zero & size)
-          ..addRect(area);
-    canvas.drawPath(mask, Paint()..color = const Color(0x78000000));
+    canvas.clipRect(bounds);
+    _drawMask(canvas, bounds, area);
     final border =
         Paint()
           ..color = scanning ? const Color(0xff43a047) : const Color(0xff616161)
@@ -186,6 +182,33 @@ class _OverlayPainter extends CustomPainter {
       );
     }
     canvas.restore();
+  }
+
+  void _drawMask(Canvas canvas, Rect bounds, Rect area) {
+    final paint = Paint()..color = const Color(0x78000000);
+    final contained =
+        !area.isEmpty && area.left >= bounds.left && area.top >= bounds.top && area.right <= bounds.right && area.bottom <= bounds.bottom;
+    // Preserve the original clipping behavior for crops extending outside the preview.
+    if (!contained) {
+      final mask =
+          Path()
+            ..fillType = PathFillType.evenOdd
+            ..addRect(bounds)
+            ..addRect(area);
+      canvas.drawPath(mask, paint);
+      return;
+    }
+
+    // Rectangles reduce the cost of replaying the mask for each Impeller preview frame.
+    final bands = [
+      Rect.fromLTRB(bounds.left, bounds.top, area.left, bounds.bottom),
+      Rect.fromLTRB(area.right, bounds.top, bounds.right, bounds.bottom),
+      Rect.fromLTRB(area.left, bounds.top, area.right, area.top),
+      Rect.fromLTRB(area.left, area.bottom, area.right, bounds.bottom),
+    ];
+    for (final band in bands) {
+      if (!band.isEmpty) canvas.drawRect(band, paint);
+    }
   }
 
   @override
